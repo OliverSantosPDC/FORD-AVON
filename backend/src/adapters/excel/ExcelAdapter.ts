@@ -19,97 +19,72 @@ export class ExcelAdapter {
       sharedStrings: 'cache',
       hyperlinks: 'ignore',
       styles: 'ignore',
-      entries: 'emit',
+      entries: 'ignore',
     });
 
+    const normalizedSheetName = sheetName.toUpperCase();
     const records: Record<string, unknown>[] = [];
-    let headers: string[] = [];
 
-    try {
-      for await (const worksheetReader of workbookReader) {
-        if (
-          worksheetReader.name.toUpperCase() !==
-          sheetName.toUpperCase()
-        ) {
+    for await (const worksheetReader of workbookReader) {
+      if (worksheetReader.name.toUpperCase() !== normalizedSheetName) {
+        continue;
+      }
+
+      let headers: string[] = [];
+
+      for await (const row of worksheetReader) {
+        const values = row.values as ExcelJS.CellValue[];
+
+        if (row.number === 1) {
+          headers = values
+            .slice(1)
+            .map((value) =>
+              value === null || value === undefined
+                ? ''
+                : String(this.serializeCellValue(value))
+            );
+
           continue;
         }
 
-        let rowNumber = 0;
-
-        for await (const row of worksheetReader) {
-          rowNumber++;
-
-          const values = row.values as ExcelJS.CellValue[];
-
-          if (rowNumber === 1) {
-            headers = values
-              .slice(1)
-              .map((value) =>
-                value === null || value === undefined
-                  ? ''
-                  : String(value)
-              );
-
-            if (headers.length === 0) {
-              throw new Error(
-                `Hoja vacía o sin encabezados: ${sheetName}`
-              );
-            }
-
-            continue;
-          }
-
-          const rowData: Record<string, unknown> = {};
-
-          headers.forEach((header, index) => {
-            if (!header) return;
-
-            const value = values[index + 1];
-
-            rowData[header] =
-              value === null || value === undefined
-                ? null
-                : this.serializeCellValue(value);
-          });
-
-          records.push(rowData);
+        if (headers.length === 0) {
+          continue;
         }
 
-        return records;
+        const rowData: Record<string, unknown> = {};
+
+        headers.forEach((header, index) => {
+          if (!header) return;
+
+          const value = values[index + 1];
+
+          rowData[header] =
+            value === null || value === undefined
+              ? null
+              : this.serializeCellValue(value);
+        });
+
+        records.push(rowData);
       }
-    } catch (error) {
-      console.error('Error leyendo Excel:', error);
-      throw new Error(
-        `Archivo no encontrado o no se pudo abrir: ${fileName}`
-      );
+
+      return records;
     }
 
-    throw new Error(
-      `Hoja no encontrada: ${sheetName}`
-    );
+    throw new Error(`Hoja no encontrada: ${sheetName}`);
   }
 
-  private serializeCellValue(
-    value: ExcelJS.CellValue
-  ): unknown {
-    if (value === null) {
+  private serializeCellValue(value: ExcelJS.CellValue): unknown {
+    if (value === null || value === undefined) {
       return null;
     }
 
     if (typeof value === 'object') {
-      if (
-        'text' in value &&
-        typeof value.text === 'string'
-      ) {
+      if ('text' in value && typeof value.text === 'string') {
         return value.text;
       }
 
-      if ('richText' in value) {
-        return (
-          value.richText
-            ?.map((part) => part.text)
-            .join('') ?? null
-        );
+      if ('richText' in value && Array.isArray(value.richText)) {
+        return value.richText.map((part) => part.text).join('');
       }
 
       return JSON.stringify(value);
