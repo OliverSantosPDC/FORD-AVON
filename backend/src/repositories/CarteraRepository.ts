@@ -2,7 +2,7 @@ import { ExcelAdapter } from '../adapters/excel/ExcelAdapter';
 
 export class CarteraRepository {
   private readonly adapter: ExcelAdapter;
-  private readonly fileName = 'cartera.xlsx';
+  private readonly fileName = 'Cartera.xlsx';
   private readonly sheetName = 'Cartera';
 
   constructor(adapter: ExcelAdapter) {
