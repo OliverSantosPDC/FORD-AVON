@@ -1,0 +1,19 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const CarteraController_1 = require("../controllers/CarteraController");
+const CarteraService_1 = require("../services/CarteraService");
+const CarteraRepository_1 = require("../repositories/CarteraRepository");
+const ExcelAdapter_1 = require("../adapters/excel/ExcelAdapter");
+const path_1 = __importDefault(require("path"));
+const router = (0, express_1.Router)();
+const excelBasePath = path_1.default.join(__dirname, '../../data/excel');
+const adapter = new ExcelAdapter_1.ExcelAdapter(excelBasePath);
+const repository = new CarteraRepository_1.CarteraRepository(adapter);
+const service = new CarteraService_1.CarteraService(repository);
+const controller = new CarteraController_1.CarteraController(service);
+router.get('/cartera', (req, res) => controller.getCartera(req, res));
+exports.default = router;

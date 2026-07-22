@@ -1,0 +1,23 @@
+import express from 'express';
+import carteraRoutes from './routes/carteraRoutes';
+import dashboardRoutes from './routes/dashboardRoutes';
+
+const app = express();
+const port = process.env.PORT ?? 4000;
+
+app.use(express.json());
+app.use('/api', carteraRoutes);
+app.use('/api', dashboardRoutes);
+
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok' });
+});
+
+app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error(err);
+  res.status(500).json({ error: err.message ?? 'Error interno del servidor' });
+});
+
+app.listen(port, () => {
+  console.log(`Server listening on http://localhost:${port}`);
+});
