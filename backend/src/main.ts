@@ -7,14 +7,26 @@ import dashboardRoutes from './routes/dashboardRoutes';
 const app = express();
 const port = process.env.PORT ?? 4000;
 
-app.use(
-  cors({
-    origin: [
-      'http://localhost:5173',
-      'https://ford-avon-sgh1-43t3rlbvt-ford-avon.vercel.app',
-    ],
-  })
-);
+const allowedOrigins = [
+  'http://localhost:5173',
+  'https://ford-avon.vercel.app',
+];
+
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, callback) => {
+    // Permite herramientas sin origin (PowerShell, curl) y los orígenes válidos.
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    // Previews de Vercel: https://ford-avon-*.vercel.app
+    if (/^https:\/\/ford-avon-[a-z0-9-]+\.vercel\.app$/.test(origin)) return callback(null, true);
+    return callback(null, false);
+  },
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 app.use(express.json());
 
