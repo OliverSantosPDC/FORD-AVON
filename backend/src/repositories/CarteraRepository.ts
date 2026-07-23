@@ -1,15 +1,20 @@
-import { ExcelAdapter } from '../adapters/excel/ExcelAdapter';
+/**
+ * Contrato de una fuente de datos de cartera.
+ * Tanto el adaptador de Excel como el de Supabase lo implementan, de modo que
+ * el repositorio y el servicio son agnósticos del origen de los datos.
+ */
+export interface CarteraDataSource {
+  getCartera(): Promise<Record<string, unknown>[]>;
+}
 
 export class CarteraRepository {
-  private readonly adapter: ExcelAdapter;
-  private readonly fileName = 'Cartera.xlsx';
-  private readonly sheetName = 'Cartera';
+  private readonly source: CarteraDataSource;
 
-  constructor(adapter: ExcelAdapter) {
-    this.adapter = adapter;
+  constructor(source: CarteraDataSource) {
+    this.source = source;
   }
 
   async getCartera(): Promise<Record<string, unknown>[]> {
-    return this.adapter.readSheet(this.fileName, this.sheetName);
+    return this.source.getCartera();
   }
 }

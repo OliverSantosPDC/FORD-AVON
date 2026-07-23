@@ -26,7 +26,11 @@ export class ExcelAdapter {
     const records: Record<string, unknown>[] = [];
 
     for await (const worksheetReader of workbookReader) {
-      if (worksheetReader.name.toUpperCase() !== normalizedSheetName) {
+      const worksheetName = String(
+        (worksheetReader as unknown as { name?: string }).name ?? ''
+      );
+
+      if (worksheetName.toUpperCase() !== normalizedSheetName) {
         continue;
       }
 

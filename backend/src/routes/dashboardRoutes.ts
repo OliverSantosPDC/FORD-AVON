@@ -2,13 +2,10 @@ import { Router } from 'express';
 import { DashboardController } from '../controllers/DashboardController';
 import { CarteraService } from '../services/CarteraService';
 import { CarteraRepository } from '../repositories/CarteraRepository';
-import { ExcelAdapter } from '../adapters/excel/ExcelAdapter';
-import path from 'path';
+import { getCarteraDataSource } from '../config/dataSource';
 
 const router = Router();
-const excelBasePath = path.join(__dirname, '../../data/excel');
-const adapter = new ExcelAdapter(excelBasePath);
-const repository = new CarteraRepository(adapter);
+const repository = new CarteraRepository(getCarteraDataSource());
 const service = new CarteraService(repository);
 const controller = new DashboardController(service);
 

@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import carteraRoutes from './routes/carteraRoutes';
 import dashboardRoutes from './routes/dashboardRoutes';
