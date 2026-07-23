@@ -14,13 +14,13 @@ import {
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import type { CarteraRecord } from '../../types/cartera';
+import type { GroupSummary } from '../../types/cartera';
 import TableActionsMenu from '../common/TableActionsMenu';
 import { copyRowsToClipboard, exportRowsToCsv, exportRowsToExcel } from '../../utils/tableExport';
-import { aggregateTopGestores, type GroupSummary } from '../../utils/carteraAggregations';
 
 interface TopGestoresTableProps {
-  data: CarteraRecord[];
+  // Datos ya agregados por el backend (Top 20 gestores, sin filtros).
+  data: GroupSummary[];
 }
 
 type ColumnId = 'nombre' | 'pais' | 'saldoActualLocal' | 'saldoActualUsd' | 'recuperadoUsd' | 'porcentajeRecuperacion';
@@ -43,8 +43,8 @@ const TopGestoresTable = ({ data }: TopGestoresTableProps) => {
   const [orderBy, setOrderBy] = useState<ColumnId>('recuperadoUsd');
   const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
 
-  // El Top Gestores siempre se calcula sobre el universo completo, sin aplicar los filtros ejecutivos.
-  const aggregated = useMemo(() => aggregateTopGestores(data, 20), [data]);
+  // El Top Gestores llega ya agregado desde el backend (universo completo, sin filtros).
+  const aggregated = data;
 
   const sortedData = useMemo(() => {
     return [...aggregated].sort((a, b) => {

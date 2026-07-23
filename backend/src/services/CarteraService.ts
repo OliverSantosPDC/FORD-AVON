@@ -11,6 +11,16 @@ import {
   RankingGestorItem,
   RankingPaisItem
 } from '../models/Cartera';
+import {
+  aggregateTopGestores,
+  aggregateTopZonas,
+  aggregateResumenCampania,
+  aggregateCountrySummary,
+  buildFilterOptions,
+  filterCarteraRows,
+  DashboardMultiFilterParams,
+  CarteraRow
+} from '../utils/carteraAggregations';
 
 export class CarteraService {
   private readonly repository: CarteraRepository;
@@ -19,14 +29,31 @@ export class CarteraService {
     this.repository = repository;
   }
 
-  async listCartera(): Promise<Record<string, unknown>[]> {
-    return this.repository.getCartera();
+  /**
+   * Devuelve registros de cartera. Acepta filtros y un límite opcional para
+   * regresar ÚNICAMENTE los registros necesarios (evita descargar los 20k).
+   * Sin parámetros, mantiene el comportamiento anterior (devuelve todo).
+   */
+  async listCartera(filters?: DashboardFilterParams, limit?: number): Promise<Record<string, unknown>[]> {
+    const rows = await this.repository.getCartera();
+    const multi = toMultiFilters(filters);
+    const hasFilters = Object.values(multi).some((list) => list.length > 0);
+    const filtered = hasFilters ? filterCarteraRows(rows as CarteraRow[], multi) : (rows as CarteraRow[]);
+
+    if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) {
+      return filtered.slice(0, Math.floor(limit));
+    }
+    return filtered;
   }
 
   async getDashboard(filters?: DashboardFilterParams): Promise<DashboardResponse> {
-    const rows = await this.repository.getCartera();
+    const rows = (await this.repository.getCartera()) as CarteraRow[];
     const cartera = rows.map(mapToCartera);
     const filtered = applyFilters(cartera, filters);
+
+    // Agregaciones adicionales calculadas en el backend (antes vivían en el frontend).
+    const multi = toMultiFilters(filters);
+    const rawFiltered = filterCarteraRows(rows, multi); // equivalente a filteredTableData del frontend
 
     return {
       kpis: calculateKpis(filtered),
@@ -34,7 +61,17 @@ export class CarteraService {
       pds: aggregateBy(filtered, 'pd'),
       topGestores: calculateTopGestores(filtered),
       topZonas: calculateTopZonas(filtered),
-      resumenPD: calculateResumenPD(filtered)
+      resumenPD: calculateResumenPD(filtered),
+      // Top Gestores/Zonas se calculan SIEMPRE sobre el universo completo (sin filtros).
+      topGestoresDetalle: aggregateTopGestores(rows, 20),
+      topZonasDetalle: aggregateTopZonas(rows, 20),
+      // Resumen por campaña y país usan los registros filtrados.
+      resumenCampania: aggregateResumenCampania(rawFiltered),
+      countrySummary: aggregateCountrySummary(rawFiltered),
+      // Opciones de filtros (cascada) sobre el universo completo.
+      filterOptions: buildFilterOptions(rows, multi),
+      // Detalle de cuentas: sólo las primeras 100 filas filtradas.
+      cuentas: rawFiltered.slice(0, 100)
     };
   }
 
@@ -50,6 +87,25 @@ export class CarteraService {
     };
   }
 }
+
+/** Normaliza los filtros del dashboard a listas de strings (formato multi). */
+const toList = (value?: string | string[]): string[] => {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  return String(value)
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
+
+const toMultiFilters = (filters?: DashboardFilterParams): DashboardMultiFilterParams => ({
+  pais: toList(filters?.pais),
+  gestor: toList(filters?.gestor),
+  gerente: toList(filters?.gerente),
+  zona: toList(filters?.zona),
+  pd: toList(filters?.pd),
+  campania: toList(filters?.campania)
+});
 
 const parseNumber = (value: unknown): number => {
   if (typeof value === 'number') {
