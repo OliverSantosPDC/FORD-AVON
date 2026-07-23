@@ -6,9 +6,15 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/main.js",
-    "dev": "ts-node-dev --respawn --transpile-only src/main.ts"
+    "dev": "ts-node-dev --respawn --transpile-only src/main.ts",
+    "test:supabase": "npm run build && node dist/scripts/testSupabase.js",
+    "import:cartera:test": "npm run build && node dist/scripts/importCartera.js --limit=100 --test",
+    "import:cartera": "npm run build && node dist/scripts/importCartera.js",
+    "clear:cartera": "npm run build && node dist/scripts/clearCartera.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.110.8",
+    "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
     "express": "^4.18.4"
   },
