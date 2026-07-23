@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import RootLayout from '../layouts/RootLayout';
 import DashboardPage from '../pages/Dashboard';
 import InteligenciaPage from '../pages/Inteligencia';
+import CargarCarteraPage from '../pages/CargarCartera';
 import PlaceholderPage from '../pages/PlaceholderPage';
 
 const AppRoutes = () => (
@@ -14,6 +15,7 @@ const AppRoutes = () => (
       <Route path="reportes" element={<PlaceholderPage title="Reportes" />} />
       <Route path="proyecciones" element={<PlaceholderPage title="Proyecciones" />} />
       <Route path="inteligencia" element={<InteligenciaPage />} />
+      <Route path="cargar-cartera" element={<CargarCarteraPage />} />
       <Route path="configuracion" element={<PlaceholderPage title="Configuración" />} />
       <Route path="usuarios" element={<PlaceholderPage title="Usuarios" />} />
       <Route path="*" element={<Navigate replace to="dashboard" />} />

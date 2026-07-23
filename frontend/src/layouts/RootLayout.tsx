@@ -31,6 +31,7 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import AvatarIcon from '@mui/icons-material/Person';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 import type { PaletteMode } from '@mui/material';
 import { useThemeMode } from '../theme/ThemeProviderWrapper';
 import pdcLogo from '../assets/branding/pdc-logo.svg';
@@ -45,6 +46,7 @@ const menuItems = [
   { label: 'Reportes', icon: <BarChartIcon sx={{ fontSize: 22 }} />, path: '/reportes' },
   { label: 'Proyecciones', icon: <InsightsIcon sx={{ fontSize: 22 }} />, path: '/proyecciones' },
   { label: 'Centro de Inteligencia', icon: <InsightsIcon sx={{ fontSize: 22 }} />, path: '/inteligencia' },
+  { label: 'Cargar cartera', icon: <UploadFileIcon sx={{ fontSize: 22 }} />, path: '/cargar-cartera' },
   { label: 'Configuración', icon: <SettingsIcon sx={{ fontSize: 22 }} />, path: '/configuracion' },
   { label: 'Usuarios', icon: <AvatarIcon sx={{ fontSize: 22 }} />, path: '/usuarios' }
 ];
