@@ -53,30 +53,47 @@ export class CarteraService {
     console.log(`[PERF] service: lectura de datos (repository.getCartera) = ${Date.now() - tRead} ms, filas=${rows.length}`);
 
     const tAgg = Date.now();
-    const cartera = rows.map(mapToCartera);
-    const filtered = applyFilters(cartera, filters);
 
-    // Agregaciones adicionales calculadas en el backend (antes vivían en el frontend).
+    // === INSTRUMENTACIÓN DETALLADA TEMPORAL (remover tras el diagnóstico) ===
+    const step = <T>(label: string, fn: () => T): T => {
+      const t = Date.now();
+      const result = fn();
+      console.log(`[PERF_DETAIL] ${label} = ${Date.now() - t} ms`);
+      return result;
+    };
+
+    const cartera = step('map (rows.map(mapToCartera))', () => rows.map(mapToCartera));
+    const filtered = step('applyFilters', () => applyFilters(cartera, filters));
+
     const multi = toMultiFilters(filters);
-    const rawFiltered = filterCarteraRows(rows, multi); // equivalente a filteredTableData del frontend
+    const rawFiltered = step('filterCarteraRows (rawFiltered)', () => filterCarteraRows(rows, multi));
+
+    const kpis = step('calculateKpis', () => calculateKpis(filtered));
+    const paises = step("aggregateBy('pais')", () => aggregateBy(filtered, 'pais'));
+    const pds = step("aggregateBy('pd')", () => aggregateBy(filtered, 'pd'));
+    const topGestores = step('calculateTopGestores', () => calculateTopGestores(filtered));
+    const topZonas = step('calculateTopZonas', () => calculateTopZonas(filtered));
+    const resumenPD = step('calculateResumenPD', () => calculateResumenPD(filtered));
+    const topGestoresDetalle = step('aggregateTopGestores (detalle, sin filtros)', () => aggregateTopGestores(rows, 20));
+    const topZonasDetalle = step('aggregateTopZonas (detalle, sin filtros)', () => aggregateTopZonas(rows, 20));
+    const resumenCampania = step('aggregateResumenCampania', () => aggregateResumenCampania(rawFiltered));
+    const countrySummary = step('aggregateCountrySummary', () => aggregateCountrySummary(rawFiltered));
+    const filterOptions = step('buildFilterOptions', () => buildFilterOptions(rows, multi));
+    const cuentas = step('cuentas (rawFiltered.slice 100)', () => rawFiltered.slice(0, 100));
 
     const response: DashboardResponse = {
-      kpis: calculateKpis(filtered),
-      paises: aggregateBy(filtered, 'pais'),
-      pds: aggregateBy(filtered, 'pd'),
-      topGestores: calculateTopGestores(filtered),
-      topZonas: calculateTopZonas(filtered),
-      resumenPD: calculateResumenPD(filtered),
-      // Top Gestores/Zonas se calculan SIEMPRE sobre el universo completo (sin filtros).
-      topGestoresDetalle: aggregateTopGestores(rows, 20),
-      topZonasDetalle: aggregateTopZonas(rows, 20),
-      // Resumen por campaña y país usan los registros filtrados.
-      resumenCampania: aggregateResumenCampania(rawFiltered),
-      countrySummary: aggregateCountrySummary(rawFiltered),
-      // Opciones de filtros (cascada) sobre el universo completo.
-      filterOptions: buildFilterOptions(rows, multi),
-      // Detalle de cuentas: sólo las primeras 100 filas filtradas.
-      cuentas: rawFiltered.slice(0, 100)
+      kpis,
+      paises,
+      pds,
+      topGestores,
+      topZonas,
+      resumenPD,
+      topGestoresDetalle,
+      topZonasDetalle,
+      resumenCampania,
+      countrySummary,
+      filterOptions,
+      cuentas
     };
     console.log(`[PERF] service: procesamiento/agregaciones = ${Date.now() - tAgg} ms`);
     // === FIN INSTRUMENTACIÓN TEMPORAL ===
