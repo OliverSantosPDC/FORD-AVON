@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
 import { Box, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TableSortLabel, TextField, Typography } from '@mui/material';
-import type { CarteraRecord } from '../../types/cartera';
+import type { CampaniaSummary } from '../../types/cartera';
 import TableActionsMenu from '../common/TableActionsMenu';
 import { copyRowsToClipboard, exportRowsToCsv, exportRowsToExcel } from '../../utils/tableExport';
-import { aggregateResumenCampania, type CampaniaSummary } from '../../utils/carteraAggregations';
 
 interface ResumenCampaniaTableProps {
-  data: CarteraRecord[];
+  // Resumen por campaña ya agregado por el backend.
+  data: CampaniaSummary[];
 }
 
 type ColumnId = 'campania' | 'cuentas' | 'saldoActualLocal' | 'saldoActualUsd' | 'recuperadoUsd' | 'porcentajeRecuperacion' | 'promesas' | 'pagos';
@@ -31,7 +31,7 @@ const ResumenCampaniaTable = ({ data }: ResumenCampaniaTableProps) => {
   const [search, setSearch] = useState('');
   const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
 
-  const aggregated = useMemo(() => aggregateResumenCampania(data), [data]);
+  const aggregated = data;
 
   const filtered = useMemo(() => {
     const normalized = search.toLowerCase();

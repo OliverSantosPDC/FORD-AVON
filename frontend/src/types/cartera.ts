@@ -59,6 +59,53 @@ export interface ResumenPdItem {
   porcentajeRecuperacionLocal: number;
 }
 
+export interface GroupSummary {
+  key: string;
+  pais: string;
+  paisAbbr: string;
+  cuentas: number;
+  saldoAsignadoUsd: number;
+  saldoActualUsd: number;
+  saldoAsignadoLocal: number;
+  saldoActualLocal: number;
+  recuperadoUsd: number;
+  recuperadoLocal: number;
+  porcentajeRecuperacion: number;
+}
+
+export interface CountrySummary {
+  pais: string;
+  abbr: string;
+  flag: string;
+  cuentas: number;
+  saldoAsignadoUsd: number;
+  saldoActualUsd: number;
+  recuperadoUsd: number;
+  porcentajeRecuperacion: number;
+}
+
+export interface CampaniaSummary {
+  campania: string;
+  cuentas: number;
+  saldoAsignadoUsd: number;
+  saldoActualUsd: number;
+  saldoAsignadoLocal: number;
+  saldoActualLocal: number;
+  recuperadoUsd: number;
+  porcentajeRecuperacion: number;
+  promesas: number;
+  pagos: number;
+}
+
+export interface DashboardFilterOptions {
+  pais: string[];
+  gestor: string[];
+  gerente: string[];
+  zona: string[];
+  pd: string[];
+  campania: string[];
+}
+
 export interface DashboardResponse {
   kpis: DashboardKpi;
   paises: DashboardItem[];
@@ -66,6 +113,12 @@ export interface DashboardResponse {
   topGestores: TopGestorItem[];
   topZonas: TopZonaItem[];
   resumenPD: ResumenPdItem[];
+  topGestoresDetalle: GroupSummary[];
+  topZonasDetalle: GroupSummary[];
+  resumenCampania: CampaniaSummary[];
+  countrySummary: CountrySummary[];
+  filterOptions: DashboardFilterOptions;
+  cuentas: CarteraRecord[];
 }
 
 export interface InteligenciaAccount {

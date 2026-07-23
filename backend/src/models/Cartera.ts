@@ -99,6 +99,53 @@ export interface RankingPaisItem {
   porcentajeRecuperacion: number;
 }
 
+export interface GroupSummaryItem {
+  key: string;
+  pais: string;
+  paisAbbr: string;
+  cuentas: number;
+  saldoAsignadoUsd: number;
+  saldoActualUsd: number;
+  saldoAsignadoLocal: number;
+  saldoActualLocal: number;
+  recuperadoUsd: number;
+  recuperadoLocal: number;
+  porcentajeRecuperacion: number;
+}
+
+export interface CountrySummaryItem {
+  pais: string;
+  abbr: string;
+  flag: string;
+  cuentas: number;
+  saldoAsignadoUsd: number;
+  saldoActualUsd: number;
+  recuperadoUsd: number;
+  porcentajeRecuperacion: number;
+}
+
+export interface CampaniaSummaryItem {
+  campania: string;
+  cuentas: number;
+  saldoAsignadoUsd: number;
+  saldoActualUsd: number;
+  saldoAsignadoLocal: number;
+  saldoActualLocal: number;
+  recuperadoUsd: number;
+  porcentajeRecuperacion: number;
+  promesas: number;
+  pagos: number;
+}
+
+export interface DashboardFilterOptions {
+  pais: string[];
+  gestor: string[];
+  gerente: string[];
+  zona: string[];
+  pd: string[];
+  campania: string[];
+}
+
 export interface DashboardResponse {
   kpis: Kpis;
   paises: AggregationItem[];
@@ -106,6 +153,13 @@ export interface DashboardResponse {
   topGestores: TopGestorItem[];
   topZonas: TopZonaItem[];
   resumenPD: ResumenPdItem[];
+  // Datos agregados adicionales para que el frontend no descargue la cartera completa.
+  topGestoresDetalle: GroupSummaryItem[];
+  topZonasDetalle: GroupSummaryItem[];
+  resumenCampania: CampaniaSummaryItem[];
+  countrySummary: CountrySummaryItem[];
+  filterOptions: DashboardFilterOptions;
+  cuentas: Record<string, unknown>[];
 }
 
 export interface InteligenciaResponse {

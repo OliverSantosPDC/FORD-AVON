@@ -18,8 +18,7 @@ import {
   XAxis,
   YAxis
 } from 'recharts';
-import type { DashboardItem, ResumenPdItem } from '../../types/cartera';
-import type { CountrySummary } from '../../utils/carteraAggregations';
+import type { CountrySummary, DashboardItem, ResumenPdItem } from '../../types/cartera';
 import { getPdIndex } from '../../utils/carteraAggregations';
 import ChartCard from './ChartCard';
 
