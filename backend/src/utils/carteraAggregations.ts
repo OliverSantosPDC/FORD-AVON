@@ -30,19 +30,54 @@ export const normalizeText = (value: string): string =>
     .toLowerCase()
     .trim();
 
+// Memoización por valor de entrada: hay muy pocos países distintos, así que se
+// evita recomputar normalizeText (NFD + regex) para cada una de las ~20.792
+// filas en cada agregación. Resultado idéntico (ALLOWED_COUNTRIES es constante).
+const countryResolveCache = new Map<string, CountryInfo | null>();
+
 export const resolveCountry = (rawValue: unknown): CountryInfo | null => {
-  const normalized = normalizeText(String(rawValue ?? ''));
-  if (!normalized) return null;
-  return ALLOWED_COUNTRIES.find((country) => country.matches.includes(normalized)) ?? null;
+  const raw = String(rawValue ?? '');
+  const cached = countryResolveCache.get(raw);
+  if (cached !== undefined) return cached;
+
+  const normalized = normalizeText(raw);
+  const result = normalized ? ALLOWED_COUNTRIES.find((country) => country.matches.includes(normalized)) ?? null : null;
+  countryResolveCache.set(raw, result);
+  return result;
+};
+
+// Índice de claves en minúsculas cacheado POR FILA (se construye a lo sumo una
+// vez por fila, y sólo si el acceso directo falla). Todas las lecturas de esa
+// misma fila reutilizan el índice, evitando reconstruir un Map y hacer
+// toLowerCase() de todas las claves en cada llamada a getField.
+const lowerKeyIndexCache = new WeakMap<CarteraRow, Record<string, unknown>>();
+
+const getLowerKeyIndex = (row: CarteraRow): Record<string, unknown> => {
+  let index = lowerKeyIndexCache.get(row);
+  if (!index) {
+    index = {};
+    for (const key of Object.keys(row)) {
+      index[key.toLowerCase()] = row[key];
+    }
+    lowerKeyIndexCache.set(row, index);
+  }
+  return index;
 };
 
 export const getField = (row: CarteraRow, keys: string[]): unknown => {
-  const lookup = new Map<string, unknown>();
-  Object.keys(row).forEach((key) => lookup.set(key.toLowerCase(), row[key]));
+  // Ruta rápida: las claves de Supabase ya vienen en minúsculas -> acceso directo.
   for (const key of keys) {
-    const value = lookup.get(key.toLowerCase());
+    const value = row[key];
     if (value !== undefined && value !== null && value !== '') return value;
   }
+
+  // Respaldo insensible a mayúsculas (raro): índice lowercased cacheado por fila.
+  const index = getLowerKeyIndex(row);
+  for (const key of keys) {
+    const value = index[key.toLowerCase()];
+    if (value !== undefined && value !== null && value !== '') return value;
+  }
+
   return undefined;
 };
 
