@@ -10,9 +10,22 @@ export class DashboardController {
 
   async getDashboard(req: Request, res: Response): Promise<Response> {
     try {
+      // === INSTRUMENTACIÓN TEMPORAL (remover tras el diagnóstico) ===
+      console.log('[PERF] ===== /api/dashboard: nueva peticion =====');
+      const tTotal = Date.now();
+
       const filters = extractFilters(req.query);
       const dashboard = await this.service.getDashboard(filters);
-      return res.json(dashboard);
+
+      const tSer = Date.now();
+      const payload = JSON.stringify(dashboard);
+      console.log(`[PERF] controller: serializacion JSON = ${Date.now() - tSer} ms`);
+      console.log(`[PERF] controller: tamano respuesta JSON = ${(payload.length / 1024).toFixed(1)} KB`);
+      console.log(`[PERF] controller: TIEMPO TOTAL /api/dashboard = ${Date.now() - tTotal} ms`);
+      // === FIN INSTRUMENTACIÓN TEMPORAL ===
+
+      res.setHeader('Content-Type', 'application/json');
+      return res.send(payload);
     } catch (error) {
       if (error instanceof Error) {
         return res.status(500).json({ error: error.message });

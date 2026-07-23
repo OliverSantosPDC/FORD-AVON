@@ -47,7 +47,12 @@ export class CarteraService {
   }
 
   async getDashboard(filters?: DashboardFilterParams): Promise<DashboardResponse> {
+    // === INSTRUMENTACIÓN TEMPORAL (remover tras el diagnóstico) ===
+    const tRead = Date.now();
     const rows = (await this.repository.getCartera()) as CarteraRow[];
+    console.log(`[PERF] service: lectura de datos (repository.getCartera) = ${Date.now() - tRead} ms, filas=${rows.length}`);
+
+    const tAgg = Date.now();
     const cartera = rows.map(mapToCartera);
     const filtered = applyFilters(cartera, filters);
 
@@ -55,7 +60,7 @@ export class CarteraService {
     const multi = toMultiFilters(filters);
     const rawFiltered = filterCarteraRows(rows, multi); // equivalente a filteredTableData del frontend
 
-    return {
+    const response: DashboardResponse = {
       kpis: calculateKpis(filtered),
       paises: aggregateBy(filtered, 'pais'),
       pds: aggregateBy(filtered, 'pd'),
@@ -73,6 +78,10 @@ export class CarteraService {
       // Detalle de cuentas: sólo las primeras 100 filas filtradas.
       cuentas: rawFiltered.slice(0, 100)
     };
+    console.log(`[PERF] service: procesamiento/agregaciones = ${Date.now() - tAgg} ms`);
+    // === FIN INSTRUMENTACIÓN TEMPORAL ===
+
+    return response;
   }
 
   async getInteligencia(): Promise<InteligenciaResponse> {
