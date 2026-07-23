@@ -147,14 +147,36 @@ const parseNumber = (value: unknown): number => {
   return 0;
 };
 
-const getField = (row: Record<string, unknown>, ...keys: string[]) => {
-  const lookup = new Map<string, unknown>();
-  Object.keys(row).forEach((key) => {
-    lookup.set(key.toLowerCase(), row[key]);
-  });
+// Índice de claves en minúsculas cacheado POR FILA (se construye a lo sumo una
+// vez por fila, y sólo si el acceso directo falla). Evita reconstruir un Map y
+// hacer toLowerCase() de todas las claves en cada llamada a getField.
+const lowerKeyIndexCache = new WeakMap<Record<string, unknown>, Record<string, unknown>>();
 
+const getLowerKeyIndex = (row: Record<string, unknown>): Record<string, unknown> => {
+  let index = lowerKeyIndexCache.get(row);
+  if (!index) {
+    index = {};
+    for (const key of Object.keys(row)) {
+      index[key.toLowerCase()] = row[key];
+    }
+    lowerKeyIndexCache.set(row, index);
+  }
+  return index;
+};
+
+const getField = (row: Record<string, unknown>, ...keys: string[]) => {
+  // Ruta rápida: las claves de Supabase ya vienen en minúsculas -> acceso directo.
   for (const key of keys) {
-    const value = lookup.get(key.toLowerCase());
+    const value = row[key];
+    if (value !== undefined && value !== null) {
+      return value;
+    }
+  }
+
+  // Respaldo insensible a mayúsculas (raro): índice lowercased cacheado por fila.
+  const index = getLowerKeyIndex(row);
+  for (const key of keys) {
+    const value = index[key.toLowerCase()];
     if (value !== undefined && value !== null) {
       return value;
     }
@@ -167,30 +189,33 @@ const mapToCartera = (row: Record<string, unknown>): Cartera => {
   const castString = (value: unknown, fallback: string) =>
     value === null || value === undefined ? fallback : String(value);
 
-  const pais = castString(getField(row, 'pais'), 'Sin país');
-  const pd = castString(getField(row, 'pd_actual', 'pd'), 'Sin PD');
-  const fecha = getField(row, 'fecha_de_nacimiento') ? String(getField(row, 'fecha_de_nacimiento')) : undefined;
-
-  const saldoInicialLocal = parseNumber(getField(row, 'saldo_inicial') ?? 0);
-  const saldoActualLocal = parseNumber(getField(row, 'saldo_actual') ?? 0);
-  const saldoAsignado = parseNumber(getField(row, 'saldo_inicial_usd', 'saldo_inicial') ?? 0);
-  const saldoActual = parseNumber(getField(row, 'saldo_actual_usd', 'saldo_actual') ?? 0);
+  // Una sola llamada a getField por campo (antes se llamaba dos veces en los
+  // opcionales). Valores idénticos a la versión anterior.
+  const paisRaw = getField(row, 'pais');
+  const pdRaw = getField(row, 'pd_actual', 'pd');
+  const fechaRaw = getField(row, 'fecha_de_nacimiento');
+  const gestorRaw = getField(row, 'gestor');
+  const gerenteRaw = getField(row, 'gerente_zona');
+  const zonaRaw = getField(row, 'zona');
+  const clienteNombreRaw = getField(row, 'nombre', 'cliente', 'deudor');
+  const campaniaRaw = getField(row, 'campania_adeuda', 'campania', 'campaña', 'campaign');
+  const codigoRaw = getField(row, 'codigo', 'code', 'id');
 
   return {
-    pais,
-    pd,
-    fecha,
-    saldoInicialLocal,
-    saldoActualLocal,
-    saldoAsignado,
-    saldoActual,
-    gestor: getField(row, 'gestor') ? String(getField(row, 'gestor')) : undefined,
-    gerente: getField(row, 'gerente_zona') ? String(getField(row, 'gerente_zona')) : undefined,
-    zona: getField(row, 'zona') ? String(getField(row, 'zona')) : undefined,
-    cliente: getField(row, 'nombre', 'cliente', 'deudor') ? String(getField(row, 'nombre', 'cliente', 'deudor')) : undefined,
-    campania: getField(row, 'campania_adeuda', 'campania', 'campaña', 'campaign') ? String(getField(row, 'campania_adeuda', 'campania', 'campaña', 'campaign')) : undefined,
-    codigo: getField(row, 'codigo', 'code', 'id') ? String(getField(row, 'codigo', 'code', 'id')) : undefined,
-    nombre: getField(row, 'nombre', 'cliente', 'deudor') ? String(getField(row, 'nombre', 'cliente', 'deudor')) : undefined,
+    pais: castString(paisRaw, 'Sin país'),
+    pd: castString(pdRaw, 'Sin PD'),
+    fecha: fechaRaw ? String(fechaRaw) : undefined,
+    saldoInicialLocal: parseNumber(getField(row, 'saldo_inicial') ?? 0),
+    saldoActualLocal: parseNumber(getField(row, 'saldo_actual') ?? 0),
+    saldoAsignado: parseNumber(getField(row, 'saldo_inicial_usd', 'saldo_inicial') ?? 0),
+    saldoActual: parseNumber(getField(row, 'saldo_actual_usd', 'saldo_actual') ?? 0),
+    gestor: gestorRaw ? String(gestorRaw) : undefined,
+    gerente: gerenteRaw ? String(gerenteRaw) : undefined,
+    zona: zonaRaw ? String(zonaRaw) : undefined,
+    cliente: clienteNombreRaw ? String(clienteNombreRaw) : undefined,
+    campania: campaniaRaw ? String(campaniaRaw) : undefined,
+    codigo: codigoRaw ? String(codigoRaw) : undefined,
+    nombre: clienteNombreRaw ? String(clienteNombreRaw) : undefined,
     original: row
   };
 };
