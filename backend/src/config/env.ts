@@ -39,6 +39,12 @@ export const DATA_SOURCE = (process.env.DATA_SOURCE ?? 'supabase').toLowerCase()
 /** Nombre de la tabla de cartera en Supabase (normalizado sin espacios/CRLF). */
 export const SUPABASE_CARTERA_TABLE = (process.env.SUPABASE_CARTERA_TABLE ?? 'cartera').trim();
 
+/** Bucket de Supabase Storage donde se persiste el archivo de cartera. */
+export const SUPABASE_CARTERA_BUCKET = (process.env.SUPABASE_CARTERA_BUCKET ?? 'cartera').trim();
+
+/** Nombre fijo del objeto activo dentro del bucket. */
+export const SUPABASE_CARTERA_OBJECT = (process.env.SUPABASE_CARTERA_OBJECT ?? 'Cartera.xlsx').trim();
+
 /**
  * Lanza un error claro si faltan las credenciales de Supabase.
  * Se invoca de forma perezosa (sólo cuando realmente se usa Supabase),
