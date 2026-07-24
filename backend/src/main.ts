@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import carteraRoutes from './routes/carteraRoutes';
 import dashboardRoutes from './routes/dashboardRoutes';
+import uploadRoutes from './routes/uploadRoutes';
 
 const app = express();
 const port = process.env.PORT ?? 4000;
@@ -32,6 +33,7 @@ app.use(express.json());
 
 app.use('/api', carteraRoutes);
 app.use('/api', dashboardRoutes);
+app.use('/api', uploadRoutes);
 
 app.get('/health', (_req: express.Request, res: express.Response) => {
   res.json({ status: 'ok' });
