@@ -80,6 +80,11 @@ export class SupabaseCarteraAdapter implements CarteraDataSource {
     return all;
   }
 
+  /** Invalida la caché en memoria para forzar una relectura en la próxima petición. */
+  clearCache(): void {
+    this.cache = null;
+  }
+
   /** Devuelve el número de filas almacenadas en la tabla (para verificación). */
   async count(): Promise<number> {
     const client = getSupabaseClient();

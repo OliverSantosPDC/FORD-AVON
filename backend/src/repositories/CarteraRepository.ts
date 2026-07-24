@@ -5,6 +5,8 @@
  */
 export interface CarteraDataSource {
   getCartera(): Promise<Record<string, unknown>[]>;
+  /** Invalida cualquier caché en memoria de la fuente (opcional). */
+  clearCache?(): void;
 }
 
 export class CarteraRepository {
