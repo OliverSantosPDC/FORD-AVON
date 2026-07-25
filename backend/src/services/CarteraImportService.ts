@@ -41,7 +41,10 @@ const truncateTable = async (): Promise<void> => {
   }
 };
 
-const insertInBatches = async (rows: Record<string, unknown>[]): Promise<number> => {
+const insertInBatches = async (
+  rows: Record<string, unknown>[],
+  onProgress?: ProgressCallback
+): Promise<number> => {
   const client = getSupabaseClient();
   let inserted = 0;
 
@@ -56,6 +59,7 @@ const insertInBatches = async (rows: Record<string, unknown>[]): Promise<number>
     }
     inserted += batch.length;
     console.log(`[UPLOAD]   insert progreso: ${inserted}/${rows.length} filas`);
+    onProgress?.({ processed: inserted, total: rows.length, message: 'Actualizando cartera...' });
   }
 
   return inserted;
@@ -64,6 +68,9 @@ const insertInBatches = async (rows: Record<string, unknown>[]): Promise<number>
 export interface ReplaceCarteraResult {
   count: number;
 }
+
+/** Callback de progreso del procesamiento (registros procesados / totales). */
+export type ProgressCallback = (update: { processed?: number; total?: number; message?: string }) => void;
 
 // === LOGGING TEMPORAL (remover tras diagnosticar el 502 en Render) ===
 const mem = () => `${Math.round(process.memoryUsage().rss / 1024 / 1024)}MB rss`;
@@ -74,7 +81,11 @@ const logStage = (msg: string) => console.log(`[UPLOAD] ${msg} | mem=${mem()}`);
  * Si la validación falla, la cartera anterior queda intacta (no se trunca).
  * Lógica reutilizada por el flujo de buffer y por el de Storage.
  */
-const replaceCarteraWithRows = async (headers: string[], rows: Record<string, unknown>[]): Promise<number> => {
+const replaceCarteraWithRows = async (
+  headers: string[],
+  rows: Record<string, unknown>[],
+  onProgress?: ProgressCallback
+): Promise<number> => {
   const { ok, missing } = validateHeaders(headers);
   if (!ok) {
     throw new Error(`El archivo no tiene las columnas requeridas. Faltan: ${missing.join(', ')}`);
@@ -85,17 +96,19 @@ const replaceCarteraWithRows = async (headers: string[], rows: Record<string, un
     throw new Error('El archivo no contiene filas de datos.');
   }
   logStage(`filas parseadas: ${rows.length}`);
+  onProgress?.({ processed: 0, total: rows.length, message: 'Procesando registros...' });
 
   validateDateFields(rows);
   logStage('fechas validadas');
 
   // Reemplazo de la tabla (sólo tras validar correctamente).
   logStage('truncate: inicio');
+  onProgress?.({ message: 'Actualizando cartera...' });
   await truncateTable();
   logStage('truncate: fin');
 
   logStage('insert: inicio');
-  const count = await insertInBatches(rows);
+  const count = await insertInBatches(rows, onProgress);
   logStage(`insert: fin (${count} filas)`);
 
   // Invalidar la caché del dashboard para que lea los datos nuevos.
@@ -120,9 +133,11 @@ export const processAndReplaceCartera = async (buffer: Buffer): Promise<ReplaceC
  * NUEVA ARQUITECTURA: descarga "Cartera.xlsx" desde Supabase Storage, lo parsea
  * por STREAMING (sin cargar el workbook completo en memoria) y reemplaza la
  * tabla `cartera`. Render nunca recibe el archivo por HTTP/multer.
+ * Informa el progreso (registros procesados / totales) vía onProgress.
  */
-export const downloadAndReplaceCartera = async (): Promise<ReplaceCarteraResult> => {
+export const downloadAndReplaceCartera = async (onProgress?: ProgressCallback): Promise<ReplaceCarteraResult> => {
   logStage(`descargando "${SUPABASE_CARTERA_OBJECT}" del bucket "${SUPABASE_CARTERA_BUCKET}"`);
+  onProgress?.({ message: 'Descargando archivo...' });
   const client = getSupabaseClient();
   const { data, error } = await client.storage.from(SUPABASE_CARTERA_BUCKET).download(SUPABASE_CARTERA_OBJECT);
 
@@ -136,8 +151,9 @@ export const downloadAndReplaceCartera = async (): Promise<ReplaceCarteraResult>
   const arrayBuffer = await data.arrayBuffer();
   const nodeStream = Readable.from(Buffer.from(arrayBuffer));
   logStage(`archivo descargado (${Math.round(arrayBuffer.byteLength / 1024)}KB), parseando por streaming`);
+  onProgress?.({ message: 'Procesando registros...' });
 
   const { headers, rows } = await streamRowsFromNodeStream(nodeStream);
-  const count = await replaceCarteraWithRows(headers, rows);
+  const count = await replaceCarteraWithRows(headers, rows, onProgress);
   return { count };
 };

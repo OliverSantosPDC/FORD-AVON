@@ -4,9 +4,9 @@ import { UploadController } from '../controllers/UploadController';
 const router = Router();
 const controller = new UploadController();
 
-// Nueva arquitectura: el archivo se sube directo a Supabase Storage desde el
-// frontend. Este endpoint (sin multer, sin recibir el archivo) sólo dispara el
-// procesamiento: descargar de Storage y reemplazar la tabla `cartera`.
-router.post('/cartera/process', (req, res) => controller.processCartera(req, res));
+// El archivo se sube directo a Supabase Storage desde el frontend.
+// Estos endpoints (sin multer) disparan y consultan el procesamiento asíncrono.
+router.post('/cartera/process', (req, res) => controller.startProcessCartera(req, res));
+router.get('/cartera/process/:jobId', (req, res) => controller.getProcessStatus(req, res));
 
 export default router;
