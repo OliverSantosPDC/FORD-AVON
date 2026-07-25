@@ -33,7 +33,10 @@ export const fetchDashboard = async (
   const queryString = buildQueryString(filters);
 
   const response = await fetch(
-    `${API_BASE}/api/dashboard${queryString}`
+    `${API_BASE}/api/dashboard${queryString}`,
+    // no-store: tras una carga de cartera, la recarga debe leer datos nuevos
+    // y nunca servir una respuesta cacheada por el navegador.
+    { cache: 'no-store' }
   );
 
   if (!response.ok) {
