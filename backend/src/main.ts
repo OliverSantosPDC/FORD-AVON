@@ -10,16 +10,23 @@ const port = process.env.PORT ?? 4000;
 
 const allowedOrigins = [
   'http://localhost:5173',
-  'https://ford-avon.vercel.app',
 ];
+
+const isAllowedOrigin = (origin: string): boolean => {
+  if (allowedOrigins.includes(origin)) return true;
+  // Producción, dominio de proyecto y previews del proyecto en Vercel:
+  //   https://ford-avon.vercel.app
+  //   https://ford-avon-<equipo>.vercel.app
+  //   https://ford-avon-git-<rama>-<equipo>.vercel.app
+  //   https://ford-avon-<hash>-<equipo>.vercel.app
+  return /^https:\/\/ford-avon[a-z0-9-]*\.vercel\.app$/.test(origin);
+};
 
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
     // Permite herramientas sin origin (PowerShell, curl) y los orígenes válidos.
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    // Previews de Vercel: https://ford-avon-*.vercel.app
-    if (/^https:\/\/ford-avon-[a-z0-9-]+\.vercel\.app$/.test(origin)) return callback(null, true);
+    if (isAllowedOrigin(origin)) return callback(null, true);
     return callback(null, false);
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
