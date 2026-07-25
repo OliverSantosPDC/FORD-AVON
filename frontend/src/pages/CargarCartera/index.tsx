@@ -86,19 +86,16 @@ const CargarCarteraPage = () => {
             <Box>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
                 <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{progress?.message}</Typography>
-                <Typography sx={{ fontSize: 13, fontWeight: 700 }}>{pct}%</Typography>
+                <Typography sx={{ fontSize: 13, fontWeight: 700 }}>
+                  {progress?.indeterminate ? '' : `${pct}%`}
+                </Typography>
               </Box>
               <LinearProgress
-                variant="determinate"
+                variant={progress?.indeterminate ? 'indeterminate' : 'determinate'}
                 value={pct}
                 sx={{ height: 10, borderRadius: 999 }}
                 color={progress?.phase === 'completed' ? 'success' : 'primary'}
               />
-              {typeof progress?.total === 'number' && progress.total > 0 && (
-                <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.5 }}>
-                  {progress.processed ?? 0} / {progress.total} registros
-                </Typography>
-              )}
             </Box>
           )}
 
