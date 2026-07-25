@@ -1,5 +1,6 @@
+import { Readable } from 'stream';
 import { getSupabaseClient } from '../config/supabaseClient';
-import { SUPABASE_CARTERA_TABLE } from '../config/env';
+import { SUPABASE_CARTERA_TABLE, SUPABASE_CARTERA_BUCKET, SUPABASE_CARTERA_OBJECT } from '../config/env';
 import { getCarteraDataSource } from '../config/dataSource';
 import {
   loadWorkbookFromBuffer,
@@ -7,7 +8,8 @@ import {
   readHeaders,
   validateHeaders,
   worksheetToRows,
-  validateDateFields
+  validateDateFields,
+  streamRowsFromNodeStream
 } from '../utils/carteraExcel';
 
 /**
@@ -67,23 +69,18 @@ export interface ReplaceCarteraResult {
 const mem = () => `${Math.round(process.memoryUsage().rss / 1024 / 1024)}MB rss`;
 const logStage = (msg: string) => console.log(`[UPLOAD] ${msg} | mem=${mem()}`);
 
-export const processAndReplaceCartera = async (buffer: Buffer): Promise<ReplaceCarteraResult> => {
-  // 1) Parseo y validación EN MEMORIA (sin tocar la base de datos todavía).
-  logStage(`inicio processAndReplaceCartera (buffer ${Math.round(buffer.length / 1024)}KB)`);
-
-  const workbook = await loadWorkbookFromBuffer(buffer);
-  logStage('workbook cargado desde buffer');
-
-  const worksheet = pickCarteraWorksheet(workbook);
-
-  const headers = readHeaders(worksheet);
+/**
+ * Valida encabezados+filas y, SÓLO si todo es válido, reemplaza la tabla.
+ * Si la validación falla, la cartera anterior queda intacta (no se trunca).
+ * Lógica reutilizada por el flujo de buffer y por el de Storage.
+ */
+const replaceCarteraWithRows = async (headers: string[], rows: Record<string, unknown>[]): Promise<number> => {
   const { ok, missing } = validateHeaders(headers);
   if (!ok) {
     throw new Error(`El archivo no tiene las columnas requeridas. Faltan: ${missing.join(', ')}`);
   }
   logStage(`columnas validadas (${headers.length} columnas)`);
 
-  const rows = worksheetToRows(worksheet);
   if (rows.length === 0) {
     throw new Error('El archivo no contiene filas de datos.');
   }
@@ -92,7 +89,7 @@ export const processAndReplaceCartera = async (buffer: Buffer): Promise<ReplaceC
   validateDateFields(rows);
   logStage('fechas validadas');
 
-  // 2) Reemplazo de la tabla (sólo tras validar correctamente).
+  // Reemplazo de la tabla (sólo tras validar correctamente).
   logStage('truncate: inicio');
   await truncateTable();
   logStage('truncate: fin');
@@ -101,9 +98,46 @@ export const processAndReplaceCartera = async (buffer: Buffer): Promise<ReplaceC
   const count = await insertInBatches(rows);
   logStage(`insert: fin (${count} filas)`);
 
-  // 3) Invalidar la caché del dashboard para que lea los datos nuevos.
+  // Invalidar la caché del dashboard para que lea los datos nuevos.
   getCarteraDataSource().clearCache?.();
   logStage('cache invalidada');
 
+  return count;
+};
+
+/** Flujo por buffer (compatibilidad; usado en pruebas/CLI). */
+export const processAndReplaceCartera = async (buffer: Buffer): Promise<ReplaceCarteraResult> => {
+  logStage(`inicio processAndReplaceCartera (buffer ${Math.round(buffer.length / 1024)}KB)`);
+  const workbook = await loadWorkbookFromBuffer(buffer);
+  const worksheet = pickCarteraWorksheet(workbook);
+  const headers = readHeaders(worksheet);
+  const rows = worksheetToRows(worksheet);
+  const count = await replaceCarteraWithRows(headers, rows);
+  return { count };
+};
+
+/**
+ * NUEVA ARQUITECTURA: descarga "Cartera.xlsx" desde Supabase Storage, lo parsea
+ * por STREAMING (sin cargar el workbook completo en memoria) y reemplaza la
+ * tabla `cartera`. Render nunca recibe el archivo por HTTP/multer.
+ */
+export const downloadAndReplaceCartera = async (): Promise<ReplaceCarteraResult> => {
+  logStage(`descargando "${SUPABASE_CARTERA_OBJECT}" del bucket "${SUPABASE_CARTERA_BUCKET}"`);
+  const client = getSupabaseClient();
+  const { data, error } = await client.storage.from(SUPABASE_CARTERA_BUCKET).download(SUPABASE_CARTERA_OBJECT);
+
+  if (error || !data) {
+    throw new Error(
+      `No se pudo descargar "${SUPABASE_CARTERA_OBJECT}" del bucket "${SUPABASE_CARTERA_BUCKET}": ${error?.message ?? 'archivo no encontrado'}`
+    );
+  }
+
+  // Blob -> Buffer -> stream de Node para el lector por streaming de ExcelJS.
+  const arrayBuffer = await data.arrayBuffer();
+  const nodeStream = Readable.from(Buffer.from(arrayBuffer));
+  logStage(`archivo descargado (${Math.round(arrayBuffer.byteLength / 1024)}KB), parseando por streaming`);
+
+  const { headers, rows } = await streamRowsFromNodeStream(nodeStream);
+  const count = await replaceCarteraWithRows(headers, rows);
   return { count };
 };
