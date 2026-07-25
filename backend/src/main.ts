@@ -60,6 +60,14 @@ app.use(
   }
 );
 
+// === LOGGING TEMPORAL: surface de crashes no controlados (remover tras diagnóstico) ===
+process.on('unhandledRejection', (reason) => {
+  console.error('[PROCESS] unhandledRejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[PROCESS] uncaughtException:', err);
+});
+
 app.listen(port, () => {
   console.log(`Server listening on port ${port}`);
 });
