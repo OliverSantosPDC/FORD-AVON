@@ -1,16 +1,12 @@
 import { Router } from 'express';
-import multer from 'multer';
 import { UploadController } from '../controllers/UploadController';
 
 const router = Router();
 const controller = new UploadController();
 
-// Almacenamiento EN MEMORIA: no se persiste el archivo en disco (Fase 2, paso 1).
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024 } // 25 MB
-});
-
-router.post('/upload/cartera', upload.single('file'), (req, res) => controller.uploadCartera(req, res));
+// Nueva arquitectura: el archivo se sube directo a Supabase Storage desde el
+// frontend. Este endpoint (sin multer, sin recibir el archivo) sólo dispara el
+// procesamiento: descargar de Storage y reemplazar la tabla `cartera`.
+router.post('/cartera/process', (req, res) => controller.processCartera(req, res));
 
 export default router;

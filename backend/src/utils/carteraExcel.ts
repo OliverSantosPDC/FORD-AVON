@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs';
+import { Readable } from 'stream';
 
 /**
  * Utilidades compartidas de lectura/normalización de Cartera.xlsx.
@@ -185,4 +186,46 @@ export const loadWorkbookFromBuffer = async (buffer: Buffer): Promise<ExcelJS.Wo
   // Cast por diferencias de tipado entre el Buffer de Node y el que espera ExcelJS.
   await workbook.xlsx.load(buffer as unknown as ExcelJS.Buffer);
   return workbook;
+};
+
+/**
+ * Lee las filas de un Excel desde un stream usando el lector por streaming de
+ * ExcelJS (no carga el workbook completo en memoria). Reutiliza exactamente la
+ * misma normalización (isDateField/toISODate/normalizeCell) que la ruta buffer.
+ * Devuelve encabezados y filas normalizadas.
+ */
+export const streamRowsFromNodeStream = async (
+  stream: Readable
+): Promise<{ headers: string[]; rows: Record<string, unknown>[] }> => {
+  const workbookReader = new ExcelJS.stream.xlsx.WorkbookReader(stream, {
+    worksheets: 'emit',
+    sharedStrings: 'cache',
+    styles: 'ignore',
+    hyperlinks: 'ignore'
+  });
+
+  let headers: string[] = [];
+  const rows: Record<string, unknown>[] = [];
+
+  for await (const worksheet of workbookReader) {
+    for await (const row of worksheet) {
+      if (row.number === 1) {
+        const values = Array.isArray(row.values) ? row.values : [];
+        headers = values.slice(1).map((value) => (value === null || value === undefined ? '' : String(value).trim()));
+        continue;
+      }
+
+      if (headers.length === 0) continue; // aún sin encabezados
+
+      const record: Record<string, unknown> = {};
+      headers.forEach((header, index) => {
+        if (!header) return;
+        const cellValue = row.getCell(index + 1).value as ExcelJS.CellValue;
+        record[header] = isDateField(header) ? toISODate(cellValue) : normalizeCell(cellValue);
+      });
+      rows.push(record);
+    }
+  }
+
+  return { headers, rows };
 };
