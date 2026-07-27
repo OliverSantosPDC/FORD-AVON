@@ -23,19 +23,17 @@ interface TopZonasTableProps {
   data: GroupSummary[];
 }
 
-type ColumnId = 'zona' | 'pais' | 'saldoActualLocal' | 'saldoActualUsd' | 'recuperadoUsd' | 'porcentajeRecuperacion';
+type ColumnId = 'zona' | 'pais' | 'saldoActualUsd' | 'recuperadoUsd' | 'porcentajeRecuperacion';
 
 const columns: { id: ColumnId; label: string; align?: 'right' }[] = [
   { id: 'zona', label: 'Zona' },
   { id: 'pais', label: 'País' },
-  { id: 'saldoActualLocal', label: 'Saldo Local', align: 'right' },
   { id: 'saldoActualUsd', label: 'Saldo USD', align: 'right' },
   { id: 'recuperadoUsd', label: 'Recuperado', align: 'right' },
   { id: 'porcentajeRecuperacion', label: '%', align: 'right' }
 ];
 
 const formatCurrency = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-const formatLocal = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
 const TopZonasTable = ({ data }: TopZonasTableProps) => {
   const [expanded, setExpanded] = useState(false);
@@ -74,8 +72,6 @@ const TopZonasTable = ({ data }: TopZonasTableProps) => {
         return row.key;
       case 'pais':
         return row.pais;
-      case 'saldoActualLocal':
-        return formatLocal(row.saldoActualLocal);
       case 'saldoActualUsd':
         return `${formatCurrency(row.saldoActualUsd)} (${row.paisAbbr})`;
       case 'recuperadoUsd':

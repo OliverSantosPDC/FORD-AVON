@@ -275,7 +275,7 @@ const DashboardCharts = ({ pds, resumenPD, countrySummary }: DashboardChartsProp
       {/* 6 · Barras por PD */}
       <ChartCard
         title="Riesgo por PD"
-        subtitle="Exposición asignada USD y local"
+        subtitle="Exposición asignada USD"
         chartId="chart-pds"
         fileBaseName="riesgo-por-pd"
         height={CHART_HEIGHT}
@@ -284,8 +284,8 @@ const DashboardCharts = ({ pds, resumenPD, countrySummary }: DashboardChartsProp
         onSortDesc={() => setPdsDir('desc')}
         sortAscLabel="PD0 → PD7"
         sortDescLabel="PD7 → PD0"
-        csvHeaders={['PD', 'Riesgo USD', 'Riesgo Local']}
-        csvRows={barsPdData.map((item) => [item.nombre, item.totalUsd, item.totalLocal])}
+        csvHeaders={['PD', 'Riesgo USD']}
+        csvRows={barsPdData.map((item) => [item.nombre, item.totalUsd])}
       >
         {(height) => (
           <ResponsiveContainer width="100%" height={height}>
@@ -296,7 +296,6 @@ const DashboardCharts = ({ pds, resumenPD, countrySummary }: DashboardChartsProp
               <Tooltip formatter={(value: number) => formatUsd(value)} contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} />
               <Legend verticalAlign="bottom" iconType="circle" iconSize={8} wrapperStyle={legendStyle} />
               <Bar dataKey="totalUsd" name="Riesgo USD" fill="#E6007E" radius={[6, 6, 0, 0]} barSize={14} />
-              <Bar dataKey="totalLocal" name="Riesgo Local" fill="#0EA5E9" radius={[6, 6, 0, 0]} barSize={14} />
             </BarChart>
           </ResponsiveContainer>
         )}

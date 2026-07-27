@@ -33,8 +33,7 @@ const headCells = [
   { id: 'zona', label: 'Zona' },
   { id: 'pd', label: 'PD' },
   { id: 'campania', label: 'Campaña' },
-  { id: 'saldoActualUsd', label: 'Saldo USD' },
-  { id: 'saldoActualLocal', label: 'Saldo Local' }
+  { id: 'saldoActualUsd', label: 'Saldo USD' }
 ];
 
 const pdColor = (pd: string) => {
@@ -71,10 +70,6 @@ const getCellValue = (row: CarteraRecord, key: string, country: CountryInfo | nu
       return typeof resolve(['saldo_actual_usd', 'saldoActualUsd', 'saldoActual', 'saldo_actual']) === 'number'
         ? (resolve(['saldo_actual_usd', 'saldoActualUsd', 'saldoActual', 'saldo_actual']) as number)
         : String(resolve(['saldo_actual_usd', 'saldoActualUsd', 'saldoActual', 'saldo_actual']) ?? '');
-    case 'saldoActualLocal':
-      return typeof resolve(['saldo_actual', 'saldoActualLocal', 'saldoActual']) === 'number'
-        ? (resolve(['saldo_actual', 'saldoActualLocal', 'saldoActual']) as number)
-        : String(resolve(['saldo_actual', 'saldoActualLocal', 'saldoActual']) ?? '');
     default:
       return String(row[key] ?? '');
   }
@@ -138,7 +133,7 @@ const DashboardTable = ({ data }: DashboardTableProps) => {
     rows: sortedData.map(({ row, country }) =>
       visibleHeadCells.map((headCell) => {
         const value = getCellValue(row, headCell.id, country);
-        if ((headCell.id === 'saldoActualUsd' || headCell.id === 'saldoActualLocal') && typeof value === 'number') {
+        if (headCell.id === 'saldoActualUsd' && typeof value === 'number') {
           return formatNumber(value);
         }
         return value;
@@ -251,8 +246,8 @@ const DashboardTable = ({ data }: DashboardTableProps) => {
               >
                 {visibleHeadCells.map((headCell) => {
                   const value = getCellValue(row, headCell.id, country);
-                  const isCurrency = headCell.id === 'saldoActualUsd' || headCell.id === 'saldoActualLocal';
-                  const isRightAligned = headCell.id === 'saldoActualUsd' || headCell.id === 'saldoActualLocal';
+                  const isCurrency = headCell.id === 'saldoActualUsd';
+                  const isRightAligned = headCell.id === 'saldoActualUsd';
 
                   if (headCell.id === 'pais') {
                     return (

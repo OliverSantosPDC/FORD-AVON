@@ -9,19 +9,17 @@ interface ResumenCampaniaTableProps {
   data: CampaniaSummary[];
 }
 
-type ColumnId = 'campania' | 'cuentas' | 'saldoActualLocal' | 'saldoActualUsd' | 'recuperadoUsd' | 'porcentajeRecuperacion';
+type ColumnId = 'campania' | 'cuentas' | 'saldoActualUsd' | 'recuperadoUsd' | 'porcentajeRecuperacion';
 
 const columns: { id: ColumnId; label: string; align?: 'right' }[] = [
   { id: 'campania', label: 'Campaña' },
   { id: 'cuentas', label: 'Total Cuentas', align: 'right' },
-  { id: 'saldoActualLocal', label: 'Saldo Local', align: 'right' },
   { id: 'saldoActualUsd', label: 'Saldo USD', align: 'right' },
   { id: 'recuperadoUsd', label: 'Recuperado', align: 'right' },
   { id: 'porcentajeRecuperacion', label: '%', align: 'right' }
 ];
 
 const formatCurrency = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-const formatLocal = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
 const ResumenCampaniaTable = ({ data }: ResumenCampaniaTableProps) => {
   const [order, setOrder] = useState<'asc' | 'desc'>('desc');
@@ -63,8 +61,6 @@ const ResumenCampaniaTable = ({ data }: ResumenCampaniaTableProps) => {
         return row.campania;
       case 'cuentas':
         return row.cuentas;
-      case 'saldoActualLocal':
-        return formatLocal(row.saldoActualLocal);
       case 'saldoActualUsd':
         return formatCurrency(row.saldoActualUsd);
       case 'recuperadoUsd':
