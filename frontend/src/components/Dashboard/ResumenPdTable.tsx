@@ -13,7 +13,6 @@ type ColumnId =
   | 'pd'
   | 'cuentas'
   | 'saldoActualUsd'
-  | 'saldoActualLocal'
   | 'recuperadoUsd'
   | 'porcentajeRecuperacionUsd'
   | 'porcentajeRecuperacionLocal';
@@ -22,15 +21,12 @@ const columns: { id: ColumnId; label: string; align?: 'right' }[] = [
   { id: 'pd', label: 'PD' },
   { id: 'cuentas', label: 'Cuentas', align: 'right' },
   { id: 'saldoActualUsd', label: 'Saldo USD', align: 'right' },
-  { id: 'saldoActualLocal', label: 'Saldo Local', align: 'right' },
   { id: 'recuperadoUsd', label: 'Recuperado USD', align: 'right' },
   { id: 'porcentajeRecuperacionUsd', label: '%', align: 'right' },
   { id: 'porcentajeRecuperacionLocal', label: '% Local', align: 'right' }
 ];
 
 const formatCurrency = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-// Saldo Local: sólo el valor numérico formateado, sin símbolo "$".
-const formatNumber = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 const formatPercent = (value: number) => `${value.toFixed(2)}%`;
 
 const ResumenPdTable = ({ data }: ResumenPdTableProps) => {
@@ -60,8 +56,6 @@ const ResumenPdTable = ({ data }: ResumenPdTableProps) => {
         return row.cuentas;
       case 'saldoActualUsd':
         return formatCurrency(row.saldoActualUsd);
-      case 'saldoActualLocal':
-        return formatNumber(row.saldoActualLocal);
       case 'recuperadoUsd':
         return formatCurrency(row.recuperadoUsd);
       case 'porcentajeRecuperacionUsd':

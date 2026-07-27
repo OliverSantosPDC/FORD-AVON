@@ -23,19 +23,17 @@ interface TopGestoresTableProps {
   data: GroupSummary[];
 }
 
-type ColumnId = 'nombre' | 'pais' | 'saldoActualLocal' | 'saldoActualUsd' | 'recuperadoUsd' | 'porcentajeRecuperacion';
+type ColumnId = 'nombre' | 'pais' | 'saldoActualUsd' | 'recuperadoUsd' | 'porcentajeRecuperacion';
 
 const columns: { id: ColumnId; label: string; align?: 'right' }[] = [
   { id: 'nombre', label: 'Gestor' },
   { id: 'pais', label: 'País' },
-  { id: 'saldoActualLocal', label: 'Saldo Local', align: 'right' },
   { id: 'saldoActualUsd', label: 'Saldo USD', align: 'right' },
   { id: 'recuperadoUsd', label: 'Recuperado', align: 'right' },
   { id: 'porcentajeRecuperacion', label: '%', align: 'right' }
 ];
 
 const formatCurrency = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-const formatLocal = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
 const TopGestoresTable = ({ data }: TopGestoresTableProps) => {
   const [expanded, setExpanded] = useState(false);
@@ -74,8 +72,6 @@ const TopGestoresTable = ({ data }: TopGestoresTableProps) => {
         return row.key;
       case 'pais':
         return row.pais;
-      case 'saldoActualLocal':
-        return formatLocal(row.saldoActualLocal);
       case 'saldoActualUsd':
         return `${formatCurrency(row.saldoActualUsd)} (${row.paisAbbr})`;
       case 'recuperadoUsd':
