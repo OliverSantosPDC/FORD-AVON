@@ -29,6 +29,85 @@ export const REQUIRED_CARTERA_COLUMNS = [
   'gerente_zona'
 ];
 
+/**
+ * Columnas reales de la tabla `cartera`. Se usan como destino canónico al mapear
+ * los encabezados del Excel (que pueden venir con mayúsculas, acentos, espacios,
+ * guiones, etc.). NO se cambia la estructura de la tabla; sólo se detecta la
+ * columna equivalente.
+ */
+export const CARTERA_DB_COLUMNS = [
+  'cod_pais_cam',
+  'codigo',
+  'pais',
+  'campania_adeuda',
+  'nombre',
+  'zona',
+  'sector',
+  'los',
+  'loa',
+  'saldo_inicial',
+  'pd_inicial',
+  'dias_mora_actual',
+  'fecha_de_nacimiento',
+  'departamento',
+  'municipio',
+  'telefono_celular',
+  'telefono_casa',
+  'telefono_trabajo',
+  'telefono_ext_tel_trabajo',
+  'ref_nombre',
+  'ref_tel_1',
+  'ref_tel_2',
+  'saldo_actual',
+  'pd_actual',
+  'saldo_inicial_usd',
+  'saldo_actual_usd',
+  'gestor',
+  'gerente_zona',
+  'contacto_gerente'
+];
+
+/**
+ * Normaliza un encabezado a una forma canónica comparable:
+ * quita acentos/diacríticos, pasa a minúsculas, recorta y convierte cualquier
+ * separador (espacios, guiones, especiales) en "_", sin "_" al inicio/fin.
+ * Ej: "Código" -> "codigo", "Saldo Inicial USD" -> "saldo_inicial_usd",
+ *     "PD Actual" -> "pd_actual", "Gerente Zona" -> "gerente_zona".
+ */
+export const canonicalizeHeader = (raw: unknown): string =>
+  String(raw ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+/**
+ * Alias adicionales cuya forma canónica NO coincide con el nombre de la columna
+ * (p. ej. "Campaña" -> canónico "campana", pero la columna es "campania_adeuda").
+ * clave: forma canónica del encabezado -> valor: columna real de la tabla.
+ */
+const EXTRA_HEADER_ALIASES: Record<string, string> = {
+  campana_adeuda: 'campania_adeuda',
+  campania: 'campania_adeuda',
+  campana: 'campania_adeuda',
+  campania_que_adeuda: 'campania_adeuda',
+  campana_que_adeuda: 'campania_adeuda'
+};
+
+// Mapa: forma canónica -> columna real de la tabla.
+const CANON_TO_DB_COLUMN = new Map<string, string>();
+CARTERA_DB_COLUMNS.forEach((col) => CANON_TO_DB_COLUMN.set(canonicalizeHeader(col), col));
+Object.entries(EXTRA_HEADER_ALIASES).forEach(([alias, col]) => CANON_TO_DB_COLUMN.set(canonicalizeHeader(alias), col));
+
+/** Resuelve un encabezado del Excel a la columna real de la tabla, o null si no corresponde. */
+export const resolveDbColumn = (rawHeader: unknown): string | null => {
+  const canon = canonicalizeHeader(rawHeader);
+  if (!canon) return null;
+  return CANON_TO_DB_COLUMN.get(canon) ?? null;
+};
+
 /** Un campo se trata como fecha si su nombre empieza por "fecha". */
 export const isDateField = (name: string): boolean => /^fecha/i.test(name);
 
@@ -121,16 +200,25 @@ export const readHeaders = (worksheet: ExcelJS.Worksheet): string[] => {
   return list.slice(1).map((value) => (value === null || value === undefined ? '' : String(value).trim()));
 };
 
-/** Verifica que existan todas las columnas requeridas (insensible a mayúsculas). */
+/**
+ * Verifica que existan todas las columnas requeridas mapeando cada encabezado
+ * del Excel a su columna real (insensible a mayúsculas/acentos/espacios/guiones).
+ */
 export const validateHeaders = (headers: string[]): { ok: boolean; missing: string[] } => {
-  const present = new Set(headers.map((h) => h.toLowerCase()));
-  const missing = REQUIRED_CARTERA_COLUMNS.filter((col) => !present.has(col.toLowerCase()));
+  const present = new Set<string>();
+  headers.forEach((header) => {
+    const dbColumn = resolveDbColumn(header);
+    if (dbColumn) present.add(dbColumn);
+  });
+  const missing = REQUIRED_CARTERA_COLUMNS.filter((col) => !present.has(col));
   return { ok: missing.length === 0, missing };
 };
 
 /** Convierte una hoja en filas normalizadas (fechas a YYYY-MM-DD, resto intacto). */
 export const worksheetToRows = (worksheet: ExcelJS.Worksheet, limit: number | null = null): Record<string, unknown>[] => {
   const headers = readHeaders(worksheet);
+  // Cada encabezado se resuelve UNA sola vez a su columna real de la tabla.
+  const dbColumns = headers.map((header) => resolveDbColumn(header));
   const records: Record<string, unknown>[] = [];
 
   worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
@@ -138,10 +226,10 @@ export const worksheetToRows = (worksheet: ExcelJS.Worksheet, limit: number | nu
     if (limit !== null && records.length >= limit) return;
 
     const record: Record<string, unknown> = {};
-    headers.forEach((header, index) => {
-      if (!header) return;
+    dbColumns.forEach((dbColumn, index) => {
+      if (!dbColumn) return; // encabezado que no corresponde a una columna de la tabla
       const cellValue = row.getCell(index + 1).value;
-      record[header] = isDateField(header) ? toISODate(cellValue) : normalizeCell(cellValue);
+      record[dbColumn] = isDateField(dbColumn) ? toISODate(cellValue) : normalizeCell(cellValue);
     });
     records.push(record);
   });
@@ -205,6 +293,7 @@ export const streamRowsFromNodeStream = async (
   });
 
   let headers: string[] = [];
+  let dbColumns: (string | null)[] = [];
   const rows: Record<string, unknown>[] = [];
 
   for await (const worksheet of workbookReader) {
@@ -212,16 +301,18 @@ export const streamRowsFromNodeStream = async (
       if (row.number === 1) {
         const values = Array.isArray(row.values) ? row.values : [];
         headers = values.slice(1).map((value) => (value === null || value === undefined ? '' : String(value).trim()));
+        // Cada encabezado se resuelve UNA sola vez a su columna real de la tabla.
+        dbColumns = headers.map((header) => resolveDbColumn(header));
         continue;
       }
 
       if (headers.length === 0) continue; // aún sin encabezados
 
       const record: Record<string, unknown> = {};
-      headers.forEach((header, index) => {
-        if (!header) return;
+      dbColumns.forEach((dbColumn, index) => {
+        if (!dbColumn) return; // encabezado que no corresponde a una columna de la tabla
         const cellValue = row.getCell(index + 1).value as ExcelJS.CellValue;
-        record[header] = isDateField(header) ? toISODate(cellValue) : normalizeCell(cellValue);
+        record[dbColumn] = isDateField(dbColumn) ? toISODate(cellValue) : normalizeCell(cellValue);
       });
       rows.push(record);
     }
