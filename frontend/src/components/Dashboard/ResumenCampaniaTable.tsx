@@ -9,7 +9,7 @@ interface ResumenCampaniaTableProps {
   data: CampaniaSummary[];
 }
 
-type ColumnId = 'campania' | 'cuentas' | 'saldoActualLocal' | 'saldoActualUsd' | 'recuperadoUsd' | 'porcentajeRecuperacion' | 'promesas' | 'pagos';
+type ColumnId = 'campania' | 'cuentas' | 'saldoActualLocal' | 'saldoActualUsd' | 'recuperadoUsd' | 'porcentajeRecuperacion';
 
 const columns: { id: ColumnId; label: string; align?: 'right' }[] = [
   { id: 'campania', label: 'Campaña' },
@@ -17,9 +17,7 @@ const columns: { id: ColumnId; label: string; align?: 'right' }[] = [
   { id: 'saldoActualLocal', label: 'Saldo Local', align: 'right' },
   { id: 'saldoActualUsd', label: 'Saldo USD', align: 'right' },
   { id: 'recuperadoUsd', label: 'Recuperado', align: 'right' },
-  { id: 'porcentajeRecuperacion', label: '%', align: 'right' },
-  { id: 'promesas', label: 'Promesas', align: 'right' },
-  { id: 'pagos', label: 'Pagos', align: 'right' }
+  { id: 'porcentajeRecuperacion', label: '%', align: 'right' }
 ];
 
 const formatCurrency = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
@@ -73,10 +71,6 @@ const ResumenCampaniaTable = ({ data }: ResumenCampaniaTableProps) => {
         return formatCurrency(row.recuperadoUsd);
       case 'porcentajeRecuperacion':
         return `${row.porcentajeRecuperacion.toFixed(2)}%`;
-      case 'promesas':
-        return row.promesas;
-      case 'pagos':
-        return row.pagos;
       default:
         return '';
     }

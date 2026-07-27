@@ -7,10 +7,33 @@ import { CarteraDataSource } from '../../repositories/CarteraRepository';
  * Implementa la misma interfaz que el adaptador de Excel para que el resto
  * de la arquitectura (repositorio, servicio, controladores) no cambie.
  */
+/**
+ * Sólo las columnas que el dashboard y sus agregaciones realmente usan.
+ * Evita traer campos pesados no usados (teléfonos, referencias, direcciones),
+ * reduciendo ~50% el tamaño de la lectura, la memoria y el tiempo de respuesta.
+ */
+const DASHBOARD_COLUMNS = [
+  'codigo',
+  'pais',
+  'campania_adeuda',
+  'nombre',
+  'zona',
+  'sector',
+  'saldo_inicial',
+  'saldo_actual',
+  'saldo_inicial_usd',
+  'saldo_actual_usd',
+  'pd_actual',
+  'gestor',
+  'gerente_zona'
+].join(',');
+
 export class SupabaseCarteraAdapter implements CarteraDataSource {
   private readonly table: string;
   private readonly pageSize = 1000; // Supabase limita cada respuesta a 1000 filas.
-  private readonly cacheTtlMs = 60_000; // Cartera cambia sólo al importar; caché breve.
+  // La cartera sólo cambia al importar (y ahí se invalida la caché), así que un
+  // TTL más largo hace instantáneas las cargas repetidas del dashboard.
+  private readonly cacheTtlMs = 5 * 60_000;
 
   // Caché en memoria compartida entre peticiones (el adaptador es singleton).
   private cache: { rows: Record<string, unknown>[]; expires: number } | null = null;
@@ -22,45 +45,26 @@ export class SupabaseCarteraAdapter implements CarteraDataSource {
   async getCartera(): Promise<Record<string, unknown>[]> {
     const now = Date.now();
     if (this.cache && this.cache.expires > now) {
-      console.log('[PERF] supabase: CACHE HIT (0 consultas)');
       return this.cache.rows;
     }
-    console.log('[PERF] supabase: CACHE MISS -> leyendo de Supabase');
-
-    // === INSTRUMENTACIÓN TEMPORAL (remover tras el diagnóstico) ===
-    const tReadStart = Date.now();
 
     const client = getSupabaseClient();
 
     // 1) Conteo para saber cuántas páginas se necesitan.
-    const tCountStart = Date.now();
     const { count, error: countError } = await client.from(this.table).select('*', { count: 'exact', head: true });
-    console.log(`[PERF] supabase: consulta COUNT = ${Date.now() - tCountStart} ms`);
     if (countError) {
       throw new Error(`Error al contar filas en "${this.table}": ${countError.message}`);
     }
 
     const total = count ?? 0;
     const pages = Math.ceil(total / this.pageSize);
-    console.log(`[PERF] supabase: filas=${total}, paginas/consultas=${pages}, pageSize=${this.pageSize}`);
 
-    // 2) Todas las páginas EN PARALELO (antes eran secuenciales -> ~20s).
+    // 2) Todas las páginas EN PARALELO, con proyección de columnas.
     const requests = [];
     for (let page = 0; page < pages; page += 1) {
       const from = page * this.pageSize;
       const to = from + this.pageSize - 1;
-      const pageIndex = page + 1;
-      const tPageStart = Date.now();
-      requests.push(
-        client
-          .from(this.table)
-          .select('*')
-          .range(from, to)
-          .then((result) => {
-            console.log(`[PERF] supabase: pagina ${pageIndex}/${pages} (range ${from}-${to}) = ${Date.now() - tPageStart} ms`);
-            return result;
-          })
-      );
+      requests.push(client.from(this.table).select(DASHBOARD_COLUMNS).range(from, to));
     }
 
     const results = await Promise.all(requests);
@@ -70,11 +74,8 @@ export class SupabaseCarteraAdapter implements CarteraDataSource {
       if (error) {
         throw new Error(`Error al leer la tabla "${this.table}" en Supabase: ${error.message}`);
       }
-      if (data) all.push(...(data as Record<string, unknown>[]));
+      if (data) all.push(...(data as unknown as Record<string, unknown>[]));
     }
-
-    console.log(`[PERF] supabase: LECTURA TOTAL (count + ${pages} paginas en paralelo) = ${Date.now() - tReadStart} ms`);
-    // === FIN INSTRUMENTACIÓN TEMPORAL ===
 
     this.cache = { rows: all, expires: now + this.cacheTtlMs };
     return all;

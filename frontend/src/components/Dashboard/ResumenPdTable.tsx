@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Box, Chip, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
+import { Box, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
 import type { ResumenPdItem } from '../../types/cartera';
 import TableActionsMenu from '../common/TableActionsMenu';
 import { copyRowsToClipboard, exportRowsToCsv, exportRowsToExcel } from '../../utils/tableExport';
@@ -11,28 +11,26 @@ interface ResumenPdTableProps {
 
 type ColumnId =
   | 'pd'
-  | 'estado'
   | 'cuentas'
   | 'saldoActualUsd'
   | 'saldoActualLocal'
   | 'recuperadoUsd'
-  | 'recuperadoLocal'
   | 'porcentajeRecuperacionUsd'
   | 'porcentajeRecuperacionLocal';
 
 const columns: { id: ColumnId; label: string; align?: 'right' }[] = [
   { id: 'pd', label: 'PD' },
-  { id: 'estado', label: 'Estado' },
   { id: 'cuentas', label: 'Cuentas', align: 'right' },
   { id: 'saldoActualUsd', label: 'Saldo USD', align: 'right' },
   { id: 'saldoActualLocal', label: 'Saldo Local', align: 'right' },
   { id: 'recuperadoUsd', label: 'Recuperado USD', align: 'right' },
-  { id: 'recuperadoLocal', label: 'Recuperado Local', align: 'right' },
-  { id: 'porcentajeRecuperacionUsd', label: '% USD', align: 'right' },
+  { id: 'porcentajeRecuperacionUsd', label: '%', align: 'right' },
   { id: 'porcentajeRecuperacionLocal', label: '% Local', align: 'right' }
 ];
 
 const formatCurrency = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+// Saldo Local: sólo el valor numérico formateado, sin símbolo "$".
+const formatNumber = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 const formatPercent = (value: number) => `${value.toFixed(2)}%`;
 
 const ResumenPdTable = ({ data }: ResumenPdTableProps) => {
@@ -58,18 +56,14 @@ const ResumenPdTable = ({ data }: ResumenPdTableProps) => {
     switch (columnId) {
       case 'pd':
         return row.pd;
-      case 'estado':
-        return `${getPdEstado(row.pd).dot} ${getPdEstado(row.pd).label}`;
       case 'cuentas':
         return row.cuentas;
       case 'saldoActualUsd':
         return formatCurrency(row.saldoActualUsd);
       case 'saldoActualLocal':
-        return formatCurrency(row.saldoActualLocal);
+        return formatNumber(row.saldoActualLocal);
       case 'recuperadoUsd':
         return formatCurrency(row.recuperadoUsd);
-      case 'recuperadoLocal':
-        return formatCurrency(row.recuperadoLocal);
       case 'porcentajeRecuperacionUsd':
         return formatPercent(row.porcentajeRecuperacionUsd);
       case 'porcentajeRecuperacionLocal':
@@ -161,23 +155,11 @@ const ResumenPdTable = ({ data }: ResumenPdTableProps) => {
               return (
                 <TableRow key={index} hover sx={{ transition: 'background-color 200ms ease-in-out' }}>
                   {visibleColumns.map((column) => {
-                    if (column.id === 'estado') {
+                    if (column.id === 'pd') {
+                      // El PD conserva el color de texto según su nivel de riesgo.
                       return (
-                        <TableCell key={column.id} align={column.align} sx={{ py: 0.6, whiteSpace: 'nowrap' }}>
-                          <Chip
-                            label={`${estado.dot} ${estado.label}`}
-                            size="small"
-                            sx={{
-                              height: 20,
-                              fontSize: 10,
-                              fontWeight: 700,
-                              textTransform: 'none',
-                              color: estado.color,
-                              backgroundColor: `${estado.color}1F`,
-                              border: '1px solid',
-                              borderColor: `${estado.color}45`
-                            }}
-                          />
+                        <TableCell key={column.id} align={column.align} sx={{ fontSize: 11.5, py: 0.6, whiteSpace: 'nowrap', color: estado.color, fontWeight: 700 }}>
+                          {row.pd}
                         </TableCell>
                       );
                     }
