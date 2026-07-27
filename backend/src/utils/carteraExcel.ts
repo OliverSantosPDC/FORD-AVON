@@ -277,36 +277,58 @@ export const loadWorkbookFromBuffer = async (buffer: Buffer): Promise<ExcelJS.Wo
 };
 
 /**
- * Lee las filas de un Excel desde un stream usando el lector por streaming de
- * ExcelJS (no carga el workbook completo en memoria). Reutiliza exactamente la
- * misma normalización (isDateField/toISODate/normalizeCell) que la ruta buffer.
- * Devuelve encabezados y filas normalizadas.
+ * Valida los campos de fecha de UN registro (streaming, sin acumular filas).
+ * Lanza un error claro indicando la fila y el campo si algo no es válido.
  */
-export const streamRowsFromNodeStream = async (
-  stream: Readable
-): Promise<{ headers: string[]; rows: Record<string, unknown>[] }> => {
-  const workbookReader = new ExcelJS.stream.xlsx.WorkbookReader(stream, {
+export const validateRecordDates = (record: Record<string, unknown>, rowNumber: number): void => {
+  const isValidIsoDate = (v: unknown) =>
+    typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(new Date(v).getTime());
+
+  for (const key of Object.keys(record)) {
+    if (!isDateField(key)) continue;
+    const value = record[key];
+    if (value === null) continue;
+    if (!isValidIsoDate(value)) {
+      throw new Error(`Valor de fecha inválido en la fila ${rowNumber}, campo "${key}": ${JSON.stringify(value)}`);
+    }
+  }
+};
+
+export interface StreamRowHandlers {
+  onHeaders?: (dbColumns: (string | null)[], rawHeaders: string[]) => void;
+  onRow: (record: Record<string, unknown>, rowNumber: number) => Promise<void> | void;
+}
+
+/**
+ * Recorre un XLSX por STREAMING (ExcelJS WorkbookReader) fila por fila, sin
+ * acumular todas las filas en memoria. Mapea cada encabezado a su columna real
+ * y entrega cada registro normalizado al handler (que puede ser asíncrono, lo
+ * que permite aplicar backpressure al insertar por lotes). Reutiliza la misma
+ * normalización (resolveDbColumn/isDateField/toISODate/normalizeCell).
+ */
+export const streamWorkbookRows = async (readStream: Readable, handlers: StreamRowHandlers): Promise<void> => {
+  const workbookReader = new ExcelJS.stream.xlsx.WorkbookReader(readStream, {
     worksheets: 'emit',
     sharedStrings: 'cache',
     styles: 'ignore',
     hyperlinks: 'ignore'
   });
 
-  let headers: string[] = [];
   let dbColumns: (string | null)[] = [];
-  const rows: Record<string, unknown>[] = [];
+  let headerSeen = false;
 
   for await (const worksheet of workbookReader) {
     for await (const row of worksheet) {
-      if (row.number === 1) {
+      if (!headerSeen && row.number === 1) {
         const values = Array.isArray(row.values) ? row.values : [];
-        headers = values.slice(1).map((value) => (value === null || value === undefined ? '' : String(value).trim()));
-        // Cada encabezado se resuelve UNA sola vez a su columna real de la tabla.
-        dbColumns = headers.map((header) => resolveDbColumn(header));
+        const rawHeaders = values.slice(1).map((value) => (value === null || value === undefined ? '' : String(value).trim()));
+        dbColumns = rawHeaders.map((header) => resolveDbColumn(header));
+        headerSeen = true;
+        handlers.onHeaders?.(dbColumns, rawHeaders);
         continue;
       }
 
-      if (headers.length === 0) continue; // aún sin encabezados
+      if (!headerSeen) continue;
 
       const record: Record<string, unknown> = {};
       dbColumns.forEach((dbColumn, index) => {
@@ -314,9 +336,7 @@ export const streamRowsFromNodeStream = async (
         const cellValue = row.getCell(index + 1).value as ExcelJS.CellValue;
         record[dbColumn] = isDateField(dbColumn) ? toISODate(cellValue) : normalizeCell(cellValue);
       });
-      rows.push(record);
+      await handlers.onRow(record, row.number);
     }
   }
-
-  return { headers, rows };
 };
