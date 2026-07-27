@@ -2,7 +2,7 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
 const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL as string) || '';
 const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || '';
 const STORAGE_BUCKET = (import.meta.env.VITE_SUPABASE_CARTERA_BUCKET as string) || 'cartera';
-const STORAGE_OBJECT = (import.meta.env.VITE_SUPABASE_CARTERA_OBJECT as string) || 'Cartera.xlsx';
+const STORAGE_OBJECT = (import.meta.env.VITE_SUPABASE_CARTERA_OBJECT as string) || 'CARTERA COBRO.xlsx';
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 export type UploadPhase = 'preparing' | 'uploading' | 'stored' | 'processing' | 'completed' | 'error';

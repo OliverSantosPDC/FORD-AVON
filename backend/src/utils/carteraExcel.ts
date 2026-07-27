@@ -2,12 +2,12 @@ import ExcelJS from 'exceljs';
 import { Readable } from 'stream';
 
 /**
- * Utilidades compartidas de lectura/normalización de Cartera.xlsx.
+ * Utilidades compartidas de lectura/normalización de "CARTERA COBRO.xlsx" (hoja ASIGNACION).
  * Fuente única usada por el script de importación (CLI) y por la carga desde
- * la plataforma (POST /api/upload/cartera), para evitar duplicación.
+ * la plataforma (POST /api/cartera/process), para evitar duplicación.
  */
 
-export const CARTERA_SHEET_NAME = 'Cartera';
+export const CARTERA_SHEET_NAME = 'ASIGNACION';
 
 /**
  * Columnas mínimas que el dashboard y las agregaciones necesitan. Si alguna
@@ -180,7 +180,7 @@ export const normalizeCell = (value: ExcelJS.CellValue): unknown => {
   return value;
 };
 
-/** Selecciona la hoja "Cartera" (insensible a mayúsculas) o la primera hoja. */
+/** Selecciona la hoja objetivo (ASIGNACION, insensible a mayúsculas) o la primera hoja. */
 export const pickCarteraWorksheet = (workbook: ExcelJS.Workbook): ExcelJS.Worksheet => {
   const worksheet =
     workbook.worksheets.find((sheet) => sheet.name.toUpperCase() === CARTERA_SHEET_NAME.toUpperCase()) ??

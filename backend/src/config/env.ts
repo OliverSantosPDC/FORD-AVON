@@ -43,7 +43,7 @@ export const SUPABASE_CARTERA_TABLE = (process.env.SUPABASE_CARTERA_TABLE ?? 'ca
 export const SUPABASE_CARTERA_BUCKET = (process.env.SUPABASE_CARTERA_BUCKET ?? 'cartera').trim();
 
 /** Nombre fijo del objeto activo dentro del bucket. */
-export const SUPABASE_CARTERA_OBJECT = (process.env.SUPABASE_CARTERA_OBJECT ?? 'Cartera.xlsx').trim();
+export const SUPABASE_CARTERA_OBJECT = (process.env.SUPABASE_CARTERA_OBJECT ?? 'CARTERA COBRO.xlsx').trim();
 
 /**
  * Lanza un error claro si faltan las credenciales de Supabase.

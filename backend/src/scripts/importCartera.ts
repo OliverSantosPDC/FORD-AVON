@@ -19,8 +19,7 @@ import { pickCarteraWorksheet, worksheetToRows, validateDateFields } from '../ut
  * El Excel se mantiene como fuente de carga; el dashboard consulta Supabase.
  */
 
-const EXCEL_PATH = path.join(__dirname, '../../data/excel/Cartera.xlsx');
-const SHEET_NAME = 'Cartera';
+const EXCEL_PATH = path.join(__dirname, '../../data/excel/CARTERA COBRO.xlsx');
 
 interface CliOptions {
   limit: number | null;
