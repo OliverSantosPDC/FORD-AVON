@@ -16,6 +16,7 @@ import {
   worksheetToRows,
   validateDateFields,
   validateRecordDates,
+  validateRecordTypes,
   streamWorkbookRows
 } from '../utils/carteraExcel';
 
@@ -178,25 +179,27 @@ export const downloadAndReplaceCartera = async (onProgress?: ProgressCallback): 
     console.log(`[UPLOAD] stream iniciado | memoria RSS: ${rssMB()} MB`);
 
     // 2) PASADA 1 - validación por streaming (sin acumular filas).
+    //    Sólo se procesa la hoja de cartera; valida encabezados, tipos y fechas.
     onProgress?.({ message: 'Validando archivo...' });
     let headersValidated = false;
     let total = 0;
     await streamWorkbookRows(createReadStream(tmpPath), {
-      onHeaders: (_dbColumns, rawHeaders) => {
-        const { ok, missing } = validateHeaders(rawHeaders);
-        if (!ok) {
-          throw new Error(`El archivo no tiene las columnas requeridas. Faltan: ${missing.join(', ')}`);
-        }
+      onHeaders: () => {
         headersValidated = true;
       },
       onRow: (record, rowNumber) => {
+        // rowNumber es la fila real de Excel (la fila 1 es el encabezado).
+        validateRecordTypes(record, rowNumber);
         validateRecordDates(record, rowNumber);
         total += 1;
         if (total % 5000 === 0) console.log(`[UPLOAD] filas procesadas: ${total} | memoria RSS: ${rssMB()} MB`);
+      },
+      onNoTargetSheet: (missing) => {
+        throw new Error(`El archivo no tiene las columnas requeridas. Faltan: ${missing.join(', ')}`);
       }
     });
 
-    if (!headersValidated) throw new Error('El archivo no tiene fila de encabezados.');
+    if (!headersValidated) throw new Error('El archivo no tiene una hoja con las columnas de cartera.');
     if (total === 0) throw new Error('El archivo no contiene filas de datos.');
     console.log(`[UPLOAD] validación OK, total filas: ${total} | memoria RSS: ${rssMB()} MB`);
     onProgress?.({ processed: 0, total, message: 'Procesando registros...' });

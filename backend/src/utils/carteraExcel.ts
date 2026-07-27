@@ -294,17 +294,61 @@ export const validateRecordDates = (record: Record<string, unknown>, rowNumber: 
   }
 };
 
+// Columnas numéricas de la tabla (para validar tipos antes de insertar).
+const INTEGER_COLUMNS = new Set<string>(['dias_mora_actual']);
+const NUMERIC_COLUMNS = new Set<string>([
+  'dias_mora_actual',
+  'saldo_inicial',
+  'saldo_actual',
+  'saldo_inicial_usd',
+  'saldo_actual_usd'
+]);
+
+/**
+ * Valida (streaming) que las columnas numéricas de UN registro contengan sólo
+ * null o valores numéricos. Si un valor no es un número válido (p. ej. un texto
+ * o un nombre de columna), lanza un error detallado con fila/columna/valor.
+ */
+export const validateRecordTypes = (record: Record<string, unknown>, rowNumber: number): void => {
+  for (const column of Object.keys(record)) {
+    if (!NUMERIC_COLUMNS.has(column)) continue;
+    const value = record[column];
+    if (value === null || value === undefined) continue;
+
+    let numeric: number | null = null;
+    if (typeof value === 'number') {
+      numeric = Number.isFinite(value) ? value : null;
+    } else {
+      const text = String(value).trim();
+      if (text === '') continue;
+      const parsed = Number(text);
+      numeric = Number.isFinite(parsed) ? parsed : null;
+    }
+
+    const isInteger = INTEGER_COLUMNS.has(column);
+    if (numeric === null || (isInteger && !Number.isInteger(numeric))) {
+      const expected = isInteger ? 'un número entero' : 'un número';
+      throw new Error(
+        `Error de validación en la fila ${rowNumber}, columna ${column}: valor ${JSON.stringify(value)}. Se esperaba ${expected}.`
+      );
+    }
+  }
+};
+
 export interface StreamRowHandlers {
   onHeaders?: (dbColumns: (string | null)[], rawHeaders: string[]) => void;
   onRow: (record: Record<string, unknown>, rowNumber: number) => Promise<void> | void;
+  // Se invoca si NINGUNA hoja del libro tiene las columnas de cartera requeridas.
+  onNoTargetSheet?: (missing: string[], rawHeaders: string[]) => void;
 }
 
 /**
- * Recorre un XLSX por STREAMING (ExcelJS WorkbookReader) fila por fila, sin
- * acumular todas las filas en memoria. Mapea cada encabezado a su columna real
- * y entrega cada registro normalizado al handler (que puede ser asíncrono, lo
- * que permite aplicar backpressure al insertar por lotes). Reutiliza la misma
- * normalización (resolveDbColumn/isDateField/toISODate/normalizeCell).
+ * Recorre un XLSX por STREAMING (ExcelJS WorkbookReader) sin acumular filas.
+ * El libro puede tener VARIAS hojas (p. ej. "REC'S" y "CARTERA"); se procesa
+ * ÚNICAMENTE la hoja cuya fila de encabezados corresponde a la cartera (las
+ * demás hojas se ignoran). La PRIMERA fila de cada hoja se trata como encabezado
+ * y NUNCA se inserta como dato. Mapea cada encabezado a su columna real y entrega
+ * cada registro normalizado (objeto nuevo por fila) al handler async.
  */
 export const streamWorkbookRows = async (readStream: Readable, handlers: StreamRowHandlers): Promise<void> => {
   const workbookReader = new ExcelJS.stream.xlsx.WorkbookReader(readStream, {
@@ -314,21 +358,39 @@ export const streamWorkbookRows = async (readStream: Readable, handlers: StreamR
     hyperlinks: 'ignore'
   });
 
-  let dbColumns: (string | null)[] = [];
-  let headerSeen = false;
+  let targetFound = false;
+  // Hoja "más parecida" (menor número de columnas requeridas faltantes) para el error.
+  let bestMissing: string[] | null = null;
+  let bestRawHeaders: string[] = [];
 
   for await (const worksheet of workbookReader) {
+    let dbColumns: (string | null)[] = [];
+    let isTargetSheet = false;
+    let headerHandled = false;
+
     for await (const row of worksheet) {
-      if (!headerSeen && row.number === 1) {
+      // Primera fila de la hoja = encabezado (NUNCA es dato).
+      if (!headerHandled) {
+        headerHandled = true;
         const values = Array.isArray(row.values) ? row.values : [];
         const rawHeaders = values.slice(1).map((value) => (value === null || value === undefined ? '' : String(value).trim()));
-        dbColumns = rawHeaders.map((header) => resolveDbColumn(header));
-        headerSeen = true;
-        handlers.onHeaders?.(dbColumns, rawHeaders);
+        const mapped = rawHeaders.map((header) => resolveDbColumn(header));
+        const { ok, missing } = validateHeaders(rawHeaders);
+
+        if (ok && !targetFound) {
+          isTargetSheet = true;
+          targetFound = true;
+          dbColumns = mapped;
+          handlers.onHeaders?.(mapped, rawHeaders);
+        } else if (!ok && (bestMissing === null || missing.length < bestMissing.length)) {
+          bestMissing = missing;
+          bestRawHeaders = rawHeaders;
+        }
         continue;
       }
 
-      if (!headerSeen) continue;
+      // Filas de hojas que no son la cartera: se ignoran por completo.
+      if (!isTargetSheet) continue;
 
       const record: Record<string, unknown> = {};
       dbColumns.forEach((dbColumn, index) => {
@@ -338,5 +400,9 @@ export const streamWorkbookRows = async (readStream: Readable, handlers: StreamR
       });
       await handlers.onRow(record, row.number);
     }
+  }
+
+  if (!targetFound) {
+    handlers.onNoTargetSheet?.(bestMissing ?? REQUIRED_CARTERA_COLUMNS.slice(), bestRawHeaders);
   }
 };
