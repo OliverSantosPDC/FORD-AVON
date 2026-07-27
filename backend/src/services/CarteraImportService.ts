@@ -1,4 +1,10 @@
+import os from 'os';
+import path from 'path';
+import { createReadStream, createWriteStream } from 'fs';
+import { unlink } from 'fs/promises';
+import { randomUUID } from 'crypto';
 import { Readable } from 'stream';
+import { pipeline } from 'stream/promises';
 import { getSupabaseClient } from '../config/supabaseClient';
 import { SUPABASE_CARTERA_TABLE, SUPABASE_CARTERA_BUCKET, SUPABASE_CARTERA_OBJECT } from '../config/env';
 import { getCarteraDataSource } from '../config/dataSource';
@@ -9,7 +15,8 @@ import {
   validateHeaders,
   worksheetToRows,
   validateDateFields,
-  streamRowsFromNodeStream
+  validateRecordDates,
+  streamWorkbookRows
 } from '../utils/carteraExcel';
 
 /**
@@ -129,31 +136,108 @@ export const processAndReplaceCartera = async (buffer: Buffer): Promise<ReplaceC
   return { count };
 };
 
+const rssMB = () => Math.round(process.memoryUsage().rss / 1024 / 1024);
+
 /**
- * NUEVA ARQUITECTURA: descarga "Cartera.xlsx" desde Supabase Storage, lo parsea
- * por STREAMING (sin cargar el workbook completo en memoria) y reemplaza la
- * tabla `cartera`. Render nunca recibe el archivo por HTTP/multer.
- * Informa el progreso (registros procesados / totales) vía onProgress.
+ * NUEVA ARQUITECTURA (eficiente en memoria). Descarga "Cartera.xlsx" de Supabase
+ * Storage por STREAMING a un archivo temporal en disco (sin bufferizar todo el
+ * archivo), y luego lo procesa en DOS pasadas por streaming:
+ *   Pasada 1 (validación): valida encabezados y fechas fila por fila, cuenta el
+ *     total. NO acumula filas. Si es inválido, la cartera actual queda intacta.
+ *   Pasada 2 (reemplazo): trunca la tabla e inserta por lotes de 500, vaciando
+ *     el lote tras cada inserción. Nunca mantiene todas las filas en memoria.
+ * Render nunca recibe el archivo por HTTP/multer.
  */
 export const downloadAndReplaceCartera = async (onProgress?: ProgressCallback): Promise<ReplaceCarteraResult> => {
-  logStage(`descargando "${SUPABASE_CARTERA_OBJECT}" del bucket "${SUPABASE_CARTERA_BUCKET}"`);
+  console.log(`[UPLOAD] inicio | memoria RSS: ${rssMB()} MB`);
   onProgress?.({ message: 'Descargando archivo...' });
-  const client = getSupabaseClient();
-  const { data, error } = await client.storage.from(SUPABASE_CARTERA_BUCKET).download(SUPABASE_CARTERA_OBJECT);
 
-  if (error || !data) {
+  // Liberar la caché del dashboard (libera ~decenas de MB) antes de procesar.
+  getCarteraDataSource().clearCache?.();
+
+  const client = getSupabaseClient();
+  const { data: signed, error: signError } = await client.storage
+    .from(SUPABASE_CARTERA_BUCKET)
+    .createSignedUrl(SUPABASE_CARTERA_OBJECT, 300);
+
+  if (signError || !signed?.signedUrl) {
     throw new Error(
-      `No se pudo descargar "${SUPABASE_CARTERA_OBJECT}" del bucket "${SUPABASE_CARTERA_BUCKET}": ${error?.message ?? 'archivo no encontrado'}`
+      `No se pudo obtener "${SUPABASE_CARTERA_OBJECT}" del bucket "${SUPABASE_CARTERA_BUCKET}": ${signError?.message ?? 'sin URL firmada'}`
     );
   }
 
-  // Blob -> Buffer -> stream de Node para el lector por streaming de ExcelJS.
-  const arrayBuffer = await data.arrayBuffer();
-  const nodeStream = Readable.from(Buffer.from(arrayBuffer));
-  logStage(`archivo descargado (${Math.round(arrayBuffer.byteLength / 1024)}KB), parseando por streaming`);
-  onProgress?.({ message: 'Procesando registros...' });
+  const tmpPath = path.join(os.tmpdir(), `cartera-${randomUUID()}.xlsx`);
 
-  const { headers, rows } = await streamRowsFromNodeStream(nodeStream);
-  const count = await replaceCarteraWithRows(headers, rows, onProgress);
-  return { count };
+  try {
+    // 1) Descargar por STREAMING a disco (sin cargar todo el archivo en un Buffer).
+    const response = await fetch(signed.signedUrl);
+    if (!response.ok || !response.body) {
+      throw new Error(`Descarga del archivo fallida (HTTP ${response.status}).`);
+    }
+    await pipeline(Readable.fromWeb(response.body as never), createWriteStream(tmpPath));
+    console.log(`[UPLOAD] stream iniciado | memoria RSS: ${rssMB()} MB`);
+
+    // 2) PASADA 1 - validación por streaming (sin acumular filas).
+    onProgress?.({ message: 'Validando archivo...' });
+    let headersValidated = false;
+    let total = 0;
+    await streamWorkbookRows(createReadStream(tmpPath), {
+      onHeaders: (_dbColumns, rawHeaders) => {
+        const { ok, missing } = validateHeaders(rawHeaders);
+        if (!ok) {
+          throw new Error(`El archivo no tiene las columnas requeridas. Faltan: ${missing.join(', ')}`);
+        }
+        headersValidated = true;
+      },
+      onRow: (record, rowNumber) => {
+        validateRecordDates(record, rowNumber);
+        total += 1;
+        if (total % 5000 === 0) console.log(`[UPLOAD] filas procesadas: ${total} | memoria RSS: ${rssMB()} MB`);
+      }
+    });
+
+    if (!headersValidated) throw new Error('El archivo no tiene fila de encabezados.');
+    if (total === 0) throw new Error('El archivo no contiene filas de datos.');
+    console.log(`[UPLOAD] validación OK, total filas: ${total} | memoria RSS: ${rssMB()} MB`);
+    onProgress?.({ processed: 0, total, message: 'Procesando registros...' });
+
+    // 3) PASADA 2 - reemplazo: truncate + insert por lotes (streaming, sin acumular).
+    onProgress?.({ processed: 0, total, message: 'Actualizando cartera...' });
+    await truncateTable();
+
+    let batch: Record<string, unknown>[] = [];
+    let inserted = 0;
+
+    const flush = async () => {
+      if (batch.length === 0) return;
+      const size = batch.length;
+      const { error } = await client.from(SUPABASE_CARTERA_TABLE).insert(batch);
+      if (error) {
+        throw new Error(
+          `Fallo al insertar el lote que termina en la fila ${inserted + size}: ${error.message}` +
+            (error.details ? ` | detalles: ${error.details}` : '')
+        );
+      }
+      inserted += size;
+      batch = []; // vaciar el lote inmediatamente
+      console.log(`[UPLOAD] lote insertado: ${inserted}/${total} | memoria RSS: ${rssMB()} MB`);
+      onProgress?.({ processed: inserted, total, message: 'Actualizando cartera...' });
+    };
+
+    await streamWorkbookRows(createReadStream(tmpPath), {
+      onRow: async (record) => {
+        batch.push(record);
+        if (batch.length >= BATCH_SIZE) await flush();
+      }
+    });
+    await flush();
+
+    // 4) Invalidar la caché del dashboard para que lea los datos nuevos.
+    getCarteraDataSource().clearCache?.();
+    console.log(`[UPLOAD] proceso completado (${inserted} filas) | memoria RSS: ${rssMB()} MB`);
+
+    return { count: inserted };
+  } finally {
+    await unlink(tmpPath).catch(() => {});
+  }
 };
