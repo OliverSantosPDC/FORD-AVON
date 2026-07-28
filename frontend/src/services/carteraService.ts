@@ -6,11 +6,15 @@ import {
 } from '../types/cartera';
 import { apiFetch } from './apiClient';
 
-/** Traduce el status HTTP a un mensaje amigable para la UI. */
-const messageForStatus = (status: number, fallback: string): string => {
+/**
+ * Traduce el status HTTP a un mensaje amigable y unificado para la UI.
+ * Fuente única de traducción de errores (no se duplica en las páginas).
+ */
+const SERVER_ERROR = 'No fue posible cargar la información. Intenta nuevamente.';
+const messageForStatus = (status: number, _fallback?: string): string => {
   if (status === 401) return 'Tu sesión ha expirado. Inicia sesión nuevamente.';
   if (status === 403) return 'No tienes permisos para acceder a esta información.';
-  return fallback;
+  return SERVER_ERROR;
 };
 
 const buildQueryString = (filters?: DashboardFilterParams) => {

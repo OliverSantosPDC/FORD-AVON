@@ -43,7 +43,7 @@ const InteligenciaPage = () => {
   if (sinDatos) {
     return (
       <Container maxWidth="xl" sx={{ py: 6, textAlign: 'center' }}>
-        <Typography variant="h6" fontWeight={700}>No hay información disponible para tu alcance actual.</Typography>
+        <Typography variant="h6" fontWeight={700}>No hay datos disponibles para tu alcance actual.</Typography>
         <Typography color="text.secondary" sx={{ mt: 0.5 }}>
           No tienes cuentas asignadas dentro de tu alcance de acceso.
         </Typography>
