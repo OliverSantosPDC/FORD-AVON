@@ -4,8 +4,7 @@ import {
   DashboardFilterParams,
   InteligenciaResponse,
 } from '../types/cartera';
-
-const API_BASE = import.meta.env.VITE_API_URL || '';
+import { apiFetch } from './apiClient';
 
 const buildQueryString = (filters?: DashboardFilterParams) => {
   if (!filters) return '';
@@ -32,12 +31,10 @@ export const fetchDashboard = async (
 ): Promise<DashboardResponse> => {
   const queryString = buildQueryString(filters);
 
-  const response = await fetch(
-    `${API_BASE}/api/dashboard${queryString}`,
-    // no-store: tras una carga de cartera, la recarga debe leer datos nuevos
-    // y nunca servir una respuesta cacheada por el navegador.
-    { cache: 'no-store' }
-  );
+  // apiFetch añade automáticamente Authorization: Bearer <access_token>.
+  // no-store: tras una carga de cartera, la recarga debe leer datos nuevos
+  // y nunca servir una respuesta cacheada por el navegador.
+  const response = await apiFetch(`/api/dashboard${queryString}`, { cache: 'no-store' });
 
   if (!response.ok) {
     throw new Error(
@@ -49,9 +46,7 @@ export const fetchDashboard = async (
 };
 
 export const fetchInteligencia = async (): Promise<InteligenciaResponse> => {
-  const response = await fetch(
-    `${API_BASE}/api/inteligencia`
-  );
+  const response = await apiFetch(`/api/inteligencia`);
 
   if (!response.ok) {
     throw new Error(
@@ -63,9 +58,7 @@ export const fetchInteligencia = async (): Promise<InteligenciaResponse> => {
 };
 
 export const fetchCartera = async (): Promise<CarteraRecord[]> => {
-  const response = await fetch(
-    `${API_BASE}/api/cartera`
-  );
+  const response = await apiFetch(`/api/cartera`);
 
   if (!response.ok) {
     throw new Error(
