@@ -14,8 +14,15 @@ export class DashboardController {
       console.log('[PERF] ===== /api/dashboard: nueva peticion =====');
       const tTotal = Date.now();
 
+      // El alcance SIEMPRE proviene del backend (req.auth.scopeContext, poblado por
+      // requireAuth). Fail-closed: sin scope resuelto se deniega, nunca datos globales.
+      const scopeContext = req.auth?.scopeContext;
+      if (!scopeContext) {
+        return res.status(403).json({ error: 'Alcance de acceso no disponible.' });
+      }
+
       const filters = extractFilters(req.query);
-      const dashboard = await this.service.getDashboard(filters);
+      const dashboard = await this.service.getDashboard(filters, scopeContext);
 
       const tSer = Date.now();
       const payload = JSON.stringify(dashboard);
@@ -34,9 +41,16 @@ export class DashboardController {
     }
   }
 
-  async getInteligencia(_req: Request, res: Response): Promise<Response> {
+  async getInteligencia(req: Request, res: Response): Promise<Response> {
     try {
-      const inteligencia = await this.service.getInteligencia();
+      // El alcance SIEMPRE proviene del backend (req.auth.scopeContext, poblado por
+      // requireAuth). Fail-closed: sin scope resuelto se deniega, nunca datos globales.
+      const scopeContext = req.auth?.scopeContext;
+      if (!scopeContext) {
+        return res.status(403).json({ error: 'Alcance de acceso no disponible.' });
+      }
+
+      const inteligencia = await this.service.getInteligencia(scopeContext);
       return res.json(inteligencia);
     } catch (error) {
       if (error instanceof Error) {

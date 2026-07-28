@@ -103,6 +103,19 @@ const DashboardPage = () => {
     );
   }
 
+  // Estado "sin datos" para el alcance actual (p. ej. usuario sin asignaciones).
+  const hasFiltersApplied = Object.values(filters).some((list) => list.length > 0);
+  if (!hasFiltersApplied && (dashboard.kpis?.totalCuentas ?? 0) === 0) {
+    return (
+      <Box sx={{ p: 4, textAlign: 'center' }}>
+        <Typography sx={{ fontSize: 16, fontWeight: 600 }}>No hay información disponible para tu alcance actual.</Typography>
+        <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.5 }}>
+          No tienes cuentas asignadas dentro de tu alcance de acceso.
+        </Typography>
+      </Box>
+    );
+  }
+
   return (
     /*
      * Lienzo ejecutivo: una sola rejilla CSS de 12 columnas con gap uniforme.

@@ -38,6 +38,19 @@ const InteligenciaPage = () => {
     );
   }
 
+  // Estado "sin datos" para el alcance actual.
+  const sinDatos = data.topCuentas.length === 0 && data.rankingGestores.length === 0 && data.rankingPaises.length === 0;
+  if (sinDatos) {
+    return (
+      <Container maxWidth="xl" sx={{ py: 6, textAlign: 'center' }}>
+        <Typography variant="h6" fontWeight={700}>No hay información disponible para tu alcance actual.</Typography>
+        <Typography color="text.secondary" sx={{ mt: 0.5 }}>
+          No tienes cuentas asignadas dentro de tu alcance de acceso.
+        </Typography>
+      </Container>
+    );
+  }
+
   return (
     <Container maxWidth="xl" sx={{ py: 3 }}>
       <Box sx={{ mb: 3 }}>

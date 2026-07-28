@@ -11,9 +11,16 @@ export class CarteraController {
 
   async getCartera(req: Request, res: Response): Promise<Response> {
     try {
+      // El alcance SIEMPRE proviene del backend (req.auth.scopeContext lo pobló
+      // requireAuth). Fail-closed: sin scope resuelto, se deniega (no se listan datos).
+      const scopeContext = req.auth?.scopeContext;
+      if (!scopeContext) {
+        return res.status(403).json({ error: 'Alcance de acceso no disponible.' });
+      }
+
       const filters = extractFilters(req.query);
       const limit = extractLimit(req.query);
-      const data = await this.service.listCartera(filters, limit);
+      const data = await this.service.listCartera(filters, limit, scopeContext);
       return res.json(data);
     } catch (error) {
       if (error instanceof Error) {
