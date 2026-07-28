@@ -108,7 +108,7 @@ const DashboardPage = () => {
   if (!hasFiltersApplied && (dashboard.kpis?.totalCuentas ?? 0) === 0) {
     return (
       <Box sx={{ p: 4, textAlign: 'center' }}>
-        <Typography sx={{ fontSize: 16, fontWeight: 600 }}>No hay información disponible para tu alcance actual.</Typography>
+        <Typography sx={{ fontSize: 16, fontWeight: 600 }}>No hay datos disponibles para tu alcance actual.</Typography>
         <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.5 }}>
           No tienes cuentas asignadas dentro de tu alcance de acceso.
         </Typography>
