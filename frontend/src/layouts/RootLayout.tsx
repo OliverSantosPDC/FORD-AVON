@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link as RouterLink, Outlet, useLocation } from 'react-router-dom';
+import { Link as RouterLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   AppBar,
   Avatar,
@@ -22,38 +22,29 @@ import {
   Tooltip
 } from '@mui/material';
 import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone';
-import DashboardIcon from '@mui/icons-material/Dashboard';
-import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
-import InsightsIcon from '@mui/icons-material/Insights';
-import BarChartIcon from '@mui/icons-material/BarChart';
-import SettingsIcon from '@mui/icons-material/Settings';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
-import AvatarIcon from '@mui/icons-material/Person';
-import UploadFileIcon from '@mui/icons-material/UploadFile';
-import type { PaletteMode } from '@mui/material';
+import LogoutIcon from '@mui/icons-material/Logout';
 import { useThemeMode } from '../theme/ThemeProviderWrapper';
+import { useAuth } from '../context/AuthContext';
+import { MODULES } from '../config/modules';
 import pdcLogo from '../assets/branding/pdc-logo.svg';
 import avonLogo from '../assets/branding/avon-logo.svg';
 
 const drawerWidth = 168;
 
-const menuItems = [
-  { label: 'Dashboard', icon: <DashboardIcon sx={{ fontSize: 22 }} />, path: '/dashboard' },
-  { label: 'Gestión', icon: <TrendingUpIcon sx={{ fontSize: 22 }} />, path: '/gestion' },
-  { label: 'Calendario', icon: <CalendarTodayIcon sx={{ fontSize: 22 }} />, path: '/calendario' },
-  { label: 'Reportes', icon: <BarChartIcon sx={{ fontSize: 22 }} />, path: '/reportes' },
-  { label: 'Proyecciones', icon: <InsightsIcon sx={{ fontSize: 22 }} />, path: '/proyecciones' },
-  { label: 'Centro de Inteligencia', icon: <InsightsIcon sx={{ fontSize: 22 }} />, path: '/inteligencia' },
-  { label: 'Cargar cartera', icon: <UploadFileIcon sx={{ fontSize: 22 }} />, path: '/cargar-cartera' },
-  { label: 'Configuración', icon: <SettingsIcon sx={{ fontSize: 22 }} />, path: '/configuracion' },
-  { label: 'Usuarios', icon: <AvatarIcon sx={{ fontSize: 22 }} />, path: '/usuarios' }
-];
+const initialsOf = (nombre?: string | null, apellido?: string | null): string => {
+  const a = (nombre ?? '').trim().charAt(0);
+  const b = (apellido ?? '').trim().charAt(0);
+  const ini = `${a}${b}`.toUpperCase();
+  return ini || 'U';
+};
 
 const RootLayout = () => {
   const theme = useTheme();
+  const navigate = useNavigate();
   const { mode, toggleMode } = useThemeMode();
+  const { user, role, hasPermission, logout } = useAuth();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [time, setTime] = useState(() => new Date());
   const location = useLocation();
@@ -62,6 +53,9 @@ const RootLayout = () => {
     const timer = window.setInterval(() => setTime(new Date()), 60000);
     return () => window.clearInterval(timer);
   }, []);
+
+  // Menú generado desde la fuente única de módulos, filtrado por permisos.
+  const visibleModules = useMemo(() => MODULES.filter((m) => hasPermission(m.permission)), [hasPermission]);
 
   const updateDate = useMemo(
     () => new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date()),
@@ -73,12 +67,17 @@ const RootLayout = () => {
     [time]
   );
 
-  const handleUserMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
-    setAnchorEl(event.currentTarget);
-  };
+  const nombreCompleto = [user?.nombre, user?.apellido].filter(Boolean).join(' ') || user?.email || 'Usuario';
+  const roleNombre = role?.nombre ?? 'Sin rol';
+  const iniciales = initialsOf(user?.nombre, user?.apellido);
 
-  const handleUserMenuClose = () => {
-    setAnchorEl(null);
+  const handleUserMenuOpen = (event: React.MouseEvent<HTMLElement>) => setAnchorEl(event.currentTarget);
+  const handleUserMenuClose = () => setAnchorEl(null);
+
+  const handleLogout = async () => {
+    handleUserMenuClose();
+    await logout();
+    navigate('/login', { replace: true });
   };
 
   const drawer = (
@@ -89,14 +88,12 @@ const RootLayout = () => {
         flexDirection: 'column',
         bgcolor: mode === 'light' ? '#F6F8FB' : '#111827',
         color: mode === 'light' ? '#5B6472' : '#E2E8F0',
-        // Scrollbar eliminado por completo en el panel lateral.
         overflowY: 'auto',
         scrollbarWidth: 'none',
         msOverflowStyle: 'none',
         '&::-webkit-scrollbar': { display: 'none', width: 0, height: 0 }
       }}
     >
-      {/* Espacio reservado para los logos oficiales de la próxima iteración. */}
       <Toolbar sx={{ px: 1.75, py: 1.25, minHeight: 52 }}>
         <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', gap: 1 }}>
           <Box component="img" src={pdcLogo} alt="Logo PDC" sx={{ width: 60, height: 18 }} />
@@ -105,10 +102,10 @@ const RootLayout = () => {
       </Toolbar>
       <Divider sx={{ mb: 1.25, borderColor: mode === 'light' ? '#E5E7EB' : '#17233F' }} />
       <List sx={{ flexGrow: 1, py: 0.5 }}>
-        {menuItems.map((item) => {
+        {visibleModules.map((item) => {
           const selected = location.pathname === item.path;
           return (
-            <ListItem key={item.label} disablePadding>
+            <ListItem key={item.key} disablePadding>
               <ListItemButton
                 component={RouterLink}
                 to={item.path}
@@ -129,7 +126,6 @@ const RootLayout = () => {
                   boxShadow: selected
                     ? '0 0 0 1px rgba(230, 0, 126, 0.14), 0 8px 22px rgba(230, 0, 126, 0.18)'
                     : 'none',
-                  // Iluminación suave que recorre el módulo activo.
                   '&::after': selected
                     ? {
                         content: '""',
@@ -226,13 +222,13 @@ const RootLayout = () => {
               }}
             >
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.85 }}>
-                <Avatar sx={{ width: 28, height: 28, bgcolor: '#1E3A8A', fontSize: 12 }}>A</Avatar>
+                <Avatar sx={{ width: 28, height: 28, bgcolor: '#1E3A8A', fontSize: 12 }}>{iniciales}</Avatar>
                 <Box>
                   <Typography variant="caption" fontWeight={700} sx={{ display: 'block', lineHeight: 1.2 }}>
-                    Adrián Pérez
+                    {nombreCompleto}
                   </Typography>
                   <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10, lineHeight: 1.2 }}>
-                    Avon PDC
+                    {roleNombre}
                   </Typography>
                 </Box>
               </Box>
@@ -282,12 +278,19 @@ const RootLayout = () => {
                   '&:hover': { transform: 'translateY(-1px)', boxShadow: '0 10px 24px rgba(15, 23, 42, 0.12)' }
                 }}
               >
-                <Avatar sx={{ width: 26, height: 26, bgcolor: '#E6007E', fontSize: 12 }}>AP</Avatar>
+                <Avatar sx={{ width: 26, height: 26, bgcolor: '#E6007E', fontSize: 12 }}>{iniciales}</Avatar>
               </IconButton>
             </Tooltip>
             <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleUserMenuClose}>
-              <MenuItem onClick={handleUserMenuClose}>Perfil</MenuItem>
-              <MenuItem onClick={handleUserMenuClose}>Cerrar sesión</MenuItem>
+              <Box sx={{ px: 2, py: 1 }}>
+                <Typography variant="body2" fontWeight={700} sx={{ lineHeight: 1.3 }}>{nombreCompleto}</Typography>
+                <Typography variant="caption" color="text.secondary">{roleNombre}</Typography>
+              </Box>
+              <Divider />
+              <MenuItem onClick={handleLogout}>
+                <ListItemIcon sx={{ minWidth: 32 }}><LogoutIcon fontSize="small" /></ListItemIcon>
+                Cerrar sesión
+              </MenuItem>
             </Menu>
           </Box>
         </Toolbar>

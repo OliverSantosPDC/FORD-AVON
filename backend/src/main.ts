@@ -4,6 +4,7 @@ import cors from 'cors';
 import carteraRoutes from './routes/carteraRoutes';
 import dashboardRoutes from './routes/dashboardRoutes';
 import uploadRoutes from './routes/uploadRoutes';
+import authRoutes from './routes/authRoutes';
 
 const app = express();
 const port = process.env.PORT ?? 4000;
@@ -38,6 +39,9 @@ app.options('*', cors(corsOptions));
 
 app.use(express.json());
 
+// Auth (protegida). Dashboard/cartera/inteligencia siguen SIN protección en esta
+// fase para no romper el dashboard actual; el alcance se aplicará en la siguiente.
+app.use('/api', authRoutes);
 app.use('/api', carteraRoutes);
 app.use('/api', dashboardRoutes);
 app.use('/api', uploadRoutes);
