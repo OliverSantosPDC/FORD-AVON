@@ -6,6 +6,13 @@ import {
 } from '../types/cartera';
 import { apiFetch } from './apiClient';
 
+/** Traduce el status HTTP a un mensaje amigable para la UI. */
+const messageForStatus = (status: number, fallback: string): string => {
+  if (status === 401) return 'Tu sesión ha expirado. Inicia sesión nuevamente.';
+  if (status === 403) return 'No tienes permisos para acceder a esta información.';
+  return fallback;
+};
+
 const buildQueryString = (filters?: DashboardFilterParams) => {
   if (!filters) return '';
 
@@ -37,9 +44,7 @@ export const fetchDashboard = async (
   const response = await apiFetch(`/api/dashboard${queryString}`, { cache: 'no-store' });
 
   if (!response.ok) {
-    throw new Error(
-      'No se pudo obtener la información del dashboard.'
-    );
+    throw new Error(messageForStatus(response.status, 'No se pudo obtener la información del dashboard.'));
   }
 
   return response.json();
@@ -49,9 +54,7 @@ export const fetchInteligencia = async (): Promise<InteligenciaResponse> => {
   const response = await apiFetch(`/api/inteligencia`);
 
   if (!response.ok) {
-    throw new Error(
-      'No se pudo obtener la información del centro de inteligencia.'
-    );
+    throw new Error(messageForStatus(response.status, 'No se pudo obtener la información del centro de inteligencia.'));
   }
 
   return response.json();
@@ -61,9 +64,7 @@ export const fetchCartera = async (): Promise<CarteraRecord[]> => {
   const response = await apiFetch(`/api/cartera`);
 
   if (!response.ok) {
-    throw new Error(
-      'No se pudo obtener la información de cartera.'
-    );
+    throw new Error(messageForStatus(response.status, 'No se pudo obtener la información de cartera.'));
   }
 
   return response.json();

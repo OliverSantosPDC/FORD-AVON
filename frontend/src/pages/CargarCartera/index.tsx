@@ -66,7 +66,7 @@ const CargarCarteraPage = () => {
               Seleccionar archivo
             </Button>
             <Typography sx={{ fontSize: 13, color: file ? 'text.primary' : 'text.secondary' }}>
-              {file ? file.name : 'Ningún archivo seleccionado'}
+              {file ? `${file.name} · ${(file.size / (1024 * 1024)).toFixed(2)} MB` : 'Ningún archivo seleccionado'}
             </Typography>
           </Box>
 

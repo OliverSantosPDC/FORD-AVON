@@ -21,6 +21,8 @@ import {
   DashboardMultiFilterParams,
   CarteraRow
 } from '../utils/carteraAggregations';
+import { applyScope } from './ScopeFilter';
+import type { ScopeContext } from './ScopeService';
 
 export class CarteraService {
   private readonly repository: CarteraRepository;
@@ -34,23 +36,53 @@ export class CarteraService {
    * regresar ÚNICAMENTE los registros necesarios (evita descargar los 20k).
    * Sin parámetros, mantiene el comportamiento anterior (devuelve todo).
    */
-  async listCartera(filters?: DashboardFilterParams, limit?: number): Promise<Record<string, unknown>[]> {
-    const rows = await this.repository.getCartera();
+  async listCartera(
+    filters: DashboardFilterParams | undefined,
+    limit: number | undefined,
+    scopeContext: ScopeContext
+  ): Promise<Record<string, unknown>[]> {
+    // 1) Datos crudos/globales (caché global; nunca se cachea ya filtrado por usuario).
+    const rows = (await this.repository.getCartera()) as CarteraRow[];
+
+    // 2) FRONTERA DE SEGURIDAD: aplicar el alcance ANTES de los filtros del
+    //    usuario y ANTES de paginar. Global ⇒ todas; no global ⇒ solo su scope;
+    //    scope vacío ⇒ cero filas. El scope SIEMPRE proviene del backend.
+    const scoped = applyScope(rows, scopeContext, {
+      gestorField: 'gestor',
+      zonaField: 'zona',
+      paisField: 'pais'
+    });
+
+    // 3) Filtros de búsqueda del usuario (solo pueden ESTRECHAR, nunca ampliar).
     const multi = toMultiFilters(filters);
     const hasFilters = Object.values(multi).some((list) => list.length > 0);
-    const filtered = hasFilters ? filterCarteraRows(rows as CarteraRow[], multi) : (rows as CarteraRow[]);
+    const filtered = hasFilters ? filterCarteraRows(scoped, multi) : scoped;
 
+    // 4) Límite/paginación, siempre al final.
     if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) {
       return filtered.slice(0, Math.floor(limit));
     }
     return filtered;
   }
 
-  async getDashboard(filters?: DashboardFilterParams): Promise<DashboardResponse> {
+  async getDashboard(
+    filters: DashboardFilterParams | undefined,
+    scopeContext: ScopeContext
+  ): Promise<DashboardResponse> {
     // === INSTRUMENTACIÓN TEMPORAL (remover tras el diagnóstico) ===
     const tRead = Date.now();
-    const rows = (await this.repository.getCartera()) as CarteraRow[];
-    console.log(`[PERF] service: lectura de datos (repository.getCartera) = ${Date.now() - tRead} ms, filas=${rows.length}`);
+    const rawRows = (await this.repository.getCartera()) as CarteraRow[];
+    console.log(`[PERF] service: lectura de datos (repository.getCartera) = ${Date.now() - tRead} ms, filas=${rawRows.length}`);
+
+    // FRONTERA DE SEGURIDAD: aplicar el alcance ANTES de cualquier agregación.
+    // TODAS las métricas, rankings, resúmenes y opciones de filtro se derivan de
+    // `rows` (ya acotado). Global ⇒ todas; no global ⇒ solo su scope;
+    // scope vacío ⇒ cero filas (KPIs en cero, sin datos globales).
+    const rows = applyScope(rawRows, scopeContext, {
+      gestorField: 'gestor',
+      zonaField: 'zona',
+      paisField: 'pais'
+    });
 
     const tAgg = Date.now();
 
@@ -101,8 +133,16 @@ export class CarteraService {
     return response;
   }
 
-  async getInteligencia(): Promise<InteligenciaResponse> {
-    const rows = await this.repository.getCartera();
+  async getInteligencia(scopeContext: ScopeContext): Promise<InteligenciaResponse> {
+    // 1) Datos crudos/globales (caché global). 2) FRONTERA DE SEGURIDAD: aplicar
+    //    el alcance ANTES de mapear y de cualquier cálculo/ranking/top N.
+    //    Global ⇒ todas; no global ⇒ solo su scope; scope vacío ⇒ cero filas.
+    const rawRows = (await this.repository.getCartera()) as CarteraRow[];
+    const rows = applyScope(rawRows, scopeContext, {
+      gestorField: 'gestor',
+      zonaField: 'zona',
+      paisField: 'pais'
+    });
     const cartera = rows.map(mapToCartera);
 
     return {

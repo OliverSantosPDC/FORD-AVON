@@ -2,16 +2,18 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import RootLayout from '../layouts/RootLayout';
 import LoginPage from '../pages/Login';
 import DashboardPage from '../pages/Dashboard';
+import CarteraPage from '../pages/Cartera';
 import InteligenciaPage from '../pages/Inteligencia';
 import CargarCarteraPage from '../pages/CargarCartera';
-import PlaceholderPage from '../pages/PlaceholderPage';
 import { ProtectedRoute, PermissionRoute } from '../components/ProtectedRoute';
 
 /**
- * Rutas de la aplicación.
+ * Rutas de la aplicación (versión usable — FASE 4).
  * - /login es pública.
  * - Todo lo demás vive bajo ProtectedRoute (exige sesión) + RootLayout.
- * - Cada módulo se envuelve en PermissionRoute con su permiso `modulo.*`.
+ * - Cada módulo se envuelve en PermissionRoute con su permiso real.
+ * - La importación se gatea por el permiso `cartera.importar` (Admin/Supervisor).
+ * El backend sigue siendo la autoridad de permisos y scope.
  */
 const AppRoutes = () => (
   <Routes>
@@ -25,36 +27,16 @@ const AppRoutes = () => (
           <Route path="dashboard" element={<DashboardPage />} />
         </Route>
 
+        <Route element={<PermissionRoute permission="modulo.informacion" />}>
+          <Route path="cartera" element={<CarteraPage />} />
+        </Route>
+
         <Route element={<PermissionRoute permission="modulo.centro_inteligencia" />}>
           <Route path="inteligencia" element={<InteligenciaPage />} />
         </Route>
 
-        <Route element={<PermissionRoute permission="modulo.calendario" />}>
-          <Route path="calendario" element={<PlaceholderPage title="Calendario" />} />
-        </Route>
-
-        <Route element={<PermissionRoute permission="modulo.control_operativo" />}>
-          <Route path="control-operativo" element={<PlaceholderPage title="Control Operativo" />} />
-        </Route>
-
-        <Route element={<PermissionRoute permission="modulo.gestion" />}>
-          <Route path="gestion" element={<PlaceholderPage title="Gestión" />} />
-        </Route>
-
-        <Route element={<PermissionRoute permission="modulo.repositorio" />}>
-          <Route path="repositorio" element={<CargarCarteraPage />} />
-        </Route>
-
-        <Route element={<PermissionRoute permission="modulo.usuarios" />}>
-          <Route path="usuarios" element={<PlaceholderPage title="Usuarios" />} />
-        </Route>
-
-        <Route element={<PermissionRoute permission="modulo.configuracion" />}>
-          <Route path="configuracion" element={<PlaceholderPage title="Configuración" />} />
-        </Route>
-
-        <Route element={<PermissionRoute permission="modulo.informacion" />}>
-          <Route path="informacion" element={<PlaceholderPage title="Información" />} />
+        <Route element={<PermissionRoute permission="cartera.importar" />}>
+          <Route path="importar" element={<CargarCarteraPage />} />
         </Route>
 
         <Route path="*" element={<Navigate replace to="dashboard" />} />
