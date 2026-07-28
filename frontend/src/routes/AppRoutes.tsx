@@ -1,24 +1,64 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import RootLayout from '../layouts/RootLayout';
+import LoginPage from '../pages/Login';
 import DashboardPage from '../pages/Dashboard';
 import InteligenciaPage from '../pages/Inteligencia';
 import CargarCarteraPage from '../pages/CargarCartera';
 import PlaceholderPage from '../pages/PlaceholderPage';
+import { ProtectedRoute, PermissionRoute } from '../components/ProtectedRoute';
 
+/**
+ * Rutas de la aplicación.
+ * - /login es pública.
+ * - Todo lo demás vive bajo ProtectedRoute (exige sesión) + RootLayout.
+ * - Cada módulo se envuelve en PermissionRoute con su permiso `modulo.*`.
+ */
 const AppRoutes = () => (
   <Routes>
-    <Route path="/" element={<RootLayout />}>
-      <Route index element={<Navigate replace to="dashboard" />} />
-      <Route path="dashboard" element={<DashboardPage />} />
-      <Route path="gestion" element={<PlaceholderPage title="Gestión" />} />
-      <Route path="calendario" element={<PlaceholderPage title="Calendario" />} />
-      <Route path="reportes" element={<PlaceholderPage title="Reportes" />} />
-      <Route path="proyecciones" element={<PlaceholderPage title="Proyecciones" />} />
-      <Route path="inteligencia" element={<InteligenciaPage />} />
-      <Route path="cargar-cartera" element={<CargarCarteraPage />} />
-      <Route path="configuracion" element={<PlaceholderPage title="Configuración" />} />
-      <Route path="usuarios" element={<PlaceholderPage title="Usuarios" />} />
-      <Route path="*" element={<Navigate replace to="dashboard" />} />
+    <Route path="/login" element={<LoginPage />} />
+
+    <Route element={<ProtectedRoute />}>
+      <Route path="/" element={<RootLayout />}>
+        <Route index element={<Navigate replace to="dashboard" />} />
+
+        <Route element={<PermissionRoute permission="modulo.dashboard" />}>
+          <Route path="dashboard" element={<DashboardPage />} />
+        </Route>
+
+        <Route element={<PermissionRoute permission="modulo.centro_inteligencia" />}>
+          <Route path="inteligencia" element={<InteligenciaPage />} />
+        </Route>
+
+        <Route element={<PermissionRoute permission="modulo.calendario" />}>
+          <Route path="calendario" element={<PlaceholderPage title="Calendario" />} />
+        </Route>
+
+        <Route element={<PermissionRoute permission="modulo.control_operativo" />}>
+          <Route path="control-operativo" element={<PlaceholderPage title="Control Operativo" />} />
+        </Route>
+
+        <Route element={<PermissionRoute permission="modulo.gestion" />}>
+          <Route path="gestion" element={<PlaceholderPage title="Gestión" />} />
+        </Route>
+
+        <Route element={<PermissionRoute permission="modulo.repositorio" />}>
+          <Route path="repositorio" element={<CargarCarteraPage />} />
+        </Route>
+
+        <Route element={<PermissionRoute permission="modulo.usuarios" />}>
+          <Route path="usuarios" element={<PlaceholderPage title="Usuarios" />} />
+        </Route>
+
+        <Route element={<PermissionRoute permission="modulo.configuracion" />}>
+          <Route path="configuracion" element={<PlaceholderPage title="Configuración" />} />
+        </Route>
+
+        <Route element={<PermissionRoute permission="modulo.informacion" />}>
+          <Route path="informacion" element={<PlaceholderPage title="Información" />} />
+        </Route>
+
+        <Route path="*" element={<Navigate replace to="dashboard" />} />
+      </Route>
     </Route>
   </Routes>
 );
