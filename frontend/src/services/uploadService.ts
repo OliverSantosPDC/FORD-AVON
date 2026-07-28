@@ -1,3 +1,5 @@
+import { authService } from './authService';
+
 const API_BASE = import.meta.env.VITE_API_URL || '';
 const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL as string) || '';
 const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || '';
@@ -149,9 +151,18 @@ export const uploadCartera = async (file: File, onProgress?: UploadProgressCallb
   onProgress?.({ phase: 'stored', progress: 50, message: 'Archivo guardado. Procesando cartera...' });
 
   // 2) Disparar procesamiento (asíncrono). Reintentos ante cold start de Render.
+  // El endpoint exige JWT + permiso `cartera.importar`; se adjunta el token.
+  const startToken = await authService.getAccessToken();
   const startResponse = await fetchWithRetry(
     `${API_BASE}/api/cartera/process`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) },
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(startToken ? { Authorization: `Bearer ${startToken}` } : {})
+      },
+      body: JSON.stringify({})
+    },
     { retries: 5, timeoutMs: 20000 }
   );
   const startData = await startResponse.json().catch(() => null);
@@ -171,7 +182,13 @@ export const uploadCartera = async (file: File, onProgress?: UploadProgressCallb
 
     let status: BackendStatus | null = null;
     try {
-      const statusResponse = await fetchWithRetry(`${API_BASE}/api/cartera/process/${jobId}`, {}, { retries: 2, timeoutMs: 15000 });
+      // El sondeo también exige JWT + permiso `cartera.importar`.
+      const pollToken = await authService.getAccessToken();
+      const statusResponse = await fetchWithRetry(
+        `${API_BASE}/api/cartera/process/${jobId}`,
+        { headers: pollToken ? { Authorization: `Bearer ${pollToken}` } : {} },
+        { retries: 2, timeoutMs: 15000 }
+      );
       status = (await statusResponse.json().catch(() => null)) as BackendStatus | null;
       if (!statusResponse.ok || !status) throw new Error('Respuesta de estado inválida.');
       consecutiveFails = 0;
