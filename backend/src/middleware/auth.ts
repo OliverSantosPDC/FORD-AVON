@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
-import { SUPABASE_JWT_SECRET } from '../config/authEnv';
+import { isAuthConfigured } from '../config/authEnv';
+import { verifySupabaseToken, tokenDiagnostics } from '../services/JwtVerifier';
 import { AuthContext, loadAuthContext } from '../services/PerfilService';
 import { registrarAuditoria } from '../services/AuditoriaService';
 
@@ -22,14 +22,15 @@ const extractToken = (req: Request): string | null => {
 };
 
 /**
- * Middleware que exige un JWT válido de Supabase, verifica su firma localmente
- * con SUPABASE_JWT_SECRET, y carga el perfil/rol/permisos en req.auth.
- * NO aplica todavía ningún filtrado de datos por alcance.
+ * Middleware que exige un JWT válido de Supabase Auth. Verifica la firma con la
+ * clave PÚBLICA del JWKS del proyecto (ES256/RS256) o, como respaldo, con el
+ * secreto HS256 legado; valida issuer/audience/expiración; y carga
+ * perfil/rol/permisos en req.auth. NO aplica todavía filtrado de datos por alcance.
  */
 export const requireAuth = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    if (!SUPABASE_JWT_SECRET) {
-      res.status(500).json({ error: 'Autenticación no configurada en el servidor (falta SUPABASE_JWT_SECRET).' });
+    if (!isAuthConfigured()) {
+      res.status(500).json({ error: 'Autenticación no configurada en el servidor (falta SUPABASE_URL o SUPABASE_JWT_SECRET).' });
       return;
     }
 
@@ -39,17 +40,14 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
       return;
     }
 
-    let payload: jwt.JwtPayload;
+    let userId: string;
     try {
-      payload = jwt.verify(token, SUPABASE_JWT_SECRET, { algorithms: ['HS256'] }) as jwt.JwtPayload;
-    } catch {
+      const verified = await verifySupabaseToken(token);
+      userId = verified.userId;
+    } catch (err) {
+      // Log de diagnóstico TEMPORAL: nunca imprime el token completo ni secretos.
+      console.warn('[AUTH] Verificación JWT fallida:', (err as Error).message, tokenDiagnostics(token));
       res.status(401).json({ error: 'Token inválido o expirado.' });
-      return;
-    }
-
-    const userId = typeof payload.sub === 'string' ? payload.sub : '';
-    if (!userId) {
-      res.status(401).json({ error: 'Token sin usuario.' });
       return;
     }
 
