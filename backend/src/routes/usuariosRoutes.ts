@@ -24,5 +24,6 @@ router.get('/usuarios', requireAuth, requirePermission(ADMIN), (req, res) => con
 router.get('/usuarios/:id', requireAuth, requirePermission(ADMIN), (req, res) => controller.detail(req, res));
 router.post('/usuarios', requireAuth, requirePermission(ADMIN), (req, res) => controller.create(req, res));
 router.patch('/usuarios/:id', requireAuth, requirePermission(ADMIN), (req, res) => controller.update(req, res));
+router.delete('/usuarios/:id', requireAuth, requirePermission(ADMIN), (req, res) => controller.remove(req, res));
 
 export default router;

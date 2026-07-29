@@ -8,6 +8,7 @@ import InteligenciaPage from '../pages/Inteligencia';
 import CarteraPage from '../pages/Cartera';
 import RepositorioPage from '../pages/Repositorio';
 import UsuariosPage from '../pages/Usuarios';
+import CalendarioPage from '../pages/Calendario';
 import PlaceholderPage from '../pages/PlaceholderPage';
 import { ProtectedRoute, PermissionRoute } from '../components/ProtectedRoute';
 
@@ -41,7 +42,7 @@ const AppRoutes = () => (
         </Route>
 
         <Route element={<PermissionRoute permission="modulo.calendario" />}>
-          <Route path="calendario" element={<PlaceholderPage title="Calendario" />} />
+          <Route path="calendario" element={<CalendarioPage />} />
         </Route>
 
         <Route element={<PermissionRoute permission="modulo.control_operativo" />}>

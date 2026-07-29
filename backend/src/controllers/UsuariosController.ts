@@ -5,6 +5,7 @@ import {
   obtenerCatalogos,
   crearUsuario,
   actualizarUsuario,
+  eliminarUsuario,
   validarImportacion,
   aplicarImportacion,
   UsuariosError,
@@ -73,6 +74,17 @@ export class UsuariosController {
       return res.json({ ok: true });
     } catch (error) {
       return this.fail(res, error, 'No se pudo actualizar el usuario.');
+    }
+  }
+
+  async remove(req: Request, res: Response): Promise<Response> {
+    try {
+      const actorId = req.auth?.userId ?? null;
+      const { email, roleClave } = await eliminarUsuario(req.params.id, actorId);
+      await registrarAuditoria(actorId, 'ELIMINAR_USUARIO', 'usuarios', req.params.id, { email, rol: roleClave });
+      return res.json({ ok: true });
+    } catch (error) {
+      return this.fail(res, error, 'No se pudo eliminar el usuario.');
     }
   }
 

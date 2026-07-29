@@ -85,6 +85,11 @@ export const updateUsuario = async (id: string, payload: UsuarioPayload): Promis
   if (!res.ok) throw new Error(await parseError(res, 'No se pudo actualizar el usuario.'));
 };
 
+export const deleteUsuario = async (id: string): Promise<void> => {
+  const res = await apiFetch(`/api/usuarios/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudo eliminar el usuario.'));
+};
+
 /* ===== Carga masiva de usuarios (módulo Repositorio) ===== */
 
 export interface PreviewItem {

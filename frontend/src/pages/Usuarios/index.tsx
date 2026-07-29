@@ -43,6 +43,7 @@ import {
   getUsuario,
   createUsuario,
   updateUsuario,
+  deleteUsuario,
   type UsuarioListItem,
   type Catalogos,
   type UsuarioPayload
@@ -85,6 +86,8 @@ const UsuariosPage = () => {
   const [toast, setToast] = useState<string | null>(null);
   const [createdCreds, setCreatedCreds] = useState<{ email: string; password: string } | null>(null);
   const [showCreds, setShowCreds] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -189,6 +192,23 @@ const UsuariosPage = () => {
       setFormError(err instanceof Error ? err.message : 'No se pudo guardar.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!form.id) return;
+    setDeleting(true);
+    try {
+      await deleteUsuario(form.id);
+      setConfirmDelete(false);
+      setDialogOpen(false);
+      setToast('Usuario eliminado.');
+      await load();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'No se pudo eliminar el usuario.');
+      setConfirmDelete(false);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -373,10 +393,33 @@ const UsuariosPage = () => {
             />
           </Stack>
         </DialogContent>
+        <DialogActions sx={{ justifyContent: 'space-between' }}>
+          {form.id ? (
+            <Button color="error" onClick={() => setConfirmDelete(true)} sx={{ textTransform: 'none' }}>
+              Eliminar usuario
+            </Button>
+          ) : <span />}
+          <Box>
+            <Button onClick={() => setDialogOpen(false)} sx={{ textTransform: 'none' }}>Cancelar</Button>
+            <Button onClick={handleSave} variant="contained" disabled={saving} sx={{ textTransform: 'none' }}>
+              {saving ? <CircularProgress size={20} color="inherit" /> : form.id ? 'Guardar cambios' : 'Crear usuario'}
+            </Button>
+          </Box>
+        </DialogActions>
+      </Dialog>
+
+      {/* Confirmación de eliminación */}
+      <Dialog open={confirmDelete} onClose={() => setConfirmDelete(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>¿Está seguro de eliminar este usuario?</DialogTitle>
+        <DialogContent dividers>
+          <Typography sx={{ fontSize: 14 }}>
+            Esta acción eliminará el acceso del usuario a la plataforma y no podrá deshacerse.
+          </Typography>
+        </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDialogOpen(false)} sx={{ textTransform: 'none' }}>Cancelar</Button>
-          <Button onClick={handleSave} variant="contained" disabled={saving} sx={{ textTransform: 'none' }}>
-            {saving ? <CircularProgress size={20} color="inherit" /> : form.id ? 'Guardar cambios' : 'Crear e invitar'}
+          <Button onClick={() => setConfirmDelete(false)} sx={{ textTransform: 'none' }}>Cancelar</Button>
+          <Button color="error" variant="contained" onClick={handleDelete} disabled={deleting} sx={{ textTransform: 'none' }}>
+            {deleting ? <CircularProgress size={20} color="inherit" /> : 'Eliminar'}
           </Button>
         </DialogActions>
       </Dialog>

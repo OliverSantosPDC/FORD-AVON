@@ -310,6 +310,36 @@ export const actualizarUsuario = async (id: string, input: ActualizarUsuarioInpu
   await sincronizarRelaciones(id, clave, input);
 };
 
+/**
+ * Elimina un usuario: limpia relaciones, borra de Supabase Auth y de profiles.
+ * No permite auto-eliminación. Devuelve datos para auditoría.
+ */
+export const eliminarUsuario = async (id: string, actorId: string | null): Promise<{ email: string; roleClave: string | null }> => {
+  if (actorId && actorId === id) throw new UsuariosError('No puedes eliminar tu propia cuenta.');
+  const client = getSupabaseClient();
+
+  const { data: perfil } = await client.from('profiles').select('id, email, roles ( clave )').eq('id', id).single();
+  if (!perfil) throw new UsuariosError('Usuario no encontrado.');
+  const email = String((perfil as Record<string, unknown>).email ?? '');
+  const roleClave = roleRefOf((perfil as Record<string, unknown>).roles)?.clave ?? null;
+
+  // 1) Limpia relaciones de alcance para que no quede acceso residual.
+  await client.from('gestores').update({ usuario_id: null }).eq('usuario_id', id);
+  await client.from('supervisor_gestor').delete().eq('supervisor_id', id);
+  await client.from('gerente_zona_zona').delete().eq('usuario_id', id);
+
+  // 2) Elimina de Supabase Auth (Admin API).
+  const { error: authError } = await client.auth.admin.deleteUser(id);
+  if (authError && !/not.*found/i.test(authError.message)) {
+    throw new UsuariosError(`No se pudo eliminar el usuario de Auth: ${authError.message}`);
+  }
+
+  // 3) Elimina el perfil (por si no hubo cascada).
+  await client.from('profiles').delete().eq('id', id);
+
+  return { email, roleClave };
+};
+
 /* ============================================================================
  * CARGA MASIVA DE USUARIOS (módulo Repositorio)
  * Reutiliza crearUsuario/actualizarUsuario; no duplica la lógica de alta.
