@@ -66,7 +66,7 @@ export const getUsuario = async (id: string): Promise<UsuarioDetalle> => {
   return res.json();
 };
 
-export const createUsuario = async (payload: UsuarioPayload): Promise<{ id: string }> => {
+export const createUsuario = async (payload: UsuarioPayload): Promise<{ id: string; password: string }> => {
   const res = await apiFetch('/api/usuarios', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -110,7 +110,11 @@ export interface ResultadoAplicarItem {
   fila: number;
   accion: string;
   email: string;
+  nombre: string;
+  apellido: string;
+  rol: string;
   resultado: 'OK' | 'ERROR';
+  password: string;
   mensaje: string;
 }
 

@@ -105,10 +105,22 @@ const GestionMasivaUsuarios = () => {
 
   const onDescargarReporte = () => {
     if (!result) return;
-    const headers = ['FILA', 'ACCION', 'EMAIL', 'RESULTADO', 'MENSAJE'];
-    const rows = result.resultados.map((r) => [r.fila, r.accion, r.email, r.resultado, r.mensaje]);
+    const headers = ['FILA', 'ACCION', 'EMAIL', 'NOMBRE', 'APELLIDO', 'ROL', 'ESTADO', 'CONTRASEÑA_TEMPORAL', 'MENSAJE'];
+    const rows = result.resultados.map((r) => [
+      r.fila,
+      r.accion,
+      r.email,
+      r.nombre ?? '',
+      r.apellido ?? '',
+      r.rol ?? '',
+      r.resultado,
+      r.password ?? '',
+      r.mensaje
+    ]);
     exportRowsToExcel('resultado_usuarios.xlsx', 'Resultado', headers, rows);
   };
+
+  const hayPasswords = Boolean(result?.resultados.some((r) => r.password));
 
   const tieneErrores = (preview?.resumen.errores ?? 0) > 0;
 
@@ -190,6 +202,11 @@ const GestionMasivaUsuarios = () => {
             <>
               <Divider />
               <Alert severity="success">Proceso completado.</Alert>
+              {hayPasswords && (
+                <Alert severity="warning">
+                  El archivo de resultados contiene contraseñas temporales. Descárgalo, guárdalo de forma segura y elimínalo tras compartir las credenciales.
+                </Alert>
+              )}
               <ResumenChips r={result.resumen} />
               <TableContainer sx={{ maxHeight: 320 }}>
                 <Table stickyHeader size="small">

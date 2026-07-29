@@ -12,6 +12,7 @@ import {
   type ActualizarUsuarioInput
 } from '../services/UsuariosService';
 import { generarPlantilla, parsearUsuarios } from '../utils/usuariosExcel';
+import { registrarAuditoria } from '../services/AuditoriaService';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
@@ -54,6 +55,11 @@ export class UsuariosController {
         return res.status(400).json({ error: 'Correo, nombre y rol son obligatorios.' });
       }
       const result = await crearUsuario(body);
+      // Auditoría SIN contraseña.
+      await registrarAuditoria(req.auth?.userId ?? null, 'CREAR_USUARIO', 'usuarios', result.id, {
+        email: body.email,
+        roleId: body.roleId
+      });
       return res.status(201).json(result);
     } catch (error) {
       return this.fail(res, error, 'No se pudo crear el usuario.');

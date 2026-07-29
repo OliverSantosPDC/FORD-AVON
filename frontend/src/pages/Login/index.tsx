@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import {
   Alert,
   Box,
@@ -7,6 +7,7 @@ import {
   CircularProgress,
   IconButton,
   InputAdornment,
+  Link,
   Paper,
   TextField,
   Typography
@@ -104,6 +105,10 @@ const LoginPage = () => {
           >
             {loading ? <CircularProgress size={22} color="inherit" /> : 'Iniciar sesión'}
           </Button>
+
+          <Link component={RouterLink} to="/forgot-password" underline="hover" sx={{ fontSize: 13, textAlign: 'center', mt: 0.5 }}>
+            ¿Olvidaste tu contraseña?
+          </Link>
         </Box>
       </Paper>
     </Box>
