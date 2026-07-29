@@ -9,6 +9,7 @@ import RepositorioPage from '../pages/Repositorio';
 import UsuariosPage from '../pages/Usuarios';
 import CalendarioPage from '../pages/Calendario';
 import InformacionPage from '../pages/Informacion';
+import GestionPage from '../pages/Gestion';
 import PlaceholderPage from '../pages/PlaceholderPage';
 import { ProtectedRoute, PermissionRoute } from '../components/ProtectedRoute';
 
@@ -50,7 +51,7 @@ const AppRoutes = () => (
         </Route>
 
         <Route element={<PermissionRoute permission="modulo.gestion" />}>
-          <Route path="gestion" element={<PlaceholderPage title="Gestión" />} />
+          <Route path="gestion" element={<GestionPage />} />
         </Route>
 
         <Route element={<PermissionRoute permission="modulo.repositorio" />}>
