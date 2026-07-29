@@ -76,9 +76,9 @@ export const getInfoCuenta = async (codigo: string): Promise<Record<string, unkn
   return res.json();
 };
 
-export const tipificarCuenta = async (codigo: string, tipificacion: string, comentario: string) => {
+export const tipificarCuenta = async (codigo: string, body: { tipificacion: string; comentario?: string; tipoContacto?: string; canal?: string }) => {
   const res = await apiFetch(`/api/gestion/cuentas/${encodeURIComponent(codigo)}/tipificacion`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tipificacion, comentario })
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
   });
   if (!res.ok) throw new Error(await parseError(res, 'No se pudo tipificar.'));
 };
@@ -125,6 +125,13 @@ export const MONEDA_POR_PAIS: Record<string, string> = {
   'EL SALVADOR': 'USD', 'GUATEMALA': 'GTQ', 'HONDURAS': 'HNL',
   'NICARAGUA': 'NIO', 'PANAMÁ': 'USD', 'PANAMA': 'USD', 'REPÚBLICA DOMINICANA': 'DOP', 'REPUBLICA DOMINICANA': 'DOP'
 };
+export const SIGLAS_PAIS: Record<string, string> = {
+  'EL SALVADOR': 'SV', 'GUATEMALA': 'GT', 'HONDURAS': 'HN',
+  'NICARAGUA': 'NI', 'PANAMÁ': 'PA', 'PANAMA': 'PA', 'REPÚBLICA DOMINICANA': 'DO', 'REPUBLICA DOMINICANA': 'DO'
+};
+export const siglaPais = (p: string): string => SIGLAS_PAIS[(p ?? '').toUpperCase()] ?? (p ?? '').slice(0, 2).toUpperCase();
+export const TIPO_CONTACTO = ['Representante', 'Gerente de Zona', 'Tercero'];
+export const CANALES = ['Llamada', 'SMS', 'WhatsApp', 'Correo'];
 export const TIPIFICACIONES = [
   'PROMESA DE PAGO', 'PAGO POR REFLEJAR', 'SEGUIMIENTO A PROMESA', 'RECADO', 'NEGATIVA DE PAGO',
   'ABANDONO DE LLAMADA', 'NO RECONOCE LA DEUDA', 'ENTREGO DINERO A LA EMPRESARIA', 'AMENAZA DE DEMANDA', 'Sin Resultado'

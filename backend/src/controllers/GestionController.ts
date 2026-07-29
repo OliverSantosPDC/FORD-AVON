@@ -39,7 +39,7 @@ export class GestionController {
   async cuentas(req: Request, res: Response): Promise<Response | void> {
     try {
       const ctx = this.scope(req, res); if (!ctx) return;
-      const limit = Number(req.query.limit) || 500;
+      const limit = Number(req.query.limit) || 100000;
       return res.json(await carteraService.listCartera(extractFilters(req.query), limit, ctx));
     } catch (e) { return this.fail(res, e, 'No se pudieron cargar las cuentas.'); }
   }
@@ -85,7 +85,7 @@ export class GestionController {
   async tipificar(req: Request, res: Response): Promise<Response> {
     try {
       const actor = req.auth?.userId ?? null;
-      await registrarTipificacion(req.params.codigo, req.body?.tipificacion, req.body?.comentario ?? null, actor);
+      await registrarTipificacion(req.params.codigo, req.body?.tipificacion, req.body?.comentario ?? null, req.body?.tipoContacto ?? null, req.body?.canal ?? null, actor);
       await registrarAuditoria(actor, 'GESTION_TIPIFICACION', 'gestion', req.params.codigo, { tipificacion: req.body?.tipificacion });
       return res.status(201).json({ ok: true });
     } catch (e) { return this.fail(res, e, 'No se pudo tipificar la cuenta.'); }
