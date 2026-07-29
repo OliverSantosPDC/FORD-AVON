@@ -90,7 +90,7 @@ const VisualCard = ({ title, onDir, onMetric, csv, excel, png, children }: {
   return (
     <Paper sx={{ borderRadius: 2.5, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
       {header}
-      <Box sx={{ px: 1.5, pb: 1.5, maxHeight: 340, overflowY: 'auto' }}>{children}</Box>
+      <Box sx={{ px: 1.5, pb: 1.5, maxHeight: 260, overflowY: 'auto' }}>{children}</Box>
       <Dialog fullScreen open={full} onClose={() => setFull(false)}>
         <DialogTitle sx={{ fontWeight: 700, display: 'flex', justifyContent: 'space-between' }}>{title}<Button onClick={() => setFull(false)} sx={{ textTransform: 'none' }}>Cerrar</Button></DialogTitle>
         <DialogContent dividers>{children}</DialogContent>
@@ -155,7 +155,7 @@ const GestionPage = () => {
     finally { setLoading(false); }
   };
   useEffect(() => { void load(); /* eslint-disable-next-line */ }, [filters]);
-  useEffect(() => { if (tab === 2) getCartas().then(setCartas).catch(() => undefined); }, [tab]);
+  useEffect(() => { if (tab === 1) getCartas().then(setCartas).catch(() => undefined); }, [tab]);
 
   const opts = dashboard?.filterOptions ?? EMPTY_OPTS;
   const monedaLocal = useMemo(() => {
@@ -232,20 +232,19 @@ const GestionPage = () => {
     <Box sx={{ p: { xs: 1, md: 2 } }}>
       <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ mb: 2 }}>
         <Tab label="Operación" sx={{ textTransform: 'none' }} />
-        <Tab label="Cuentas" sx={{ textTransform: 'none' }} />
         <Tab label="Cartas" sx={{ textTransform: 'none' }} />
       </Tabs>
 
-      {(tab === 0 || tab === 1) && dashboard && (
+      {tab === 0 && dashboard && (
         <Stack spacing={2}>
           <DashboardFilters filters={filters} onChange={setFilters} onClear={() => setFilters(EMPTY_FILTERS)} options={opts} />
           {monedaLocal && <Alert severity="info" sx={{ py: 0.5 }}>Moneda local: <strong>{monedaLocal.pais.toUpperCase()} · {monedaLocal.moneda}</strong></Alert>}
-          {tab === 0 && <KpiCards kpis={dashboard.kpis} />}
+          <KpiCards kpis={dashboard.kpis} />
         </Stack>
       )}
 
       {tab === 0 && dashboard && (
-        <Stack spacing={2} sx={{ mt: 2 }}>
+        <Box sx={{ mt: 2, display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
           {/* Zonas — visual de barras */}
           <VisualCard title="Zonas" onDir={setZDir} onMetric={setZMetric}
             csv={() => exportRowsToCsv('gestion_zonas.csv', HEAD_H, rowsZonas())}
@@ -305,10 +304,10 @@ const GestionPage = () => {
               ))}
             </Stack>
           </VisualCard>
-        </Stack>
+        </Box>
       )}
 
-      {tab === 1 && (
+      {tab === 0 && (
         <Paper sx={{ mt: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
           <Box sx={{ p: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
@@ -325,16 +324,17 @@ const GestionPage = () => {
           </Box>
           <TableContainer sx={{ maxHeight: '62vh' }}>
             <Table stickyHeader size="small">
-              <TableHead><TableRow>{['Acciones', 'Código', 'Representante', 'País', 'Zona', 'PD', 'Saldo Local', 'Saldo USD'].map((h) => <TableCell key={h} sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</TableCell>)}</TableRow></TableHead>
+              <TableHead><TableRow>{['Acciones', 'País', 'Zona', 'PD', 'Campaña', 'Saldo Local', 'Saldo USD', 'Cuenta'].map((h) => <TableCell key={h} sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</TableCell>)}</TableRow></TableHead>
               <TableBody>
                 {paged.map((r, i) => (
                   <TableRow key={str(r.codigo) || i} hover>
                     <TableCell><Button size="small" variant="outlined" onClick={() => abrirPanel(r)} sx={{ textTransform: 'none', minWidth: 0 }}>Acciones</Button></TableCell>
-                    <TableCell>{str(r.codigo)}</TableCell><TableCell sx={{ whiteSpace: 'nowrap' }}>{str(r.nombre)}</TableCell>
                     <TableCell><Chip size="small" label={siglaPais(str(r.pais))} /></TableCell><TableCell>{str(r.zona)}</TableCell>
                     <TableCell><Chip size="small" label={str(r.pd_actual)} /></TableCell>
+                    <TableCell>{str(r.campania_adeuda)}</TableCell>
                     <TableCell align="right">{money(Number(str(r.saldo_actual)))}</TableCell>
                     <TableCell align="right">{money(Number(str(r.saldo_actual_usd)))}</TableCell>
+                    <TableCell>{str(r.codigo)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -344,7 +344,7 @@ const GestionPage = () => {
         </Paper>
       )}
 
-      {tab === 2 && (
+      {tab === 1 && (
         <Paper sx={{ mt: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
           <TableContainer sx={{ maxHeight: '65vh' }}>
             <Table stickyHeader size="small">
