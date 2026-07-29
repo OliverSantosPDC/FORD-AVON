@@ -27,9 +27,15 @@ const usuariosDelAlcance = async (ctx: ScopeContext): Promise<{ global: boolean;
 };
 
 /* ===== Tipificación / gestión ===== */
-export const registrarTipificacion = async (codigo: string, tipificacion: string, comentario: string | null, gestorId: string | null) => {
+export const registrarTipificacion = async (
+  codigo: string, tipificacion: string, comentario: string | null,
+  tipoContacto: string | null, canal: string | null, gestorId: string | null
+) => {
   if (!tipificacion?.trim()) throw new GestionError('La tipificación es obligatoria.');
-  const { error } = await client().from('gestion_log').insert({ codigo, tipificacion, comentario: comentario ?? null, gestor_id: gestorId });
+  const { error } = await client().from('gestion_log').insert({
+    codigo, tipificacion, comentario: comentario ?? null,
+    tipo_contacto: tipoContacto ?? null, canal: canal ?? null, gestor_id: gestorId
+  });
   if (error) throw new GestionError(`No se pudo registrar la gestión: ${error.message}`);
 };
 
@@ -46,7 +52,7 @@ export const infoCuenta = async (codigo: string, ctx: ScopeContext): Promise<Rec
 export const detalleCuenta = async (codigo: string) => {
   const c = client();
   const [logs, promesas, adjuntos, cartas] = await Promise.all([
-    c.from('gestion_log').select('id, tipificacion, comentario, estado, gestor_id, created_at').eq('codigo', codigo).order('created_at', { ascending: false }),
+    c.from('gestion_log').select('id, tipificacion, comentario, estado, tipo_contacto, canal, gestor_id, created_at').eq('codigo', codigo).order('created_at', { ascending: false }),
     c.from('gestion_promesas').select('*').eq('codigo', codigo).order('created_at', { ascending: false }),
     c.from('gestion_adjuntos').select('*').eq('codigo', codigo).order('created_at', { ascending: false }),
     c.from('gestion_cartas').select('*').eq('codigo', codigo).order('created_at', { ascending: false })
