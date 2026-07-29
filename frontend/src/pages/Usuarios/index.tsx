@@ -12,6 +12,8 @@ import {
   DialogTitle,
   FormControl,
   FormControlLabel,
+  IconButton,
+  InputAdornment,
   InputLabel,
   ListItemText,
   MenuItem,
@@ -32,6 +34,9 @@ import {
 } from '@mui/material';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import Visibility from '@mui/icons-material/Visibility';
+import VisibilityOff from '@mui/icons-material/VisibilityOff';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import {
   listUsuarios,
   getCatalogos,
@@ -78,6 +83,8 @@ const UsuariosPage = () => {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [createdCreds, setCreatedCreds] = useState<{ email: string; password: string } | null>(null);
+  const [showCreds, setShowCreds] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -172,8 +179,9 @@ const UsuariosPage = () => {
         await updateUsuario(form.id, buildPayload());
         setToast('Usuario actualizado.');
       } else {
-        await createUsuario(buildPayload());
-        setToast('Invitación enviada por correo. El usuario se creó correctamente.');
+        const { password } = await createUsuario(buildPayload());
+        setCreatedCreds({ email: form.email.trim(), password });
+        setShowCreds(false);
       }
       setDialogOpen(false);
       await load();
@@ -370,6 +378,51 @@ const UsuariosPage = () => {
           <Button onClick={handleSave} variant="contained" disabled={saving} sx={{ textTransform: 'none' }}>
             {saving ? <CircularProgress size={20} color="inherit" /> : form.id ? 'Guardar cambios' : 'Crear e invitar'}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Resultado de creación: contraseña temporal (solo se muestra aquí, una vez). */}
+      <Dialog open={Boolean(createdCreds)} onClose={() => setCreatedCreds(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Usuario creado correctamente</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2}>
+            <TextField label="Email" value={createdCreds?.email ?? ''} size="small" fullWidth InputProps={{ readOnly: true }} />
+            <TextField
+              label="Contraseña temporal"
+              value={createdCreds?.password ?? ''}
+              type={showCreds ? 'text' : 'password'}
+              size="small"
+              fullWidth
+              InputProps={{
+                readOnly: true,
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => setShowCreds((v) => !v)} aria-label="mostrar contraseña">
+                      {showCreds ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
+                    </IconButton>
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        if (createdCreds?.password) {
+                          navigator.clipboard?.writeText(createdCreds.password).catch(() => undefined);
+                          setToast('Contraseña copiada.');
+                        }
+                      }}
+                      aria-label="copiar contraseña"
+                    >
+                      <ContentCopyIcon fontSize="small" />
+                    </IconButton>
+                  </InputAdornment>
+                )
+              }}
+            />
+            <Alert severity="warning" sx={{ py: 0.5 }}>
+              Comparte esta contraseña temporal de forma segura con el usuario. No se almacena en texto plano en la aplicación.
+            </Alert>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreatedCreds(null)} variant="contained" sx={{ textTransform: 'none' }}>Entendido</Button>
         </DialogActions>
       </Dialog>
 

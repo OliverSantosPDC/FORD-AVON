@@ -32,5 +32,18 @@ export const authService = {
   onAuthStateChange(callback: (session: Session | null) => void) {
     const { data } = getSupabaseBrowserClient().auth.onAuthStateChange((_event, session) => callback(session));
     return data.subscription;
+  },
+
+  /** Envía correo de recuperación. redirectTo usa VITE_APP_URL (o el origen actual). */
+  async resetPasswordForEmail(email: string) {
+    const base = (import.meta.env.VITE_APP_URL as string | undefined)?.replace(/\/+$/, '') || window.location.origin;
+    return getSupabaseBrowserClient().auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${base}/reset-password`
+    });
+  },
+
+  /** Establece una nueva contraseña para la sesión de recuperación vigente. */
+  async updatePassword(password: string) {
+    return getSupabaseBrowserClient().auth.updateUser({ password });
   }
 };

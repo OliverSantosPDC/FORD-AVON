@@ -1,6 +1,7 @@
 import { getSupabaseClient } from '../config/supabaseClient';
 import { SUPABASE_CARTERA_TABLE } from '../config/env';
 import { registrarAuditoria } from './AuditoriaService';
+import { generarPasswordTemporal } from '../utils/password';
 import type { FilaImport } from '../utils/usuariosExcel';
 
 /**
@@ -243,18 +244,25 @@ const sincronizarRelaciones = async (
   }
 };
 
-export const crearUsuario = async (input: CrearUsuarioInput): Promise<{ id: string }> => {
+export const crearUsuario = async (input: CrearUsuarioInput): Promise<{ id: string; password: string }> => {
   const client = getSupabaseClient();
   const email = input.email.trim().toLowerCase();
   if (!email) throw new UsuariosError('El correo es obligatorio.');
   if (!input.roleId) throw new UsuariosError('El rol es obligatorio.');
 
-  // 1) Invitación por correo (Admin API). Crea el usuario en auth.users.
-  const { data: invited, error: inviteError } = await client.auth.admin.inviteUserByEmail(email);
-  if (inviteError || !invited?.user?.id) {
-    throw new UsuariosError(`No se pudo invitar al usuario: ${inviteError?.message ?? 'error desconocido'}`);
+  // 1) Creación DIRECTA en Supabase Auth con contraseña temporal y email confirmado
+  //    (sin invitación). El usuario puede iniciar sesión de inmediato.
+  //    La contraseña NO se persiste en texto plano en ningún lugar.
+  const password = generarPasswordTemporal();
+  const { data: created, error: createError } = await client.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true
+  });
+  if (createError || !created?.user?.id) {
+    throw new UsuariosError(`No se pudo crear el usuario: ${createError?.message ?? 'error desconocido'}`);
   }
-  const userId = invited.user.id;
+  const userId = created.user.id;
 
   // 2) Perfil (upsert por si un trigger ya creó una fila base).
   const { error: profileError } = await client.from('profiles').upsert(
@@ -274,7 +282,7 @@ export const crearUsuario = async (input: CrearUsuarioInput): Promise<{ id: stri
   const clave = await claveDeRol(input.roleId);
   await sincronizarRelaciones(userId, clave, input);
 
-  return { id: userId };
+  return { id: userId, password };
 };
 
 export const actualizarUsuario = async (id: string, input: ActualizarUsuarioInput): Promise<void> => {
@@ -339,7 +347,12 @@ export interface ResultadoAplicarItem {
   fila: number;
   accion: string;
   email: string;
+  nombre: string;
+  apellido: string;
+  rol: string;
   resultado: 'OK' | 'ERROR';
+  /** Solo para CREAR; vacío en ACTUALIZAR/ACTIVAR/DESACTIVAR. No se persiste. */
+  password: string;
   mensaje: string;
 }
 
@@ -499,8 +512,9 @@ const resolverZonaIds = async (nombres: string[]): Promise<string[]> => {
   return ids;
 };
 
-/** Ejecuta una sola fila válida reutilizando crearUsuario/actualizarUsuario. */
-const aplicarFila = async (fila: FilaImport, ctx: ContextoValidacion): Promise<void> => {
+/** Ejecuta una sola fila válida reutilizando crearUsuario/actualizarUsuario.
+ *  Devuelve la contraseña temporal SOLO para CREAR (vacío en el resto). */
+const aplicarFila = async (fila: FilaImport, ctx: ContextoValidacion): Promise<string> => {
   const accion = fila.accion.toUpperCase();
   const email = normEmail(fila.email);
   const roleId = fila.rol ? ctx.rolesPorClave.get(fila.rol) : undefined;
@@ -517,8 +531,8 @@ const aplicarFila = async (fila: FilaImport, ctx: ContextoValidacion): Promise<v
   if (accion === 'CREAR') {
     if (!roleId) throw new UsuariosError('Rol no resuelto.');
     const rel = await relaciones();
-    await crearUsuario({ email, nombre: fila.nombre, apellido: fila.apellido, roleId, activo: activoFlag ?? true, ...rel });
-    return;
+    const { password } = await crearUsuario({ email, nombre: fila.nombre, apellido: fila.apellido, roleId, activo: activoFlag ?? true, ...rel });
+    return password;
   }
 
   // Localiza el usuario existente por email.
@@ -527,11 +541,11 @@ const aplicarFila = async (fila: FilaImport, ctx: ContextoValidacion): Promise<v
 
   if (accion === 'ACTIVAR') {
     await actualizarUsuario(perfil.id, { activo: true });
-    return;
+    return '';
   }
   if (accion === 'DESACTIVAR') {
     await actualizarUsuario(perfil.id, { activo: false });
-    return;
+    return '';
   }
 
   // ACTUALIZAR
@@ -543,6 +557,7 @@ const aplicarFila = async (fila: FilaImport, ctx: ContextoValidacion): Promise<v
   const rel = await relaciones();
   Object.assign(patch, rel);
   await actualizarUsuario(perfil.id, patch);
+  return '';
 };
 
 export const buscarPerfilPorEmail = async (email: string): Promise<{ id: string; roleId: string | null; roleClave: string | null } | null> => {
@@ -581,15 +596,22 @@ export const aplicarImportacion = async (
   const resumen: ResumenImport = { total: filas.length, validas: 0, errores: 0, creaciones: 0, actualizaciones: 0, activaciones: 0, desactivaciones: 0 };
 
   for (const v of validaciones) {
-    const base = { fila: v.fila.fila, accion: v.fila.accion.toUpperCase(), email: v.fila.email.trim() };
+    const base = {
+      fila: v.fila.fila,
+      accion: v.fila.accion.toUpperCase(),
+      email: v.fila.email.trim(),
+      nombre: v.fila.nombre.trim(),
+      apellido: v.fila.apellido.trim(),
+      rol: v.fila.rol
+    };
     if (!v.valido) {
-      resultados.push({ ...base, resultado: 'ERROR', mensaje: v.mensaje });
+      resultados.push({ ...base, resultado: 'ERROR', password: '', mensaje: v.mensaje });
       resumen.errores += 1;
       continue;
     }
     try {
-      await aplicarFila(v.fila, ctx);
-      resultados.push({ ...base, resultado: 'OK', mensaje: 'Procesado correctamente.' });
+      const password = await aplicarFila(v.fila, ctx);
+      resultados.push({ ...base, resultado: 'OK', password, mensaje: 'Procesado correctamente.' });
       resumen.validas += 1;
       const a = base.accion;
       if (a === 'CREAR') resumen.creaciones += 1;
@@ -598,7 +620,7 @@ export const aplicarImportacion = async (
       else if (a === 'DESACTIVAR') resumen.desactivaciones += 1;
     } catch (error) {
       const mensaje = error instanceof Error ? error.message : 'Error al procesar la fila.';
-      resultados.push({ ...base, resultado: 'ERROR', mensaje });
+      resultados.push({ ...base, resultado: 'ERROR', password: '', mensaje });
       resumen.errores += 1;
     }
   }

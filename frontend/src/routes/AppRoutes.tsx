@@ -1,6 +1,8 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import RootLayout from '../layouts/RootLayout';
 import LoginPage from '../pages/Login';
+import ForgotPasswordPage from '../pages/ForgotPassword';
+import ResetPasswordPage from '../pages/ResetPassword';
 import DashboardPage from '../pages/Dashboard';
 import InteligenciaPage from '../pages/Inteligencia';
 import CarteraPage from '../pages/Cartera';
@@ -23,6 +25,8 @@ import { ProtectedRoute, PermissionRoute } from '../components/ProtectedRoute';
 const AppRoutes = () => (
   <Routes>
     <Route path="/login" element={<LoginPage />} />
+    <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+    <Route path="/reset-password" element={<ResetPasswordPage />} />
 
     <Route element={<ProtectedRoute />}>
       <Route path="/" element={<RootLayout />}>
