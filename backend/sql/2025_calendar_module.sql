@@ -46,13 +46,13 @@ create index if not exists idx_calendar_events_zona on public.calendar_events (z
 create index if not exists idx_calendar_events_usuario on public.calendar_events (usuario_id);
 
 -- ==== Permisos (reutiliza el sistema existente) ====
-insert into public.permissions (clave, nombre)
+insert into public.permissions (clave, descripcion, activo)
 values
-  ('modulo.calendario',   'Módulo Calendario'),
-  ('calendario.ver',      'Calendario: ver'),
-  ('calendario.crear',    'Calendario: crear'),
-  ('calendario.editar',   'Calendario: editar'),
-  ('calendario.eliminar', 'Calendario: eliminar')
+  ('modulo.calendario',   'Módulo Calendario',   true),
+  ('calendario.ver',      'Calendario: ver',      true),
+  ('calendario.crear',    'Calendario: crear',    true),
+  ('calendario.editar',   'Calendario: editar',   true),
+  ('calendario.eliminar', 'Calendario: eliminar', true)
 on conflict (clave) do nothing;
 
 -- Ver + módulo para TODOS los roles.
