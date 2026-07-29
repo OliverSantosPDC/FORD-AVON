@@ -50,9 +50,9 @@ select v.nombre, v.descripcion, v.url, v.orden from (values
 where not exists (select 1 from public.corporate_links cl where cl.url = v.url);
 
 -- ==== Permisos de Información ====
-insert into public.permissions (clave, nombre) values
-  ('informacion.ver',    'Información: ver'),
-  ('informacion.editar', 'Información: editar')
+insert into public.permissions (clave, descripcion, activo) values
+  ('informacion.ver',    'Información: ver',    true),
+  ('informacion.editar', 'Información: editar', true)
 on conflict (clave) do nothing;
 
 -- Ver para todos los roles.
