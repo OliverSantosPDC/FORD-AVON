@@ -5,10 +5,10 @@ import ForgotPasswordPage from '../pages/ForgotPassword';
 import ResetPasswordPage from '../pages/ResetPassword';
 import DashboardPage from '../pages/Dashboard';
 import InteligenciaPage from '../pages/Inteligencia';
-import CarteraPage from '../pages/Cartera';
 import RepositorioPage from '../pages/Repositorio';
 import UsuariosPage from '../pages/Usuarios';
 import CalendarioPage from '../pages/Calendario';
+import InformacionPage from '../pages/Informacion';
 import PlaceholderPage from '../pages/PlaceholderPage';
 import { ProtectedRoute, PermissionRoute } from '../components/ProtectedRoute';
 
@@ -66,7 +66,7 @@ const AppRoutes = () => (
         </Route>
 
         <Route element={<PermissionRoute permission="modulo.informacion" />}>
-          <Route path="informacion" element={<CarteraPage />} />
+          <Route path="informacion" element={<InformacionPage />} />
         </Route>
 
         <Route path="*" element={<Navigate replace to="dashboard" />} />

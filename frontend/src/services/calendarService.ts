@@ -80,3 +80,40 @@ export const eliminarEvento = async (id: string): Promise<void> => {
   const res = await apiFetch(`/api/calendario/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(await parseError(res, 'No se pudo eliminar el evento.'));
 };
+
+export const setActivoEvento = async (id: string, activo: boolean): Promise<void> => {
+  const res = await apiFetch(`/api/calendario/${id}/activo`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ activo })
+  });
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudo cambiar el estado del evento.'));
+};
+
+/* ===== Carga masiva de calendario ===== */
+export interface CalPreviewItem { fila: number; accion: string; titulo: string; estado: 'VALIDO' | 'ERROR'; mensaje: string; }
+export interface CalResumen { total: number; validas: number; errores: number; creaciones: number; actualizaciones: number; eliminaciones: number; activaciones: number; desactivaciones: number; }
+export interface CalResultadoItem extends CalPreviewItem { resultado: 'OK' | 'ERROR'; }
+
+export const descargarPlantillaCalendario = async (): Promise<Blob> => {
+  const res = await apiFetch('/api/calendario/plantilla');
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudo descargar la plantilla.'));
+  return res.blob();
+};
+
+export const validarImportacionCalendario = async (file: File): Promise<{ items: CalPreviewItem[]; resumen: CalResumen }> => {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await apiFetch('/api/calendario/importar/validar', { method: 'POST', body: form });
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudo validar el archivo.'));
+  return res.json();
+};
+
+export const aplicarImportacionCalendario = async (file: File, soloValidas: boolean): Promise<{ resultados: CalResultadoItem[]; resumen: CalResumen }> => {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('soloValidas', String(soloValidas));
+  const res = await apiFetch('/api/calendario/importar/aplicar', { method: 'POST', body: form });
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudo procesar el archivo.'));
+  return res.json();
+};
