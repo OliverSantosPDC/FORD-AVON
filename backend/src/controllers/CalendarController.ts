@@ -6,11 +6,17 @@ import {
   crearEvento,
   actualizarEvento,
   eliminarEvento,
+  setActivoEvento,
+  validarImportacionCalendario,
+  aplicarImportacionCalendario,
   CalendarError,
   type CalendarEventInput,
   type CalendarFiltros
 } from '../services/CalendarService';
+import { generarPlantillaCalendario, parsearCalendario } from '../utils/calendarExcel';
 import { registrarAuditoria } from '../services/AuditoriaService';
+
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 export class CalendarController {
   async tipos(_req: Request, res: Response): Promise<Response> {
@@ -81,6 +87,56 @@ export class CalendarController {
       return res.json({ ok: true });
     } catch (error) {
       return this.fail(res, error, 'No se pudo eliminar el evento.');
+    }
+  }
+
+  async setActivo(req: Request, res: Response): Promise<Response> {
+    try {
+      const actorId = req.auth?.userId ?? null;
+      const activo = Boolean((req.body as { activo?: boolean })?.activo);
+      await setActivoEvento(req.params.id, activo);
+      await registrarAuditoria(actorId, activo ? 'ACTIVAR_EVENTO_CALENDARIO' : 'DESACTIVAR_EVENTO_CALENDARIO', 'calendario', req.params.id, null);
+      return res.json({ ok: true });
+    } catch (error) {
+      return this.fail(res, error, 'No se pudo cambiar el estado del evento.');
+    }
+  }
+
+  async plantilla(_req: Request, res: Response): Promise<void> {
+    try {
+      const buffer = await generarPlantillaCalendario();
+      res.setHeader('Content-Type', XLSX_MIME);
+      res.setHeader('Content-Disposition', 'attachment; filename="plantilla_calendario.xlsx"');
+      res.send(buffer);
+    } catch (error) {
+      console.error('[CALENDARIO] plantilla', error);
+      res.status(500).json({ error: 'No se pudo generar la plantilla.' });
+    }
+  }
+
+  async importarValidar(req: Request, res: Response): Promise<Response> {
+    try {
+      if (!req.file?.buffer) return res.status(400).json({ error: 'Debes adjuntar un archivo .xlsx.' });
+      const filas = await parsearCalendario(req.file.buffer);
+      if (filas.length === 0) return res.status(400).json({ error: 'El archivo no contiene filas para procesar.' });
+      return res.json(await validarImportacionCalendario(filas));
+    } catch (error) {
+      return this.fail(res, error, 'No se pudo validar el archivo.');
+    }
+  }
+
+  async importarAplicar(req: Request, res: Response): Promise<Response> {
+    try {
+      if (!req.file?.buffer) return res.status(400).json({ error: 'Debes adjuntar un archivo .xlsx.' });
+      const soloValidas = String((req.body as { soloValidas?: string } | undefined)?.soloValidas ?? 'true') !== 'false';
+      const filas = await parsearCalendario(req.file.buffer);
+      if (filas.length === 0) return res.status(400).json({ error: 'El archivo no contiene filas para procesar.' });
+      const actorId = req.auth?.userId ?? null;
+      const out = await aplicarImportacionCalendario(filas, soloValidas, actorId);
+      await registrarAuditoria(actorId, 'IMPORTACION_CALENDARIO', 'calendario', null, out.resumen);
+      return res.json(out);
+    } catch (error) {
+      return this.fail(res, error, 'No se pudo procesar el archivo.');
     }
   }
 
