@@ -15,6 +15,7 @@ router.get('/gestion/zonas-pd', requireAuth, requirePermission('gestion.ver'), (
 router.get('/gestion/pd-campanas', requireAuth, requirePermission('gestion.ver'), (req, res) => c.pdCampanas(req, res));
 router.post('/gestion/estado', requireAuth, requirePermission('gestion.ver'), (req, res) => c.estado(req, res));
 router.get('/gestion/cuentas/:codigo/detalle', requireAuth, requirePermission('gestion.ver'), (req, res) => c.detalle(req, res));
+router.get('/gestion/cuentas/:codigo/info', requireAuth, requirePermission('gestion.ver'), (req, res) => c.info(req, res));
 router.get('/gestion/cartas', requireAuth, requirePermission('gestion.ver'), (req, res) => c.listarCartas(req, res));
 
 // Escrituras.

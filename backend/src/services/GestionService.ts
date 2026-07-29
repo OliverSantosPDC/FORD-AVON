@@ -1,4 +1,6 @@
 import { getSupabaseClient } from '../config/supabaseClient';
+import { SUPABASE_CARTERA_TABLE } from '../config/env';
+import { applyScope } from './ScopeFilter';
 import type { ScopeContext } from './ScopeService';
 
 /**
@@ -29,6 +31,15 @@ export const registrarTipificacion = async (codigo: string, tipificacion: string
   if (!tipificacion?.trim()) throw new GestionError('La tipificación es obligatoria.');
   const { error } = await client().from('gestion_log').insert({ codigo, tipificacion, comentario: comentario ?? null, gestor_id: gestorId });
   if (error) throw new GestionError(`No se pudo registrar la gestión: ${error.message}`);
+};
+
+/* ===== Información completa de la cuenta (fila cruda de cartera, con scope) ===== */
+export const infoCuenta = async (codigo: string, ctx: ScopeContext): Promise<Record<string, unknown> | null> => {
+  const { data, error } = await getSupabaseClient().from(SUPABASE_CARTERA_TABLE).select('*').eq('codigo', codigo).limit(1);
+  if (error) throw new GestionError(`No se pudo leer la cuenta: ${error.message}`);
+  const rows = (data ?? []) as Array<Record<string, unknown>>;
+  const scoped = applyScope(rows, ctx, { gestorField: 'gestor', zonaField: 'zona', paisField: 'pais' });
+  return scoped[0] ?? null;
 };
 
 /* ===== Detalle de cuenta ===== */

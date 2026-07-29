@@ -70,6 +70,12 @@ export const getDetalleCuenta = async (codigo: string): Promise<DetalleCuenta> =
   return res.json();
 };
 
+export const getInfoCuenta = async (codigo: string): Promise<Record<string, unknown>> => {
+  const res = await apiFetch(`/api/gestion/cuentas/${encodeURIComponent(codigo)}/info`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudo cargar la información.'));
+  return res.json();
+};
+
 export const tipificarCuenta = async (codigo: string, tipificacion: string, comentario: string) => {
   const res = await apiFetch(`/api/gestion/cuentas/${encodeURIComponent(codigo)}/tipificacion`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tipificacion, comentario })

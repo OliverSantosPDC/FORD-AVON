@@ -6,7 +6,7 @@ import {
   registrarTipificacion, detalleCuenta, crearPromesa, actualizarPromesa,
   registrarAdjunto, eliminarAdjunto, subirArchivoStorage,
   crearCarta, listarCartas, resolverCarta,
-  aggregarZonasPd, aggregarPdCampanas, estadoCuentas, GestionError
+  aggregarZonasPd, aggregarPdCampanas, estadoCuentas, infoCuenta, GestionError
 } from '../services/GestionService';
 import { registrarAuditoria } from '../services/AuditoriaService';
 
@@ -71,6 +71,15 @@ export class GestionController {
   async detalle(req: Request, res: Response): Promise<Response> {
     try { return res.json(await detalleCuenta(req.params.codigo)); }
     catch (e) { return this.fail(res, e, 'No se pudo cargar el detalle.'); }
+  }
+
+  async info(req: Request, res: Response): Promise<Response | void> {
+    try {
+      const ctx = this.scope(req, res); if (!ctx) return;
+      const row = await infoCuenta(req.params.codigo, ctx);
+      if (!row) return res.status(404).json({ error: 'Cuenta no encontrada en tu alcance.' });
+      return res.json(row);
+    } catch (e) { return this.fail(res, e, 'No se pudo cargar la información.'); }
   }
 
   async tipificar(req: Request, res: Response): Promise<Response> {
