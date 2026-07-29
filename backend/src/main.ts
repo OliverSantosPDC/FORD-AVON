@@ -6,6 +6,7 @@ import dashboardRoutes from './routes/dashboardRoutes';
 import uploadRoutes from './routes/uploadRoutes';
 import authRoutes from './routes/authRoutes';
 import usuariosRoutes from './routes/usuariosRoutes';
+import calendarRoutes from './routes/calendarRoutes';
 
 const app = express();
 const port = process.env.PORT ?? 4000;
@@ -44,6 +45,7 @@ app.use(express.json());
 // fase para no romper el dashboard actual; el alcance se aplicará en la siguiente.
 app.use('/api', authRoutes);
 app.use('/api', usuariosRoutes);
+app.use('/api', calendarRoutes);
 app.use('/api', carteraRoutes);
 app.use('/api', dashboardRoutes);
 app.use('/api', uploadRoutes);
