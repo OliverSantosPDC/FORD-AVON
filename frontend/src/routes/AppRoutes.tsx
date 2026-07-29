@@ -4,7 +4,8 @@ import LoginPage from '../pages/Login';
 import DashboardPage from '../pages/Dashboard';
 import InteligenciaPage from '../pages/Inteligencia';
 import CarteraPage from '../pages/Cartera';
-import CargarCarteraPage from '../pages/CargarCartera';
+import RepositorioPage from '../pages/Repositorio';
+import UsuariosPage from '../pages/Usuarios';
 import PlaceholderPage from '../pages/PlaceholderPage';
 import { ProtectedRoute, PermissionRoute } from '../components/ProtectedRoute';
 
@@ -48,11 +49,11 @@ const AppRoutes = () => (
         </Route>
 
         <Route element={<PermissionRoute permission="modulo.repositorio" />}>
-          <Route path="repositorio" element={<CargarCarteraPage />} />
+          <Route path="repositorio" element={<RepositorioPage />} />
         </Route>
 
         <Route element={<PermissionRoute permission="modulo.usuarios" />}>
-          <Route path="usuarios" element={<PlaceholderPage title="Usuarios" />} />
+          <Route path="usuarios" element={<UsuariosPage />} />
         </Route>
 
         <Route element={<PermissionRoute permission="modulo.configuracion" />}>
