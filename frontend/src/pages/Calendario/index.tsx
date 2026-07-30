@@ -19,12 +19,10 @@ import {
   TextField,
   Typography
 } from '@mui/material';
-import { Tab, Tabs } from '@mui/material';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import AddIcon from '@mui/icons-material/Add';
 import { useAuth } from '../../context/AuthContext';
-import GestionCalendario from './GestionCalendario';
 import {
   getTiposEvento,
   getEventos,
@@ -359,20 +357,6 @@ const VistaMensual = () => {
   );
 };
 
-const CalendarioPage = () => {
-  const { hasPermission } = useAuth();
-  const puedeGestionar = hasPermission('calendario.crear');
-  const [tab, setTab] = useState(0);
-  return (
-    <Box sx={{ p: { xs: 1, md: 2 } }}>
-      <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ mb: 1 }}>
-        <Tab label="Calendario" sx={{ textTransform: 'none' }} />
-        {puedeGestionar && <Tab label="Gestión de calendario" sx={{ textTransform: 'none' }} />}
-      </Tabs>
-      {tab === 0 && <VistaMensual />}
-      {tab === 1 && puedeGestionar && <GestionCalendario />}
-    </Box>
-  );
-};
+const CalendarioPage = () => <VistaMensual />;
 
 export default CalendarioPage;

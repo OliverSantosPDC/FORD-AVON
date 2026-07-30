@@ -22,6 +22,7 @@ import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
 import PlayArrowOutlinedIcon from '@mui/icons-material/PlayArrowOutlined';
 import CargarCarteraPage from '../CargarCartera';
+import GestionCalendario from '../Calendario/GestionCalendario';
 import { useAuth } from '../../context/AuthContext';
 import { downloadBlob, exportRowsToExcel } from '../../utils/tableExport';
 import {
@@ -248,6 +249,7 @@ const GestionMasivaUsuarios = () => {
 const RepositorioPage = () => {
   const { hasPermission } = useAuth();
   const puedeAdministrarUsuarios = hasPermission('usuarios.administrar_global');
+  const puedeCalendario = hasPermission('calendario.crear');
   const [tab, setTab] = useState(0);
 
   return (
@@ -255,10 +257,12 @@ const RepositorioPage = () => {
       <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ mb: 2 }}>
         <Tab label="Cargar cartera" sx={{ textTransform: 'none' }} />
         {puedeAdministrarUsuarios && <Tab label="Gestión masiva de usuarios" sx={{ textTransform: 'none' }} />}
+        {puedeCalendario && <Tab label="Gestión de calendario" sx={{ textTransform: 'none' }} />}
       </Tabs>
 
       {tab === 0 && <CargarCarteraPage />}
       {tab === 1 && puedeAdministrarUsuarios && <GestionMasivaUsuarios />}
+      {tab === 2 && puedeCalendario && <GestionCalendario />}
     </Box>
   );
 };

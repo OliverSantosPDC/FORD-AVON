@@ -9,6 +9,7 @@ import usuariosRoutes from './routes/usuariosRoutes';
 import calendarRoutes from './routes/calendarRoutes';
 import infoRoutes from './routes/infoRoutes';
 import gestionRoutes from './routes/gestionRoutes';
+import configRoutes from './routes/configRoutes';
 
 const app = express();
 const port = process.env.PORT ?? 4000;
@@ -50,6 +51,7 @@ app.use('/api', usuariosRoutes);
 app.use('/api', calendarRoutes);
 app.use('/api', infoRoutes);
 app.use('/api', gestionRoutes);
+app.use('/api', configRoutes);
 app.use('/api', carteraRoutes);
 app.use('/api', dashboardRoutes);
 app.use('/api', uploadRoutes);

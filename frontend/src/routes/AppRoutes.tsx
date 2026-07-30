@@ -10,6 +10,7 @@ import UsuariosPage from '../pages/Usuarios';
 import CalendarioPage from '../pages/Calendario';
 import InformacionPage from '../pages/Informacion';
 import GestionPage from '../pages/Gestion';
+import ConfiguracionPage from '../pages/Configuracion';
 import PlaceholderPage from '../pages/PlaceholderPage';
 import { ProtectedRoute, PermissionRoute } from '../components/ProtectedRoute';
 
@@ -62,8 +63,8 @@ const AppRoutes = () => (
           <Route path="usuarios" element={<UsuariosPage />} />
         </Route>
 
-        <Route element={<PermissionRoute permission="modulo.configuracion" />}>
-          <Route path="configuracion" element={<PlaceholderPage title="Configuración" />} />
+        <Route element={<PermissionRoute permission="configuracion.ver" />}>
+          <Route path="configuracion" element={<ConfiguracionPage />} />
         </Route>
 
         <Route element={<PermissionRoute permission="modulo.informacion" />}>
