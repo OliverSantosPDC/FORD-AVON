@@ -36,6 +36,6 @@ export const MODULES: ModuleDef[] = [
   { key: 'gestion', label: 'Gestión', path: '/gestion', permission: 'modulo.gestion', icon: <TrendingUpIcon sx={{ fontSize: 22 }} /> },
   { key: 'repositorio', label: 'Repositorio', path: '/repositorio', permission: 'modulo.repositorio', icon: <FolderIcon sx={{ fontSize: 22 }} /> },
   { key: 'usuarios', label: 'Usuarios', path: '/usuarios', permission: 'modulo.usuarios', icon: <PersonIcon sx={{ fontSize: 22 }} /> },
-  { key: 'configuracion', label: 'Configuración', path: '/configuracion', permission: 'modulo.configuracion', icon: <SettingsIcon sx={{ fontSize: 22 }} /> },
+  { key: 'configuracion', label: 'Configuración', path: '/configuracion', permission: 'configuracion.ver', icon: <SettingsIcon sx={{ fontSize: 22 }} /> },
   { key: 'informacion', label: 'Información', path: '/informacion', permission: 'modulo.informacion', icon: <InfoOutlinedIcon sx={{ fontSize: 22 }} /> }
 ];
