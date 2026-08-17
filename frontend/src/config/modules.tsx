@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import DashboardIcon from '@mui/icons-material/Dashboard';
-import InsightsIcon from '@mui/icons-material/Insights';
+import PsychologyIcon from '@mui/icons-material/Psychology';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import CenterFocusStrongIcon from '@mui/icons-material/CenterFocusStrong';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
@@ -30,7 +30,7 @@ export interface ModuleDef {
 
 export const MODULES: ModuleDef[] = [
   { key: 'dashboard', label: 'Dashboard', path: '/dashboard', permission: 'modulo.dashboard', icon: <DashboardIcon sx={{ fontSize: 22 }} /> },
-  { key: 'inteligencia', label: 'Centro de Inteligencia', path: '/inteligencia', permission: 'modulo.centro_inteligencia', icon: <InsightsIcon sx={{ fontSize: 22 }} /> },
+  { key: 'inteligencia', label: 'Centro de Inteligencia', path: '/inteligencia', permission: 'modulo.centro_inteligencia', icon: <PsychologyIcon sx={{ fontSize: 22 }} /> },
   { key: 'calendario', label: 'Calendario', path: '/calendario', permission: 'modulo.calendario', icon: <CalendarTodayIcon sx={{ fontSize: 22 }} /> },
   { key: 'control-operativo', label: 'Control Operativo', path: '/control-operativo', permission: 'control_operativo.ver', icon: <CenterFocusStrongIcon sx={{ fontSize: 22 }} /> },
   { key: 'gestion', label: 'Gestión', path: '/gestion', permission: 'modulo.gestion', icon: <TrendingUpIcon sx={{ fontSize: 22 }} /> },

@@ -3,9 +3,11 @@ import multer from 'multer';
 import { requireAuth } from '../middleware/auth';
 import { requirePermission } from '../middleware/requirePermission';
 import { UsuariosController } from '../controllers/UsuariosController';
+import { PasswordRequestController } from '../controllers/PasswordRequestController';
 
 const router = Router();
 const controller = new UsuariosController();
+const passwordRequests = new PasswordRequestController();
 
 // Subida de la plantilla en memoria (archivos pequeños de usuarios).
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
@@ -18,6 +20,10 @@ const ADMIN = 'usuarios.administrar_global';
 router.get('/usuarios/plantilla', requireAuth, requirePermission(ADMIN), (req, res) => controller.plantilla(req, res));
 router.post('/usuarios/importar/validar', requireAuth, requirePermission(ADMIN), upload.single('file'), (req, res) => controller.importarValidar(req, res));
 router.post('/usuarios/importar/aplicar', requireAuth, requirePermission(ADMIN), upload.single('file'), (req, res) => controller.importarAplicar(req, res));
+
+// Solicitudes de cambio de contraseña (antes de '/usuarios/:id' para evitar colisión de rutas).
+router.get('/usuarios/password-requests', requireAuth, requirePermission(ADMIN), (req, res) => passwordRequests.listar(req, res));
+router.post('/usuarios/password-requests/:id/resolver', requireAuth, requirePermission(ADMIN), (req, res) => passwordRequests.resolver(req, res));
 
 router.get('/usuarios/catalogos', requireAuth, requirePermission(ADMIN), (req, res) => controller.catalogos(req, res));
 router.get('/usuarios', requireAuth, requirePermission(ADMIN), (req, res) => controller.list(req, res));
