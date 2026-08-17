@@ -44,9 +44,12 @@ import {
   createUsuario,
   updateUsuario,
   deleteUsuario,
+  getPasswordRequests,
+  resolvePasswordRequest,
   type UsuarioListItem,
   type Catalogos,
-  type UsuarioPayload
+  type UsuarioPayload,
+  type PasswordRequest
 } from '../../services/usuariosService';
 
 interface FormState {
@@ -88,6 +91,22 @@ const UsuariosPage = () => {
   const [showCreds, setShowCreds] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [pwReqs, setPwReqs] = useState<PasswordRequest[]>([]);
+  const [pwTemp, setPwTemp] = useState<{ email: string; password: string } | null>(null);
+
+  const loadPwReqs = async () => {
+    try { setPwReqs(await getPasswordRequests()); } catch { /* no bloquea la vista */ }
+  };
+  const resolverPwReq = async (id: string, accion: 'aprobar' | 'rechazar', email: string) => {
+    try {
+      const r = await resolvePasswordRequest(id, accion);
+      setToast(accion === 'aprobar' ? 'Solicitud aprobada; contraseña restablecida.' : 'Solicitud rechazada.');
+      if (r.passwordTemporal) setPwTemp({ email, password: r.passwordTemporal });
+      await loadPwReqs();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'No se pudo resolver la solicitud.');
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -105,6 +124,7 @@ const UsuariosPage = () => {
 
   useEffect(() => {
     void load();
+    void loadPwReqs();
   }, []);
 
   const roleClaveById = useMemo(() => {
@@ -283,6 +303,67 @@ const UsuariosPage = () => {
           </TableContainer>
         </Paper>
       )}
+
+      <Paper sx={{ mt: 2, borderRadius: 2.5, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}>
+        <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Typography sx={{ fontWeight: 700 }}>Solicitudes de cambio de contraseña</Typography>
+          <Chip size="small" label={`${pwReqs.filter((r) => r.estado === 'PENDIENTE').length} pendientes`} />
+        </Box>
+        <TableContainer sx={{ maxHeight: '45vh' }}>
+          <Table stickyHeader size="small">
+            <TableHead>
+              <TableRow>
+                {['Correo', 'Fecha solicitud', 'Estado', 'Motivo', 'Resolución', 'Acciones'].map((h) => (
+                  <TableCell key={h} sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</TableCell>
+                ))}
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {pwReqs.length === 0 ? (
+                <TableRow><TableCell colSpan={6} align="center" sx={{ py: 2, color: 'text.secondary' }}>Sin solicitudes.</TableCell></TableRow>
+              ) : pwReqs.map((r) => (
+                <TableRow key={r.id} hover>
+                  <TableCell sx={{ whiteSpace: 'nowrap' }}>{r.email}</TableCell>
+                  <TableCell sx={{ whiteSpace: 'nowrap' }}>{r.created_at.slice(0, 16).replace('T', ' ')}</TableCell>
+                  <TableCell>
+                    <Chip size="small" variant={r.estado === 'PENDIENTE' ? 'filled' : 'outlined'}
+                      color={r.estado === 'COMPLETADA' ? 'success' : r.estado === 'RECHAZADA' ? 'error' : r.estado === 'PENDIENTE' ? 'warning' : 'default'}
+                      label={r.estado} />
+                  </TableCell>
+                  <TableCell sx={{ fontSize: 12, maxWidth: 200 }}>{r.motivo || '—'}</TableCell>
+                  <TableCell sx={{ whiteSpace: 'nowrap', fontSize: 12 }}>{r.resolved_at ? r.resolved_at.slice(0, 16).replace('T', ' ') : '—'}</TableCell>
+                  <TableCell>
+                    {r.estado === 'PENDIENTE' ? (
+                      <Stack direction="row" spacing={0.5}>
+                        <Button size="small" color="success" variant="outlined" onClick={() => resolverPwReq(r.id, 'aprobar', r.email)} sx={{ textTransform: 'none', minWidth: 0 }}>Aprobar</Button>
+                        <Button size="small" color="error" variant="outlined" onClick={() => resolverPwReq(r.id, 'rechazar', r.email)} sx={{ textTransform: 'none', minWidth: 0 }}>Rechazar</Button>
+                      </Stack>
+                    ) : '—'}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Paper>
+
+      <Dialog open={Boolean(pwTemp)} onClose={() => setPwTemp(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Contraseña temporal generada</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 1 }}>
+            Entrega esta contraseña al usuario <strong>{pwTemp?.email}</strong> por un canal seguro. No se volverá a mostrar.
+          </Typography>
+          <Paper variant="outlined" sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+            <Typography sx={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700 }}>{pwTemp?.password}</Typography>
+            <IconButton size="small" onClick={() => { if (pwTemp) navigator.clipboard?.writeText(pwTemp.password); setToast('Contraseña copiada.'); }}>
+              <ContentCopyIcon fontSize="small" />
+            </IconButton>
+          </Paper>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPwTemp(null)} sx={{ textTransform: 'none' }}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 700 }}>{form.id ? 'Editar usuario' : 'Nuevo usuario'}</DialogTitle>

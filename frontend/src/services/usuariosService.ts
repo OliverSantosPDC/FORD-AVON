@@ -151,3 +151,48 @@ export const aplicarImportacion = async (
   if (!res.ok) throw new Error(await parseError(res, 'No se pudo procesar el archivo.'));
   return res.json();
 };
+
+// ===== Solicitudes de cambio de contraseña =====
+export interface PasswordRequest {
+  id: string;
+  email: string;
+  usuario_id: string | null;
+  estado: string;
+  motivo: string | null;
+  observaciones: string | null;
+  resolved_by: string | null;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+/** Público (Login, sin sesión): registra una solicitud de cambio de contraseña. */
+export const requestPasswordChange = async (email: string, motivo?: string): Promise<void> => {
+  const res = await apiFetch('/api/auth/password-change-request', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, motivo })
+  });
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudo enviar la solicitud.'));
+};
+
+/** Admin: lista solicitudes de cambio de contraseña. */
+export const getPasswordRequests = async (): Promise<PasswordRequest[]> => {
+  const res = await apiFetch('/api/usuarios/password-requests', { cache: 'no-store' });
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudieron cargar las solicitudes.'));
+  return res.json();
+};
+
+/** Admin: aprueba o rechaza una solicitud. Al aprobar devuelve la contraseña temporal. */
+export const resolvePasswordRequest = async (
+  id: string,
+  accion: 'aprobar' | 'rechazar',
+  observaciones?: string
+): Promise<{ estado: string; passwordTemporal?: string }> => {
+  const res = await apiFetch(`/api/usuarios/password-requests/${id}/resolver`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accion, observaciones })
+  });
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudo resolver la solicitud.'));
+  return res.json();
+};

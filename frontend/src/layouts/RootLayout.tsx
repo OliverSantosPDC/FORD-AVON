@@ -31,7 +31,7 @@ import { MODULES } from '../config/modules';
 import pdcLogo from '../assets/branding/pdc-logo.svg';
 import avonLogo from '../assets/branding/avon-logo.svg';
 
-const drawerWidth = 168;
+const drawerWidth = 225;
 
 const initialsOf = (nombre?: string | null, apellido?: string | null): string => {
   const a = (nombre ?? '').trim().charAt(0);
