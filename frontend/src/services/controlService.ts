@@ -1,5 +1,5 @@
 import { apiFetch } from './apiClient';
-import type { DashboardResponse, DashboardFilterParams, CarteraRecord } from '../types/cartera';
+import type { DashboardResponse, DashboardFilterParams } from '../types/cartera';
 import type { AggNode } from './gestionService';
 
 const qs = (f?: DashboardFilterParams): string => {
@@ -18,6 +18,7 @@ const err = async (r: Response, f: string) => {
   return (b && (b as { error?: string }).error) || f;
 };
 
+export interface ControlNode extends AggNode { gestor?: string; gestores?: ControlNode[]; }
 export interface Contadores { gestores: number; gerentes: number; zonas: number; }
 export interface ControlDashboard extends DashboardResponse { contadores: Contadores; }
 export interface Indicadores {
@@ -27,9 +28,9 @@ export interface Indicadores {
 export interface Pendientes { promesas: Array<Record<string, unknown>>; cartas: Array<Record<string, unknown>>; }
 
 export const getControlDashboard = async (f?: DashboardFilterParams): Promise<ControlDashboard> => { const r = await apiFetch(`/api/control/dashboard${qs(f)}`, { cache: 'no-store' }); if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.')); return r.json(); };
-export const getControlGestores = async (f?: DashboardFilterParams): Promise<AggNode[]> => { const r = await apiFetch(`/api/control/gestores${qs(f)}`, { cache: 'no-store' }); if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.')); return r.json(); };
-export const getControlZonas = async (f?: DashboardFilterParams): Promise<AggNode[]> => { const r = await apiFetch(`/api/control/zonas${qs(f)}`, { cache: 'no-store' }); if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.')); return r.json(); };
-export const getControlPdCampanas = async (f?: DashboardFilterParams): Promise<AggNode[]> => { const r = await apiFetch(`/api/control/pd-campanas${qs(f)}`, { cache: 'no-store' }); if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.')); return r.json(); };
-export const getControlCuentas = async (f?: DashboardFilterParams): Promise<CarteraRecord[]> => { const r = await apiFetch(`/api/control/cuentas${qs(f)}`, { cache: 'no-store' }); if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.')); return r.json(); };
+export const getControlGestores = async (f?: DashboardFilterParams): Promise<ControlNode[]> => { const r = await apiFetch(`/api/control/gestores${qs(f)}`, { cache: 'no-store' }); if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.')); return r.json(); };
+export const getControlZonas = async (f?: DashboardFilterParams): Promise<ControlNode[]> => { const r = await apiFetch(`/api/control/zonas${qs(f)}`, { cache: 'no-store' }); if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.')); return r.json(); };
+export const getControlPdCampanas = async (f?: DashboardFilterParams): Promise<ControlNode[]> => { const r = await apiFetch(`/api/control/pd-campanas${qs(f)}`, { cache: 'no-store' }); if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.')); return r.json(); };
+export const getControlCuentas = async (f?: DashboardFilterParams): Promise<Array<Record<string, unknown>>> => { const r = await apiFetch(`/api/control/cuentas${qs(f)}`, { cache: 'no-store' }); if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.')); return r.json(); };
 export const getIndicadores = async (): Promise<Indicadores> => { const r = await apiFetch('/api/control/indicadores', { cache: 'no-store' }); if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.')); return r.json(); };
 export const getPendientes = async (): Promise<Pendientes> => { const r = await apiFetch('/api/control/pendientes', { cache: 'no-store' }); if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.')); return r.json(); };
