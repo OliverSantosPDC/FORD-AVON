@@ -15,12 +15,12 @@ import { useAuth } from '../../context/AuthContext';
 import type { DashboardFilterOptions, DashboardMultiFilterParams } from '../../types/cartera';
 import {
   getControlDashboard, getControlGestores, getControlZonas, getControlPdCampanas, getControlCuentas,
-  getIndicadores, getPendientes, type ControlDashboard, type Indicadores, type Pendientes
+  getIndicadores, getPendientes, type ControlDashboard, type ControlNode, type Indicadores, type Pendientes
 } from '../../services/controlService';
 import {
   getDetalleCuenta, getInfoCuenta, tipificarCuenta, crearPromesa, subirAdjunto, crearCarta, aprobarCarta, rechazarCarta,
   getEstadoCuentas, siglaPais, TIPIFICACIONES, TIPO_CONTACTO, CANALES, MONEDA_POR_PAIS,
-  type AggNode, type DetalleCuenta, type EstadoCuenta
+  type DetalleCuenta, type EstadoCuenta
 } from '../../services/gestionService';
 
 const EMPTY_OPTS: DashboardFilterOptions = { pais: [], gestor: [], gerente: [], zona: [], pd: [], campania: [] };
@@ -87,9 +87,9 @@ const ControlOperativoPage = () => {
 
   const [filters, setFilters] = useState<DashboardMultiFilterParams>(EMPTY_FILTERS);
   const [dash, setDash] = useState<ControlDashboard | null>(null);
-  const [gestores, setGestores] = useState<AggNode[]>([]);
-  const [zonas, setZonas] = useState<AggNode[]>([]);
-  const [pdCamp, setPdCamp] = useState<AggNode[]>([]);
+  const [gestores, setGestores] = useState<ControlNode[]>([]);
+  const [zonas, setZonas] = useState<ControlNode[]>([]);
+  const [pdCamp, setPdCamp] = useState<ControlNode[]>([]);
   const [cuentas, setCuentas] = useState<Array<Record<string, unknown>>>([]);
   const [ind, setInd] = useState<Indicadores | null>(null);
   const [pend, setPend] = useState<Pendientes | null>(null);
@@ -122,7 +122,7 @@ const ControlOperativoPage = () => {
 
   const opts = dash?.filterOptions ?? EMPTY_OPTS;
   const monedaLocal = useMemo(() => (filters.pais.length === 1 ? { pais: filters.pais[0], moneda: MONEDA_POR_PAIS[filters.pais[0].toUpperCase()] ?? '—' } : null), [filters.pais]);
-  const sort = (arr: AggNode[], m: Metric, dir: 'asc' | 'desc') => [...arr].sort((a, b) => (dir === 'desc' ? (b[m] as number) - (a[m] as number) : (a[m] as number) - (b[m] as number)));
+  const sort = (arr: ControlNode[], m: Metric, dir: 'asc' | 'desc') => [...arr].sort((a, b) => (dir === 'desc' ? (b[m] as number) - (a[m] as number) : (a[m] as number) - (b[m] as number)));
   const gS = useMemo(() => sort(gestores, gMetric, gDir), [gestores, gMetric, gDir]);
   const zS = useMemo(() => sort(zonas, zMetric, zDir), [zonas, zMetric, zDir]);
   const pS = useMemo(() => sort(pdCamp, pMetric, pDir), [pdCamp, pMetric, pDir]);
@@ -133,9 +133,9 @@ const ControlOperativoPage = () => {
   useEffect(() => { const cs = paged.map((r) => str(r.codigo)).filter(Boolean); if (cs.length) getEstadoCuentas(cs).then((m) => setEstado((p) => ({ ...p, ...m }))).catch(() => undefined); /* eslint-disable-next-line */ }, [page, rpp, filtradas]);
 
   const toggle = (s2: Set<string>, k: string, set: (x: Set<string>) => void) => { const n = new Set(s2); n.has(k) ? n.delete(k) : n.add(k); set(n); };
-  const rowsAgg = (arr: AggNode[], childKey: 'pds' | 'gestores' | 'campanas', childLabel: keyof AggNode) => {
+  const rowsAgg = (arr: ControlNode[], childKey: 'pds' | 'gestores' | 'campanas', childLabel: keyof ControlNode) => {
     const out: Array<Array<string | number>> = [];
-    arr.forEach((x) => { out.push(['G', str(x.gestor ?? x.zona ?? x.pd ?? x.key), '', x.cuentas, x.saldoLocal, x.saldoUsd, x.recuperadoUsd, x.pctRecuperacion]); (x[childKey] as AggNode[] | undefined ?? []).forEach((ch) => out.push(['S', str(x.gestor ?? x.zona ?? x.pd ?? x.key), str(ch[childLabel]), ch.cuentas, ch.saldoLocal, ch.saldoUsd, ch.recuperadoUsd, ch.pctRecuperacion])); });
+    arr.forEach((x) => { out.push(['G', str(x.gestor ?? x.zona ?? x.pd ?? x.key), '', x.cuentas, x.saldoLocal, x.saldoUsd, x.recuperadoUsd, x.pctRecuperacion]); (x[childKey] as ControlNode[] | undefined ?? []).forEach((ch) => out.push(['S', str(x.gestor ?? x.zona ?? x.pd ?? x.key), str(ch[childLabel]), ch.cuentas, ch.saldoLocal, ch.saldoUsd, ch.recuperadoUsd, ch.pctRecuperacion])); });
     return out;
   };
   const CUENTAS_COLS = ['codigo', 'pais', 'zona', 'gestor', 'pd_actual', 'campania_adeuda', 'saldo_actual', 'saldo_actual_usd'];
