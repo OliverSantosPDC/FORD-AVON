@@ -28,6 +28,18 @@ export const listCatalogos = async (catalogo?: string) => {
   if (error) throw new ConfigError(error.message);
   return data ?? [];
 };
+
+/** Devuelve solo los valores ACTIVOS de un catálogo, ordenados. Fuente única para Gestión/Control. */
+export const listCatalogoActivo = async (catalogo: string): Promise<Array<{ codigo: string | null; nombre: string }>> => {
+  const { data, error } = await c()
+    .from('config_catalogos')
+    .select('codigo, nombre, activo, orden')
+    .eq('catalogo', catalogo)
+    .eq('activo', true)
+    .order('orden');
+  if (error) throw new ConfigError(error.message);
+  return ((data ?? []) as Array<{ codigo: string | null; nombre: string }>).map((x) => ({ codigo: x.codigo, nombre: x.nombre }));
+};
 export const crearCatalogo = async (b: Record<string, unknown>) => {
   if (!b.catalogo || !b.nombre) throw new ConfigError('Catálogo y nombre son obligatorios.');
   const { data, error } = await c().from('config_catalogos').insert({ catalogo: b.catalogo, codigo: b.codigo ?? null, nombre: b.nombre, activo: b.activo ?? true, orden: b.orden ?? 0 }).select('id').single();

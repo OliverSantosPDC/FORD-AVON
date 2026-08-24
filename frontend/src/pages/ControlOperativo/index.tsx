@@ -22,7 +22,7 @@ import {
 } from '../../services/controlService';
 import {
   getDetalleCuenta, getInfoCuenta, tipificarCuenta, crearPromesa, subirAdjunto, crearCarta, aprobarCarta, rechazarCarta,
-  getEstadoCuentas, siglaPais, TIPIFICACIONES, TIPO_CONTACTO, CANALES, MONEDA_POR_PAIS,
+  getEstadoCuentas, getCatalogo, siglaPais, TIPIFICACIONES, TIPO_CONTACTO, CANALES, MONEDA_POR_PAIS,
   type DetalleCuenta, type EstadoCuenta
 } from '../../services/gestionService';
 
@@ -114,6 +114,15 @@ const ControlOperativoPage = () => {
   const [detalle, setDetalle] = useState<DetalleCuenta | null>(null); const [info, setInfo] = useState<Record<string, unknown> | null>(null);
   const [g, setG] = useState({ tipoContacto: '', canal: '', tip: '', tipCom: '', fechaProm: '', montoProm: '', cartaTipo: 'Carta de cobro', adjTipo: 'Boleta de pago' });
   const [adjFile, setAdjFile] = useState<File | null>(null); const [busy, setBusy] = useState(false);
+  const [cartaPrev, setCartaPrev] = useState<{ tipo: string; contenido: string } | null>(null);
+  const [cCatTip, setCCatTip] = useState<string[]>(TIPIFICACIONES);
+  const [cCatTC, setCCatTC] = useState<string[]>(TIPO_CONTACTO);
+  const [cCatCanal, setCCatCanal] = useState<string[]>(CANALES);
+  useEffect(() => {
+    getCatalogo('tipificaciones').then((v) => { if (v.length) setCCatTip(v); }).catch(() => undefined);
+    getCatalogo('tipos_contacto').then((v) => { if (v.length) setCCatTC(v); }).catch(() => undefined);
+    getCatalogo('canales').then((v) => { if (v.length) setCCatCanal(v); }).catch(() => undefined);
+  }, []);
 
   // Calidad de Gestión
   const [calResumen, setCalResumen] = useState<CalidadResumen | null>(null);
@@ -189,6 +198,24 @@ const ControlOperativoPage = () => {
   const accion = async (fn: () => Promise<void>, ok: string) => { setBusy(true); try { await fn(); setToast(ok); setDetalle(await getDetalleCuenta(cod)); } catch (e) { setToast(e instanceof Error ? e.message : 'Error.'); } finally { setBusy(false); } };
   const pick = (row: Record<string, unknown>, keys: string[]): string => { for (const k of keys) { const v = row[k]; if (v !== null && v !== undefined && String(v).trim() !== '') return String(v); } return 'No disponible'; };
   const resolverCarta = async (id: string, aprobar: boolean) => { try { aprobar ? await aprobarCarta(id, '') : await rechazarCarta(id, ''); setToast(aprobar ? 'Carta aprobada.' : 'Carta rechazada.'); setPend(await getPendientes()); } catch (e) { setToast(e instanceof Error ? e.message : 'Error.'); } };
+  // Información de cobro y reglas de promesa de la cuenta abierta.
+  const cMoneda = MONEDA_POR_PAIS[str(panel?.pais).toUpperCase()] ?? '—';
+  const cCobroPD = str(panel?.pd_actual) || 'No disponible';
+  const cCobroRiesgo = str(panel?.riesgo || panel?.nivel_riesgo || panel?.riesgo_pd) || (info ? pick(info, ['riesgo', 'nivel_riesgo', 'riesgo_pd']) : 'No disponible');
+  const cEsPromesa = g.tip === 'PROMESA DE PAGO';
+  const cMontoNum = Number(g.montoProm);
+  const cPromValida = !cEsPromesa || (Boolean(g.fechaProm) && Number.isFinite(cMontoNum) && cMontoNum > 0);
+  const cRegistrarGestion = () => accion(async () => {
+    await tipificarCuenta(cod, { tipificacion: g.tip, comentario: g.tipCom, tipoContacto: g.tipoContacto, canal: g.canal });
+    if (cEsPromesa) await crearPromesa(cod, { fechaPromesa: g.fechaProm, monto: cMontoNum });
+  }, cEsPromesa ? 'Gestión y promesa registradas.' : 'Gestión registrada.');
+  const cContenidoCarta = (tipo: string) => {
+    const saldo = money(Number(str(panel?.saldo_actual)));
+    const cuerpo = tipo === 'Carta de acuerdo de pago'
+      ? 'Por medio de la presente se formaliza el acuerdo de pago correspondiente a su cuenta.'
+      : 'Por medio de la presente le recordamos que su cuenta mantiene un saldo pendiente.';
+    return `Estimado(a) ${str(panel?.nombre) || 'cliente'},\n\n${cuerpo}\n\nCuenta: ${cod}\nSaldo actual: ${saldo} ${cMoneda}\nPD: ${cCobroPD}\n\nAtentamente,\nDepartamento de Cobranza`;
+  };
 
   if (loading && !dash) return <Box sx={{ display: 'flex', gap: 1.5, p: 3, alignItems: 'center' }}><CircularProgress size={22} /><Typography sx={{ fontSize: 14 }}>Cargando control operativo...</Typography></Box>;
   if (error) return <Box sx={{ p: 2 }}><Alert severity="error">{error}</Alert></Box>;
@@ -373,13 +400,14 @@ const ControlOperativoPage = () => {
             </Box>
             <TableContainer sx={{ maxHeight: '60vh' }}>
               <Table stickyHeader size="small">
-                <TableHead><TableRow>{['Acciones', 'País', 'Zona', 'Gestor', 'PD', 'Campaña', 'Cuenta', 'Saldo Local', 'Saldo USD', 'Últ. gestión', 'Promesa'].map((h) => <TableCell key={h} sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</TableCell>)}</TableRow></TableHead>
+                <TableHead><TableRow>{['Acciones', 'Cuenta', 'País', 'Zona', 'Gestor', 'PD', 'Campaña', 'Saldo Local', 'Saldo USD', 'Últ. gestión', 'Promesa'].map((h) => <TableCell key={h} sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</TableCell>)}</TableRow></TableHead>
                 <TableBody>
                   {paged.map((r, i) => { const e = estado[str(r.codigo)]; return (
                     <TableRow key={str(r.codigo) || i} hover>
                       <TableCell><Button size="small" variant="outlined" onClick={() => abrir(r)} sx={{ textTransform: 'none', minWidth: 0 }}>Acciones</Button></TableCell>
+                      <TableCell>{str(r.codigo)}</TableCell>
                       <TableCell><Chip size="small" label={siglaPais(str(r.pais))} /></TableCell><TableCell>{str(r.zona)}</TableCell><TableCell>{str(r.gestor)}</TableCell>
-                      <TableCell><Chip size="small" label={str(r.pd_actual)} /></TableCell><TableCell>{str(r.campania_adeuda)}</TableCell><TableCell>{str(r.codigo)}</TableCell>
+                      <TableCell><Chip size="small" label={str(r.pd_actual)} /></TableCell><TableCell>{str(r.campania_adeuda)}</TableCell>
                       <TableCell align="right">{money(Number(str(r.saldo_actual)))}</TableCell><TableCell align="right">{money(Number(str(r.saldo_actual_usd)))}</TableCell>
                       <TableCell sx={{ fontSize: 12 }}>{e?.ultimaTipificacion ?? '—'}</TableCell>
                       <TableCell sx={{ fontSize: 12 }}>{e?.promesaVigente ? <Chip size="small" color="info" variant="outlined" label={e.promesaVigente} /> : '—'}</TableCell>
@@ -401,11 +429,21 @@ const ControlOperativoPage = () => {
             <Tab label="Información" sx={{ textTransform: 'none' }} /><Tab label="Detalle" sx={{ textTransform: 'none' }} /><Tab label="Gestionar" sx={{ textTransform: 'none' }} />
           </Tabs>
           {ptab === 0 && (!info ? <CircularProgress size={22} /> : (
-            <Grid container spacing={1.5}>
-              {[['Sector', ['sector']], ['Departamento', ['departamento']], ['Municipio', ['municipio']], ['Teléfono', ['telefono_celular', 'celular', 'telefono']], ['Gestor', ['gestor']], ['Gerente de zona', ['gerente_zona']]].map(([l, ks]) => (
-                <Grid item xs={6} key={l as string}><Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase' }}>{l as string}</Typography><Typography sx={{ fontSize: 13 }}>{pick(info, ks as string[])}</Typography></Grid>
-              ))}
-            </Grid>
+            <Stack spacing={1.5}>
+              <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, bgcolor: 'action.hover' }}>
+                <Typography sx={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'text.secondary', mb: 0.5 }}>Información de Cobro</Typography>
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                  <Chip size="small" label={`PD: ${cCobroPD}`} />
+                  <Chip size="small" color="warning" variant="outlined" label={`Riesgo: ${cCobroRiesgo}`} />
+                  <Chip size="small" variant="outlined" label={`Moneda: ${cMoneda}`} />
+                </Stack>
+              </Paper>
+              <Grid container spacing={1.5}>
+                {[['Sector', ['sector']], ['Departamento', ['departamento']], ['Municipio', ['municipio']], ['Teléfono', ['telefono_celular', 'celular', 'telefono']], ['Gestor', ['gestor']], ['Gerente de zona', ['gerente_zona']]].map(([l, ks]) => (
+                  <Grid item xs={6} key={l as string}><Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase' }}>{l as string}</Typography><Typography sx={{ fontSize: 13 }}>{pick(info, ks as string[])}</Typography></Grid>
+                ))}
+              </Grid>
+            </Stack>
           ))}
           {ptab === 1 && (!detalle ? <CircularProgress size={22} /> : (
             <TableContainer sx={{ maxHeight: 360 }}><Table stickyHeader size="small">
@@ -417,19 +455,36 @@ const ControlOperativoPage = () => {
           ))}
           {ptab === 2 && (
             <Stack spacing={2}>
+              <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, bgcolor: 'action.hover' }}>
+                <Typography sx={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'text.secondary', mb: 0.5 }}>Información de Cobro</Typography>
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                  <Chip size="small" label={`PD: ${cCobroPD}`} />
+                  <Chip size="small" color="warning" variant="outlined" label={`Riesgo: ${cCobroRiesgo}`} />
+                  <Chip size="small" variant="outlined" label={`Moneda: ${cMoneda}`} />
+                </Stack>
+              </Paper>
               <Stack direction="row" spacing={2}>
-                <TextField select label="Tipo de contacto" value={g.tipoContacto} onChange={(e) => setG({ ...g, tipoContacto: e.target.value })} size="small" fullWidth>{TIPO_CONTACTO.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}</TextField>
-                <TextField select label="Canal" value={g.canal} onChange={(e) => setG({ ...g, canal: e.target.value })} size="small" fullWidth>{CANALES.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}</TextField>
+                <TextField select label="Tipo de contacto" value={g.tipoContacto} onChange={(e) => setG({ ...g, tipoContacto: e.target.value })} size="small" fullWidth>{cCatTC.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}</TextField>
+                <TextField select label="Canal" value={g.canal} onChange={(e) => setG({ ...g, canal: e.target.value })} size="small" fullWidth>{cCatCanal.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}</TextField>
               </Stack>
-              <TextField select label="Tipificación" value={g.tip} onChange={(e) => setG({ ...g, tip: e.target.value })} size="small" fullWidth>{TIPIFICACIONES.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}</TextField>
+              <TextField select label="Tipificación *" value={g.tip} onChange={(e) => setG({ ...g, tip: e.target.value })} size="small" fullWidth>{cCatTip.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}</TextField>
               <TextField label="Comentario" value={g.tipCom} onChange={(e) => setG({ ...g, tipCom: e.target.value })} size="small" fullWidth multiline minRows={2} />
-              <Button variant="contained" disabled={!canGestionar || busy || !g.tip} onClick={() => accion(() => tipificarCuenta(cod, { tipificacion: g.tip, comentario: g.tipCom, tipoContacto: g.tipoContacto, canal: g.canal }), 'Gestión registrada.')} sx={{ textTransform: 'none' }}>Registrar gestión</Button>
+              {cEsPromesa && (
+                <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                  <Typography sx={{ fontWeight: 700, fontSize: 13, mb: 1 }}>Promesa de pago (obligatoria)</Typography>
+                  <Stack direction="row" spacing={2}>
+                    <TextField label="Fecha de promesa" type="date" required value={g.fechaProm} onChange={(e) => setG({ ...g, fechaProm: e.target.value })} size="small" fullWidth InputLabelProps={{ shrink: true }} error={!g.fechaProm} />
+                    <TextField label={`Monto (${cMoneda})`} type="number" required value={g.montoProm} onChange={(e) => setG({ ...g, montoProm: e.target.value })} size="small" fullWidth
+                      error={Boolean(g.montoProm) && !(cMontoNum > 0)}
+                      helperText={Boolean(g.montoProm) && !(cMontoNum > 0) ? 'El monto debe ser mayor que 0.' : `Moneda local: ${cMoneda}`}
+                      InputProps={{ inputProps: { min: 0, step: '0.01' } }} />
+                  </Stack>
+                </Paper>
+              )}
+              <Button variant="contained" disabled={!canGestionar || busy || !g.tip || !cPromValida} onClick={cRegistrarGestion} sx={{ textTransform: 'none' }}>Registrar gestión{cEsPromesa ? ' + promesa' : ''}</Button>
               <Divider />
-              <Stack direction="row" spacing={2}><TextField label="Fecha promesa" type="date" value={g.fechaProm} onChange={(e) => setG({ ...g, fechaProm: e.target.value })} size="small" fullWidth InputLabelProps={{ shrink: true }} /><TextField label="Monto" type="number" value={g.montoProm} onChange={(e) => setG({ ...g, montoProm: e.target.value })} size="small" fullWidth /></Stack>
-              <Button variant="outlined" disabled={busy || !g.fechaProm} onClick={() => accion(() => crearPromesa(cod, { fechaPromesa: g.fechaProm, monto: Number(g.montoProm) || undefined }), 'Promesa registrada.')} sx={{ textTransform: 'none' }}>Registrar promesa</Button>
-              <Divider />
-              <TextField select label="Tipo de carta" value={g.cartaTipo} onChange={(e) => setG({ ...g, cartaTipo: e.target.value })} size="small" fullWidth>{['Carta de cobro', 'Carta de acuerdo de pago'].map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}</TextField>
-              <Button variant="outlined" disabled={busy} onClick={() => accion(() => crearCarta(cod, g.cartaTipo, ''), 'Carta enviada a aprobación.')} sx={{ textTransform: 'none' }}>Generar carta</Button>
+              <TextField select label="Tipo de carta (opcional)" value={g.cartaTipo} onChange={(e) => setG({ ...g, cartaTipo: e.target.value })} size="small" fullWidth>{['Carta de cobro', 'Carta de acuerdo de pago'].map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}</TextField>
+              <Button variant="outlined" disabled={busy} onClick={() => setCartaPrev({ tipo: g.cartaTipo, contenido: cContenidoCarta(g.cartaTipo) })} sx={{ textTransform: 'none' }}>Generar carta (vista previa)</Button>
               <Divider />
               <TextField select label="Tipo de documento" value={g.adjTipo} onChange={(e) => setG({ ...g, adjTipo: e.target.value })} size="small" fullWidth>{['Carta recibida por la representante', 'Boleta de pago', 'Acuerdo de pago', 'Otro documento'].map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}</TextField>
               <Button variant="outlined" component="label" sx={{ textTransform: 'none' }}>{adjFile ? adjFile.name : 'Seleccionar archivo'}<input hidden type="file" onChange={(e) => setAdjFile(e.target.files?.[0] ?? null)} /></Button>
@@ -438,6 +493,18 @@ const ControlOperativoPage = () => {
           )}
         </DialogContent>
         <DialogActions><Button onClick={() => setPanel(null)} sx={{ textTransform: 'none' }}>Cerrar</Button></DialogActions>
+      </Dialog>
+
+      {/* Vista previa de carta antes de enviar a aprobación */}
+      <Dialog open={Boolean(cartaPrev)} onClose={() => setCartaPrev(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Vista previa · {cartaPrev?.tipo}</DialogTitle>
+        <DialogContent dividers>
+          <Paper variant="outlined" sx={{ p: 2, whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.6 }}>{cartaPrev?.contenido}</Paper>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCartaPrev(null)} sx={{ textTransform: 'none' }}>Cancelar</Button>
+          <Button variant="contained" disabled={busy} onClick={() => { const t = cartaPrev?.tipo ?? g.cartaTipo; setCartaPrev(null); void accion(() => crearCarta(cod, t, ''), 'Carta enviada a aprobación.'); }} sx={{ textTransform: 'none' }}>Confirmar y enviar</Button>
+        </DialogActions>
       </Dialog>
 
       {/* Diálogo nueva evaluación de calidad */}
