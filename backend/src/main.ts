@@ -11,6 +11,7 @@ import infoRoutes from './routes/infoRoutes';
 import gestionRoutes from './routes/gestionRoutes';
 import configRoutes from './routes/configRoutes';
 import controlRoutes from './routes/controlRoutes';
+import catalogosRoutes from './routes/catalogosRoutes';
 
 const app = express();
 const port = process.env.PORT ?? 4000;
@@ -54,6 +55,7 @@ app.use('/api', infoRoutes);
 app.use('/api', gestionRoutes);
 app.use('/api', configRoutes);
 app.use('/api', controlRoutes);
+app.use('/api', catalogosRoutes);
 app.use('/api', carteraRoutes);
 app.use('/api', dashboardRoutes);
 app.use('/api', uploadRoutes);

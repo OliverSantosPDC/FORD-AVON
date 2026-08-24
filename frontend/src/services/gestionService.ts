@@ -121,6 +121,17 @@ export const rechazarCarta = async (id: string, comentario: string) => {
   if (!res.ok) throw new Error(await parseError(res, 'No se pudo rechazar.'));
 };
 
+/**
+ * Catálogo activo (fuente única: Configuración → config_catalogos).
+ * Devuelve los nombres activos; si el catálogo está vacío, el caller usa su fallback.
+ */
+export const getCatalogo = async (catalogo: string): Promise<string[]> => {
+  const res = await apiFetch(`/api/catalogos/${encodeURIComponent(catalogo)}`, { cache: 'no-store' });
+  if (!res.ok) return [];
+  const data = (await res.json()) as Array<{ nombre: string }>;
+  return data.map((x) => x.nombre).filter(Boolean);
+};
+
 export const MONEDA_POR_PAIS: Record<string, string> = {
   'EL SALVADOR': 'USD', 'GUATEMALA': 'GTQ', 'HONDURAS': 'HNL',
   'NICARAGUA': 'NIO', 'PANAMÁ': 'USD', 'PANAMA': 'USD', 'REPÚBLICA DOMINICANA': 'DOP', 'REPUBLICA DOMINICANA': 'DOP'

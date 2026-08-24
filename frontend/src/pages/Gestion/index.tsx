@@ -16,7 +16,7 @@ import type { DashboardResponse, DashboardFilterOptions, DashboardMultiFilterPar
 import {
   getGestionDashboard, getGestionCuentas, getDetalleCuenta, getInfoCuenta, tipificarCuenta, crearPromesa,
   subirAdjunto, crearCarta, getCartas, aprobarCarta, rechazarCarta, getZonasPd, getPdCampanas, getEstadoCuentas,
-  MONEDA_POR_PAIS, siglaPais, TIPIFICACIONES, TIPO_CONTACTO, CANALES,
+  getCatalogo, MONEDA_POR_PAIS, siglaPais, TIPIFICACIONES, TIPO_CONTACTO, CANALES,
   type CartaGestion, type DetalleCuenta, type AggNode, type EstadoCuenta
 } from '../../services/gestionService';
 
@@ -145,6 +145,17 @@ const GestionPage = () => {
   const [cartas, setCartas] = useState<CartaGestion[]>([]);
   const [cartaSel, setCartaSel] = useState<CartaGestion | null>(null);
   const [cartaComent, setCartaComent] = useState('');
+  const [cartaPrev, setCartaPrev] = useState<{ tipo: string; contenido: string } | null>(null);
+
+  // Catálogos configurables (fuente única: Configuración). Fallback a constantes si el catálogo está vacío.
+  const [catTip, setCatTip] = useState<string[]>(TIPIFICACIONES);
+  const [catTC, setCatTC] = useState<string[]>(TIPO_CONTACTO);
+  const [catCanal, setCatCanal] = useState<string[]>(CANALES);
+  useEffect(() => {
+    getCatalogo('tipificaciones').then((v) => { if (v.length) setCatTip(v); }).catch(() => undefined);
+    getCatalogo('tipos_contacto').then((v) => { if (v.length) setCatTC(v); }).catch(() => undefined);
+    getCatalogo('canales').then((v) => { if (v.length) setCatCanal(v); }).catch(() => undefined);
+  }, []);
 
   const load = async () => {
     setLoading(true); setError(null);
@@ -221,6 +232,26 @@ const GestionPage = () => {
     try { await fn(); setToast(ok); setDetalle(await getDetalleCuenta(cod)); }
     catch (err) { setToast(err instanceof Error ? err.message : 'Error.'); }
     finally { setBusy(false); }
+  };
+  // Información de cobro y reglas de promesa de la cuenta abierta.
+  const monedaCuenta = MONEDA_POR_PAIS[str(panel?.pais).toUpperCase()] ?? '—';
+  const cobroPD = str(panel?.pd_actual) || 'No disponible';
+  const cobroRiesgo = str(panel?.riesgo || panel?.nivel_riesgo || panel?.riesgo_pd) || (info ? pick(info, ['riesgo', 'nivel_riesgo', 'riesgo_pd']) : 'No disponible');
+  const esPromesa = gForm.tip === 'PROMESA DE PAGO';
+  const montoPromNum = Number(gForm.montoProm);
+  const promesaValida = !esPromesa || (Boolean(gForm.fechaProm) && Number.isFinite(montoPromNum) && montoPromNum > 0);
+  const registrarGestion = () => accion(async () => {
+    await tipificarCuenta(cod, { tipificacion: gForm.tip, comentario: gForm.tipCom, tipoContacto: gForm.tipoContacto, canal: gForm.canal });
+    if (esPromesa) {
+      await crearPromesa(cod, { fechaPromesa: gForm.fechaProm, monto: montoPromNum, comentario: gForm.promCom });
+    }
+  }, esPromesa ? 'Gestión y promesa registradas.' : 'Gestión registrada.');
+  const contenidoCarta = (tipo: string) => {
+    const saldo = money(Number(str(panel?.saldo_actual)));
+    const cuerpo = tipo === 'Carta de acuerdo de pago'
+      ? 'Por medio de la presente se formaliza el acuerdo de pago correspondiente a su cuenta, según las condiciones convenidas con nuestro equipo de cobranza.'
+      : 'Por medio de la presente le recordamos que su cuenta mantiene un saldo pendiente. Le invitamos a regularizar su situación a la brevedad.';
+    return `Estimado(a) ${str(panel?.nombre) || 'cliente'},\n\n${cuerpo}\n\nCuenta: ${cod}\nSaldo actual: ${saldo} ${monedaCuenta}\nPD: ${cobroPD}\n\nAtentamente,\nDepartamento de Cobranza`;
   };
 
   if (loading && !dashboard) return <Box sx={{ display: 'flex', gap: 1.5, p: 3, alignItems: 'center' }}><CircularProgress size={22} /><Typography sx={{ fontSize: 14 }}>Cargando gestión...</Typography></Box>;
@@ -324,17 +355,17 @@ const GestionPage = () => {
           </Box>
           <TableContainer sx={{ maxHeight: '62vh' }}>
             <Table stickyHeader size="small">
-              <TableHead><TableRow>{['Acciones', 'País', 'Zona', 'PD', 'Campaña', 'Saldo Local', 'Saldo USD', 'Cuenta'].map((h) => <TableCell key={h} sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</TableCell>)}</TableRow></TableHead>
+              <TableHead><TableRow>{['Acciones', 'Cuenta', 'País', 'Zona', 'PD', 'Campaña', 'Saldo Local', 'Saldo USD'].map((h) => <TableCell key={h} sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</TableCell>)}</TableRow></TableHead>
               <TableBody>
                 {paged.map((r, i) => (
                   <TableRow key={str(r.codigo) || i} hover>
                     <TableCell><Button size="small" variant="outlined" onClick={() => abrirPanel(r)} sx={{ textTransform: 'none', minWidth: 0 }}>Acciones</Button></TableCell>
+                    <TableCell>{str(r.codigo)}</TableCell>
                     <TableCell><Chip size="small" label={siglaPais(str(r.pais))} /></TableCell><TableCell>{str(r.zona)}</TableCell>
                     <TableCell><Chip size="small" label={str(r.pd_actual)} /></TableCell>
                     <TableCell>{str(r.campania_adeuda)}</TableCell>
                     <TableCell align="right">{money(Number(str(r.saldo_actual)))}</TableCell>
                     <TableCell align="right">{money(Number(str(r.saldo_actual_usd)))}</TableCell>
-                    <TableCell>{str(r.codigo)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -377,6 +408,14 @@ const GestionPage = () => {
 
           {ptab === 0 && (!info ? <CircularProgress size={22} /> : (
             <Stack spacing={2}>
+              <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, bgcolor: 'action.hover' }}>
+                <Typography sx={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'text.secondary', mb: 0.5 }}>Información de Cobro</Typography>
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                  <Chip size="small" label={`PD: ${cobroPD}`} />
+                  <Chip size="small" color="warning" variant="outlined" label={`Riesgo: ${cobroRiesgo}`} />
+                  <Chip size="small" variant="outlined" label={`Moneda: ${monedaCuenta}`} />
+                </Stack>
+              </Paper>
               <Typography sx={{ fontWeight: 700 }}>Datos generales</Typography>
               <Grid container spacing={1.5}>
                 <Grid item xs={4}><Field l="Sector" v={pick(info, ['sector'])} /><Field l="LOA" v={pick(info, ['loa', 'l_o_a'])} /><Field l="LOS" v={pick(info, ['los', 'l_o_s'])} /></Grid>
@@ -441,39 +480,54 @@ const GestionPage = () => {
 
           {ptab === 2 && (
             <Stack spacing={2}>
+              {/* Información de Cobro */}
+              <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, bgcolor: 'action.hover' }}>
+                <Typography sx={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'text.secondary', mb: 0.5 }}>Información de Cobro</Typography>
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                  <Chip size="small" label={`PD: ${cobroPD}`} />
+                  <Chip size="small" color="warning" variant="outlined" label={`Riesgo: ${cobroRiesgo}`} />
+                  <Chip size="small" variant="outlined" label={`Moneda: ${monedaCuenta}`} />
+                </Stack>
+              </Paper>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                 <TextField select label="Tipo de contacto" value={gForm.tipoContacto} onChange={(e) => setGForm({ ...gForm, tipoContacto: e.target.value })} size="small" fullWidth>
-                  {TIPO_CONTACTO.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
+                  {catTC.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
                 </TextField>
                 <TextField select label="Canal" value={gForm.canal} onChange={(e) => setGForm({ ...gForm, canal: e.target.value })} size="small" fullWidth>
-                  {CANALES.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
+                  {catCanal.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
                 </TextField>
               </Stack>
               <Divider />
-              <Typography sx={{ fontWeight: 700, fontSize: 13 }}>Tipificación</Typography>
+              <Typography sx={{ fontWeight: 700, fontSize: 13 }}>Tipificación *</Typography>
               <TextField select label="Tipificación" value={gForm.tip} onChange={(e) => setGForm({ ...gForm, tip: e.target.value })} size="small" fullWidth>
-                {TIPIFICACIONES.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
+                {catTip.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
               </TextField>
               <TextField label="Comentario" value={gForm.tipCom} onChange={(e) => setGForm({ ...gForm, tipCom: e.target.value })} size="small" fullWidth multiline minRows={2} />
-              <Button variant="contained" disabled={!canGestionar || busy || !gForm.tip} onClick={() => accion(() => tipificarCuenta(cod, { tipificacion: gForm.tip, comentario: gForm.tipCom, tipoContacto: gForm.tipoContacto, canal: gForm.canal }), 'Gestión registrada.')} sx={{ textTransform: 'none' }}>Registrar gestión</Button>
+
+              {/* Promesa de pago: solo si la tipificación es PROMESA DE PAGO; fecha y monto obligatorios en moneda local */}
+              {esPromesa && (
+                <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                  <Typography sx={{ fontWeight: 700, fontSize: 13, mb: 1 }}>Promesa de pago (obligatoria)</Typography>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                    <TextField label="Fecha de promesa" type="date" required value={gForm.fechaProm} onChange={(e) => setGForm({ ...gForm, fechaProm: e.target.value })} size="small" fullWidth InputLabelProps={{ shrink: true }} error={!gForm.fechaProm} />
+                    <TextField label={`Monto (${monedaCuenta})`} type="number" required value={gForm.montoProm} onChange={(e) => setGForm({ ...gForm, montoProm: e.target.value })} size="small" fullWidth
+                      error={Boolean(gForm.montoProm) && !(montoPromNum > 0)}
+                      helperText={Boolean(gForm.montoProm) && !(montoPromNum > 0) ? 'El monto debe ser mayor que 0.' : `Se registra en moneda local: ${monedaCuenta}`}
+                      InputProps={{ inputProps: { min: 0, step: '0.01' } }} />
+                  </Stack>
+                </Paper>
+              )}
+              <Button variant="contained" disabled={!canGestionar || busy || !gForm.tip || !promesaValida || (esPromesa && !canPromesa)} onClick={registrarGestion} sx={{ textTransform: 'none' }}>Registrar gestión{esPromesa ? ' + promesa' : ''}</Button>
 
               <Divider />
-              <Typography sx={{ fontWeight: 700, fontSize: 13 }}>Promesa</Typography>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                <TextField label="Fecha" type="date" value={gForm.fechaProm} onChange={(e) => setGForm({ ...gForm, fechaProm: e.target.value })} size="small" fullWidth InputLabelProps={{ shrink: true }} />
-                <TextField label="Monto" type="number" value={gForm.montoProm} onChange={(e) => setGForm({ ...gForm, montoProm: e.target.value })} size="small" fullWidth />
-              </Stack>
-              <Button variant="outlined" disabled={!canPromesa || busy || !gForm.fechaProm} onClick={() => accion(() => crearPromesa(cod, { fechaPromesa: gForm.fechaProm, monto: Number(gForm.montoProm) || undefined, comentario: gForm.promCom }), 'Promesa registrada.')} sx={{ textTransform: 'none' }}>Registrar promesa</Button>
-
-              <Divider />
-              <Typography sx={{ fontWeight: 700, fontSize: 13 }}>Carta</Typography>
+              <Typography sx={{ fontWeight: 700, fontSize: 13 }}>Carta (opcional)</Typography>
               <TextField select label="Tipo de carta" value={gForm.cartaTipo} onChange={(e) => setGForm({ ...gForm, cartaTipo: e.target.value })} size="small" fullWidth>
                 {['Carta de cobro', 'Carta de acuerdo de pago'].map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
               </TextField>
-              <Button variant="outlined" disabled={!canCarta || busy} onClick={() => accion(() => crearCarta(cod, gForm.cartaTipo, gForm.cartaCom), 'Carta enviada a aprobación.')} sx={{ textTransform: 'none' }}>Generar carta (a aprobación)</Button>
+              <Button variant="outlined" disabled={!canCarta || busy} onClick={() => setCartaPrev({ tipo: gForm.cartaTipo, contenido: contenidoCarta(gForm.cartaTipo) })} sx={{ textTransform: 'none' }}>Generar carta (vista previa)</Button>
 
               <Divider />
-              <Typography sx={{ fontWeight: 700, fontSize: 13 }}>Adjunto</Typography>
+              <Typography sx={{ fontWeight: 700, fontSize: 13 }}>Adjunto (opcional)</Typography>
               <TextField select label="Tipo de documento" value={gForm.adjTipo} onChange={(e) => setGForm({ ...gForm, adjTipo: e.target.value })} size="small" fullWidth>
                 {['Carta recibida por la representante', 'Boleta de pago', 'Acuerdo de pago', 'Otro documento'].map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
               </TextField>
@@ -483,6 +537,19 @@ const GestionPage = () => {
           )}
         </DialogContent>
         <DialogActions><Button onClick={() => setPanel(null)} sx={{ textTransform: 'none' }}>Cerrar</Button></DialogActions>
+      </Dialog>
+
+      {/* Vista previa de carta antes de enviar a aprobación */}
+      <Dialog open={Boolean(cartaPrev)} onClose={() => setCartaPrev(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Vista previa · {cartaPrev?.tipo}</DialogTitle>
+        <DialogContent dividers>
+          <Paper variant="outlined" sx={{ p: 2, whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.6 }}>{cartaPrev?.contenido}</Paper>
+          <TextField label="Comentario (opcional)" value={gForm.cartaCom} onChange={(e) => setGForm({ ...gForm, cartaCom: e.target.value })} size="small" fullWidth multiline minRows={2} sx={{ mt: 2 }} />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCartaPrev(null)} sx={{ textTransform: 'none' }}>Cancelar</Button>
+          <Button variant="contained" disabled={busy} onClick={() => { const t = cartaPrev?.tipo ?? gForm.cartaTipo; setCartaPrev(null); void accion(() => crearCarta(cod, t, gForm.cartaCom), 'Carta enviada a aprobación.'); }} sx={{ textTransform: 'none' }}>Confirmar y enviar</Button>
+        </DialogActions>
       </Dialog>
 
       {/* Revisar carta */}
