@@ -9,6 +9,8 @@ import TopZonasTable from '../../components/Dashboard/TopZonasTable';
 import ResumenPdTable from '../../components/Dashboard/ResumenPdTable';
 import ResumenCampaniaTable from '../../components/Dashboard/ResumenCampaniaTable';
 import { useDashboard } from '../../hooks/useDashboard';
+import { useAuth } from '../../context/AuthContext';
+import { getCalidadResumen } from '../../services/controlService';
 import type { DashboardFilterOptions, DashboardFilterParams, DashboardMultiFilterParams } from '../../types/cartera';
 
 // Alturas de tile compartidas: garantizan que las tarjetas de una misma fila midan igual.
@@ -39,6 +41,19 @@ const DashboardPage = () => {
   );
 
   const { data: dashboard, loading, error } = useDashboard(dashboardFilters);
+
+  // Nota de calidad de llamada global (fuente: Control Operativo). Solo si el usuario tiene permiso.
+  const { hasPermission } = useAuth();
+  const canCalidadVer = hasPermission('control_operativo.calidad.ver');
+  const [calNota, setCalNota] = useState<{ nota: number; evaluaciones: number } | null>(null);
+  useEffect(() => {
+    if (!canCalidadVer) { setCalNota(null); return; }
+    let active = true;
+    getCalidadResumen(dashboardFilters)
+      .then((r) => { if (active) setCalNota({ nota: r.notaGlobal, evaluaciones: r.evaluaciones }); })
+      .catch(() => { if (active) setCalNota(null); });
+    return () => { active = false; };
+  }, [canCalidadVer, dashboardFilters]);
 
   // Las opciones de filtros (con cascada) llegan ya calculadas desde el backend.
   const availableOptions = dashboard?.filterOptions ?? EMPTY_OPTIONS;
@@ -140,6 +155,16 @@ const DashboardPage = () => {
       <Box sx={{ gridColumn: '1 / -1' }}>
         <KpiCards kpis={dashboard.kpis} />
       </Box>
+
+      {canCalidadVer && calNota && (
+        <Box sx={{ gridColumn: '1 / -1' }}>
+          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1.5, px: 2, py: 1, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+            <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase' }}>Calidad de llamada global</Typography>
+            <Typography sx={{ fontSize: 20, fontWeight: 800 }}>{calNota.nota}</Typography>
+            <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>{calNota.evaluaciones} evaluaciones · fuente: Control Operativo</Typography>
+          </Box>
+        </Box>
+      )}
 
       {/* Banda 3 · Gráficos — 6 tarjetas idénticas en 2 columnas × 3 filas */}
       <Box sx={{ gridColumn: '1 / -1' }}>
