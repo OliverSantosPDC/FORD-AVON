@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { CarteraService } from '../services/CarteraService';
 import { CarteraRepository } from '../repositories/CarteraRepository';
 import { getCarteraDataSource } from '../config/dataSource';
-import { aggGestores, aggZonasGestores, aggPdCampanas, contadores, indicadores, pendientes, ControlError } from '../services/ControlService';
+import { aggGestores, aggZonasGestores, aggPdCampanas, contadores, indicadores, pendientes, ControlError, crearEvaluacionCalidad, listarEvaluacionesCalidad, resumenCalidad, gestoresParaCalidad, type CalidadInput } from '../services/ControlService';
 
 const carteraService = new CarteraService(new CarteraRepository(getCarteraDataSource()));
 
@@ -41,6 +41,36 @@ export class ControlController {
   }
   async pendientes(req: Request, res: Response): Promise<Response | void> {
     try { const ctx = this.scope(req, res); if (!ctx) return; return res.json(await pendientes(ctx)); } catch (e) { return this.fail(res, e); }
+  }
+
+  // ===== Calidad de Gestión =====
+  async calidadGestores(req: Request, res: Response): Promise<Response | void> {
+    try { const ctx = this.scope(req, res); if (!ctx) return; return res.json(await gestoresParaCalidad(ctx)); } catch (e) { return this.fail(res, e); }
+  }
+  async calidadListar(req: Request, res: Response): Promise<Response | void> {
+    try { const ctx = this.scope(req, res); if (!ctx) return; const f = filtros(req.query); return res.json(await listarEvaluacionesCalidad(ctx, { pais: f.pais, zona: f.zona, gestor: f.gestor })); } catch (e) { return this.fail(res, e); }
+  }
+  async calidadResumen(req: Request, res: Response): Promise<Response | void> {
+    try { const ctx = this.scope(req, res); if (!ctx) return; const f = filtros(req.query); return res.json(await resumenCalidad(ctx, { pais: f.pais, zona: f.zona, gestor: f.gestor })); } catch (e) { return this.fail(res, e); }
+  }
+  async calidadCrear(req: Request, res: Response): Promise<Response | void> {
+    try {
+      const ctx = this.scope(req, res); if (!ctx) return;
+      const b = (req.body ?? {}) as Partial<CalidadInput>;
+      if (!b.gestorNombre) return res.status(400).json({ error: 'El gestor evaluado es obligatorio.' });
+      const input: CalidadInput = {
+        gestorId: b.gestorId ?? null,
+        gestorNombre: String(b.gestorNombre),
+        pais: b.pais ?? null,
+        zona: b.zona ?? null,
+        cuenta: b.cuenta ?? null,
+        tipificacion: b.tipificacion ?? null,
+        criterios: (b.criterios ?? {}) as Record<string, number>,
+        penalizaciones: (b.penalizaciones ?? {}) as Record<string, number>,
+        observaciones: b.observaciones ?? null
+      };
+      return res.json(await crearEvaluacionCalidad(ctx, input));
+    } catch (e) { return this.fail(res, e); }
   }
 
   private fail(res: Response, error: unknown): Response {

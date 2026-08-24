@@ -34,3 +34,43 @@ export const getControlPdCampanas = async (f?: DashboardFilterParams): Promise<C
 export const getControlCuentas = async (f?: DashboardFilterParams): Promise<Array<Record<string, unknown>>> => { const r = await apiFetch(`/api/control/cuentas${qs(f)}`, { cache: 'no-store' }); if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.')); return r.json(); };
 export const getIndicadores = async (): Promise<Indicadores> => { const r = await apiFetch('/api/control/indicadores', { cache: 'no-store' }); if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.')); return r.json(); };
 export const getPendientes = async (): Promise<Pendientes> => { const r = await apiFetch('/api/control/pendientes', { cache: 'no-store' }); if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.')); return r.json(); };
+
+// ===== Calidad de Gestión =====
+export interface CalidadEvaluacion {
+  id: string; gestor_nombre: string; pais: string | null; zona: string | null; cuenta: string | null;
+  tipificacion: string | null; nota: number; observaciones: string | null; created_at: string;
+}
+export interface CalidadGrupo { clave: string; nota: number; evaluaciones: number; }
+export interface CalidadResumen {
+  notaGlobal: number; evaluaciones: number;
+  porGestor: CalidadGrupo[]; porPais: CalidadGrupo[]; porZona: CalidadGrupo[];
+  penalizaciones: Array<{ clave: string; total: number }>;
+}
+export interface CalidadGestor { usuarioId: string | null; nombre: string; }
+export interface CalidadPayload {
+  gestorId?: string | null; gestorNombre: string; pais?: string | null; zona?: string | null; cuenta?: string | null;
+  tipificacion?: string | null; criterios: Record<string, number>; penalizaciones: Record<string, number>; observaciones?: string | null;
+}
+
+export const getCalidadGestores = async (): Promise<CalidadGestor[]> => { const r = await apiFetch('/api/control/calidad/gestores', { cache: 'no-store' }); if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.')); return r.json(); };
+export const getCalidadResumen = async (f?: DashboardFilterParams): Promise<CalidadResumen> => { const r = await apiFetch(`/api/control/calidad/resumen${qs(f)}`, { cache: 'no-store' }); if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.')); return r.json(); };
+export const getCalidadEvaluaciones = async (f?: DashboardFilterParams): Promise<CalidadEvaluacion[]> => { const r = await apiFetch(`/api/control/calidad${qs(f)}`, { cache: 'no-store' }); if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.')); return r.json(); };
+export const crearEvaluacionCalidad = async (payload: CalidadPayload): Promise<{ id: string; nota: number }> => {
+  const r = await apiFetch('/api/control/calidad', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  if (!r.ok) throw new Error(await err(r, 'No se pudo guardar la evaluación.'));
+  return r.json();
+};
+
+/** Rúbrica de calidad de gestión (criterios y penalizaciones), reutilizable por el frontend. */
+export const CALIDAD_RUBRICA: Array<{ seccion: string; items: string[] }> = [
+  { seccion: 'Apertura', items: ['Saludos', 'Identificación', 'Confirmación de remitente'] },
+  { seccion: 'Motivo de la llamada', items: ['Condiciones y motivo de la llamada', 'Información de la cuenta'] },
+  { seccion: 'Gestión y negociación', items: ['Solicitud de pago', 'Indagación sobre la situación', 'Manejo de objeciones', 'Resolución y/o negociación'] },
+  { seccion: 'Cierre', items: ['Confirmación y resumen de resolución', 'Beneficios y consecuencias', 'Despedida'] }
+];
+export const CALIDAD_PENALIZACIONES: Array<{ clave: string; puntos: number }> = [
+  { clave: 'Mala tipificación', puntos: 10 },
+  { clave: 'Errores de registro', puntos: 10 },
+  { clave: 'Tiempos: exceso o premura', puntos: 5 },
+  { clave: 'Lenguaje no permitido', puntos: 20 }
+];
