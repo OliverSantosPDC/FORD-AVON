@@ -9,7 +9,7 @@ import KpiCards from '../components/Dashboard/KpiCards';
 import InteligenciaOnePage from '../components/Inteligencia/InteligenciaOnePage';
 import { exportRowsToCsv } from '../utils/tableExport';
 import { MONEDA_POR_PAIS } from '../services/gestionService';
-import { getCentroInteligencia, type CentroFiltros, type CentroInteligencia, type CentroGrupo } from '../services/inteligenciaService';
+import { getCentroInteligencia, type CentroFiltros, type CentroInteligencia } from '../services/inteligenciaService';
 import type { DashboardKpi } from '../types/cartera';
 
 const money = (v: number | null, code = 'USD') =>
@@ -30,8 +30,8 @@ const Mini = ({ l, v, sub, color }: { l: string; v: string; sub?: string; color?
   </Paper>
 );
 
-const BarList = ({ title, items, valueOf, code, empty }: {
-  title: string; items: Array<{ clave: string; cuentas?: number }>; valueOf: (x: { clave: string }) => number; code: string; empty: string;
+const BarList = <T extends { clave: string; cuentas?: number }>({ title, items, valueOf, code, empty }: {
+  title: string; items: T[]; valueOf: (x: T) => number; code: string; empty: string;
 }) => {
   const max = Math.max(1, ...items.map((x) => valueOf(x)));
   return (
@@ -187,13 +187,13 @@ const InteligenciaPage = () => {
               {data.promesas.cantidad === 0 && <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 1 }}>Sin promesas en el alcance.</Typography>}
             </Paper>
           </Grid>
-          <Grid item xs={12} md={4}><BarList title="Recuperación por país (saldo actual)" items={data.recuperacion.porPais} valueOf={(x) => (x as CentroGrupo).saldoActualUsd} code="USD" empty="Sin datos disponibles." /></Grid>
-          <Grid item xs={12} md={4}><BarList title="Recuperación por PD (saldo actual)" items={data.recuperacion.porPD} valueOf={(x) => (x as CentroGrupo).saldoActualUsd} code="USD" empty="Sin datos disponibles." /></Grid>
+          <Grid item xs={12} md={4}><BarList title="Recuperación por país (saldo actual)" items={data.recuperacion.porPais} valueOf={(x) => x.saldoActualUsd} code="USD" empty="Sin datos disponibles." /></Grid>
+          <Grid item xs={12} md={4}><BarList title="Recuperación por PD (saldo actual)" items={data.recuperacion.porPD} valueOf={(x) => x.saldoActualUsd} code="USD" empty="Sin datos disponibles." /></Grid>
         </Grid>
 
         <Grid container spacing={2}>
-          <Grid item xs={12} md={6}><BarList title="Promesado por país" items={data.promesas.porPais} valueOf={(x) => (x as { montoUsd: number }).montoUsd} code="USD" empty="Sin promesas." /></Grid>
-          <Grid item xs={12} md={6}><BarList title="Promesado por PD" items={data.promesas.porPD} valueOf={(x) => (x as { montoUsd: number }).montoUsd} code="USD" empty="Sin promesas." /></Grid>
+          <Grid item xs={12} md={6}><BarList title="Promesado por país" items={data.promesas.porPais} valueOf={(x) => x.montoUsd} code="USD" empty="Sin promesas." /></Grid>
+          <Grid item xs={12} md={6}><BarList title="Promesado por PD" items={data.promesas.porPD} valueOf={(x) => x.montoUsd} code="USD" empty="Sin promesas." /></Grid>
         </Grid>
 
         {/* 6 · Hallazgos */}
