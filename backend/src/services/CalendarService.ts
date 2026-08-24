@@ -91,6 +91,17 @@ export const listarEventos = async (ctx: ScopeContext, filtros: CalendarFiltros 
   if (filtros.pais) rows = rows.filter((e) => (e.pais as string | null) === filtros.pais);
   if (filtros.zonaId) rows = rows.filter((e) => (e.zona_id as string | null) === filtros.zonaId);
   if (filtros.usuarioId) rows = rows.filter((e) => (e.usuario_id as string | null) === filtros.usuarioId);
+
+  // Enriquecimiento: nombre del gestor asociado (para eventos personales). Aditivo y no sensible.
+  const ids = [...new Set(rows.map((e) => e.usuario_id).filter((v): v is string => typeof v === 'string' && v.length > 0))];
+  if (ids.length) {
+    const { data: perfiles } = await getSupabaseClient().from('profiles').select('id, nombre, apellido').in('id', ids);
+    const mapa = new Map<string, string>();
+    ((perfiles ?? []) as Array<{ id: string; nombre: string | null; apellido: string | null }>).forEach((p) => {
+      mapa.set(p.id, [p.nombre, p.apellido].filter(Boolean).join(' ').trim());
+    });
+    rows = rows.map((e) => ({ ...e, gestor_nombre: typeof e.usuario_id === 'string' ? (mapa.get(e.usuario_id) || null) : null }));
+  }
   return rows;
 };
 

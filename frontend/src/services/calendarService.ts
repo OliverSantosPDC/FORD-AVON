@@ -21,6 +21,7 @@ export interface CalendarEvent {
   usuario_id: string | null;
   todo_el_dia: boolean;
   event_types?: { codigo: string; nombre: string; color: string | null } | null;
+  gestor_nombre?: string | null;
 }
 
 export interface CalendarEventInput {

@@ -10,6 +10,7 @@ import {
   DialogContent,
   DialogTitle,
   FormControlLabel,
+  Grid,
   IconButton,
   MenuItem,
   Paper,
@@ -17,12 +18,15 @@ import {
   Stack,
   Switch,
   TextField,
+  Tooltip,
   Typography
 } from '@mui/material';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import AddIcon from '@mui/icons-material/Add';
+import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import { useAuth } from '../../context/AuthContext';
+import CalendarOnePage from '../../components/Calendario/CalendarOnePage';
 import {
   getTiposEvento,
   getEventos,
@@ -72,6 +76,9 @@ const VistaMensual = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filtroTipo, setFiltroTipo] = useState('');
+  const [filtroPaises, setFiltroPaises] = useState<string[]>([]);
+  const [onePageOpen, setOnePageOpen] = useState(false);
+  const [detalleEvento, setDetalleEvento] = useState<CalendarEvent | null>(null);
   const [catalogos, setCatalogos] = useState<Catalogos | null>(null);
   const [usuarios, setUsuarios] = useState<UsuarioListItem[]>([]);
 
@@ -111,10 +118,31 @@ const VistaMensual = () => {
     listUsuarios().then(setUsuarios).catch(() => undefined);
   }, [isAdmin]);
 
+  // Eventos filtrados (tipo + país). Los eventos sin país (Global) siempre se muestran.
+  // Se filtra sobre los datos ya cargados y con alcance aplicado por el backend (sin refetch).
+  const eventosFiltrados = useMemo(() => eventos.filter((e) =>
+    (!filtroTipo || e.tipo_evento_id === filtroTipo) &&
+    (filtroPaises.length === 0 || !e.pais || filtroPaises.includes(e.pais))
+  ), [eventos, filtroTipo, filtroPaises]);
+
+  // Totales por tipo de evento (solo tipos presentes), reactivos a filtros y mes cargado.
+  const totalesPorTipo = useMemo(() => {
+    const m = new Map<string, { nombre: string; color: string | null; eventos: CalendarEvent[] }>();
+    eventosFiltrados.forEach((e) => {
+      const t = tipos.find((x) => x.id === e.tipo_evento_id);
+      const nombre = e.event_types?.nombre ?? t?.nombre ?? 'Otro';
+      const color = e.event_types?.color ?? t?.color ?? null;
+      const it = m.get(nombre) ?? { nombre, color, eventos: [] };
+      it.eventos.push(e);
+      m.set(nombre, it);
+    });
+    return [...m.values()].sort((a, b) => b.eventos.length - a.eventos.length);
+  }, [eventosFiltrados, tipos]);
+
   // Mapa fecha -> eventos (expandiendo el rango de cada evento).
   const eventosPorDia = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
-    const filtered = filtroTipo ? eventos.filter((e) => e.tipo_evento_id === filtroTipo) : eventos;
+    const filtered = eventosFiltrados;
     for (const ev of filtered) {
       const ini = new Date(`${ev.fecha_inicio}T00:00:00`);
       const fin = new Date(`${ev.fecha_fin || ev.fecha_inicio}T00:00:00`);
@@ -125,7 +153,7 @@ const VistaMensual = () => {
       }
     }
     return map;
-  }, [eventos, filtroTipo]);
+  }, [eventosFiltrados]);
 
   // Celdas del mes (semana inicia lunes).
   const celdas = useMemo(() => {
@@ -143,11 +171,13 @@ const VistaMensual = () => {
   const abrirCrear = (fecha: string) => {
     if (!canCrear) return;
     setFormError(null);
+    setDetalleEvento(null);
     setForm({ ...emptyForm(fecha), usuarioId: isAdmin ? '' : user?.id ?? '' });
   };
 
   const abrirEditar = (ev: CalendarEvent) => {
     setFormError(null);
+    setDetalleEvento(ev);
     setForm({
       id: ev.id,
       titulo: ev.titulo,
@@ -229,11 +259,19 @@ const VistaMensual = () => {
           <IconButton onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}><ChevronRightIcon /></IconButton>
           <Button size="small" onClick={() => setCursor(new Date())} sx={{ textTransform: 'none' }}>Hoy</Button>
         </Box>
-        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
           <TextField select size="small" label="Tipo" value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)} sx={{ minWidth: 150 }}>
             <MenuItem value="">Todos</MenuItem>
             {tipos.map((t) => <MenuItem key={t.id} value={t.id}>{t.nombre}</MenuItem>)}
           </TextField>
+          <TextField
+            select size="small" label="País" value={filtroPaises} sx={{ minWidth: 180 }}
+            SelectProps={{ multiple: true, renderValue: (v) => ((v as string[]).length ? (v as string[]).join(', ') : 'Todos') }}
+            onChange={(e) => setFiltroPaises(typeof e.target.value === 'string' ? e.target.value.split(',') : (e.target.value as unknown as string[]))}
+          >
+            {PAISES.map((p) => <MenuItem key={p} value={p}>{p}</MenuItem>)}
+          </TextField>
+          <Button variant="outlined" startIcon={<DescriptionOutlinedIcon />} onClick={() => setOnePageOpen(true)} sx={{ textTransform: 'none' }}>OnePage</Button>
           {canCrear && (
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => abrirCrear(hoy)} sx={{ textTransform: 'none', borderRadius: 2 }}>
               Nuevo evento
@@ -278,13 +316,25 @@ const VistaMensual = () => {
                       </Typography>
                       <Stack spacing={0.5} sx={{ mt: 0.5 }}>
                         {evs.slice(0, 3).map((ev) => (
-                          <Chip
+                          <Tooltip
                             key={ev.id}
-                            label={ev.titulo}
-                            size="small"
-                            onClick={(e) => { e.stopPropagation(); abrirEditar(ev); }}
-                            sx={{ height: 18, fontSize: 10, justifyContent: 'flex-start', bgcolor: colorTipo(ev), color: '#fff', '& .MuiChip-label': { px: 0.75 } }}
-                          />
+                            arrow
+                            title={
+                              <Box sx={{ fontSize: 11 }}>
+                                <strong>{ev.titulo}</strong><br />
+                                {ev.event_types?.nombre ?? 'Evento'}<br />
+                                {(ev.fecha_fin && ev.fecha_fin !== ev.fecha_inicio) ? `${ev.fecha_inicio} → ${ev.fecha_fin}` : ev.fecha_inicio}<br />
+                                {`País: ${ev.pais ?? 'Global'}`}{ev.gestor_nombre ? <><br />{`Gestor: ${ev.gestor_nombre}`}</> : null}
+                              </Box>
+                            }
+                          >
+                            <Chip
+                              label={ev.titulo}
+                              size="small"
+                              onClick={(e) => { e.stopPropagation(); abrirEditar(ev); }}
+                              sx={{ height: 18, fontSize: 10, justifyContent: 'flex-start', bgcolor: colorTipo(ev), color: '#fff', '& .MuiChip-label': { px: 0.75 } }}
+                            />
+                          </Tooltip>
                         ))}
                         {evs.length > 3 && <Typography sx={{ fontSize: 10, color: 'text.secondary' }}>+{evs.length - 3} más</Typography>}
                       </Stack>
@@ -297,6 +347,49 @@ const VistaMensual = () => {
         </Paper>
       )}
 
+      {/* Resumen: Totales por tipo de evento (reaccionan a filtros y mes). Hover = detalle. */}
+      {!loading && (
+        <Paper sx={{ mt: 2, p: 1.5, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
+          <Typography sx={{ fontWeight: 700, mb: 1 }}>Totales por tipo de evento <Typography component="span" sx={{ fontSize: 12, color: 'text.secondary' }}>· {monthLabel(cursor)}</Typography></Typography>
+          {totalesPorTipo.length === 0 ? (
+            <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>No hay eventos para los filtros seleccionados.</Typography>
+          ) : (
+            <Grid container spacing={1.5}>
+              {totalesPorTipo.map((t) => (
+                <Grid item xs={6} sm={4} md={3} lg={2} key={t.nombre}>
+                  <Tooltip arrow placement="top" title={
+                    <Box sx={{ maxHeight: 220, overflowY: 'auto', py: 0.5 }}>
+                      {t.eventos.slice(0, 30).map((e) => (
+                        <Box key={e.id} sx={{ fontSize: 11, mb: 0.5 }}>
+                          <strong>{e.titulo}</strong><br />
+                          {(e.fecha_fin && e.fecha_fin !== e.fecha_inicio) ? `${e.fecha_inicio} → ${e.fecha_fin}` : e.fecha_inicio}
+                          {` · ${e.pais ?? 'Global'}`}{e.gestor_nombre ? ` · ${e.gestor_nombre}` : ''}
+                        </Box>
+                      ))}
+                      {t.eventos.length > 30 && <Box sx={{ fontSize: 11, color: 'grey.300' }}>+{t.eventos.length - 30} más…</Box>}
+                    </Box>
+                  }>
+                    <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, cursor: 'default', borderLeft: '4px solid', borderLeftColor: t.color ?? '#1E3A8A' }}>
+                      <Typography sx={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.nombre}</Typography>
+                      <Typography sx={{ fontSize: 22, fontWeight: 800 }}>{t.eventos.length}</Typography>
+                    </Paper>
+                  </Tooltip>
+                </Grid>
+              ))}
+            </Grid>
+          )}
+        </Paper>
+      )}
+
+      <CalendarOnePage
+        open={onePageOpen}
+        onClose={() => setOnePageOpen(false)}
+        periodo={monthLabel(cursor)}
+        paises={filtroPaises}
+        eventos={eventosFiltrados}
+        totales={totalesPorTipo}
+      />
+
       {/* Formulario crear/editar */}
       <Dialog open={Boolean(form)} onClose={() => setForm(null)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 700 }}>{form?.id ? 'Editar evento' : 'Nuevo evento'}</DialogTitle>
@@ -304,6 +397,16 @@ const VistaMensual = () => {
           {form && (
             <Stack spacing={2} sx={{ mt: 0.5 }}>
               {formError && <Alert severity="error">{formError}</Alert>}
+              {form.id && detalleEvento && (
+                <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, bgcolor: 'action.hover' }}>
+                  <Typography sx={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'text.secondary', mb: 0.5 }}>Detalle del evento</Typography>
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                    <Chip size="small" label={`Tipo: ${detalleEvento.event_types?.nombre ?? tipos.find((t) => t.id === detalleEvento.tipo_evento_id)?.nombre ?? 'Otro'}`} />
+                    <Chip size="small" variant="outlined" label={`País: ${detalleEvento.pais ?? 'Global'}`} />
+                    <Chip size="small" variant="outlined" color={detalleEvento.gestor_nombre ? 'primary' : 'default'} label={`Gestor: ${detalleEvento.gestor_nombre ?? 'No especificado'}`} />
+                  </Stack>
+                </Paper>
+              )}
               <TextField label="Título" value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} size="small" fullWidth />
               <TextField label="Descripción" value={form.descripcion ?? ''} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} size="small" fullWidth multiline minRows={2} />
               <TextField select label="Tipo de evento" value={form.tipoEventoId} onChange={(e) => setForm({ ...form, tipoEventoId: e.target.value })} size="small" fullWidth>
