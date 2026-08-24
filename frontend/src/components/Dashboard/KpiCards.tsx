@@ -115,11 +115,16 @@ const KpiCard = ({ title, value, icon, accent }: KpiCardProps) => {
 
 interface KpiCardsProps {
   kpis: DashboardKpi;
+  /** Código de moneda a mostrar en los KPIs monetarios. Por defecto 'USD' (comportamiento actual). */
+  moneda?: string;
 }
 
-const formatNumber = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+const formatNumber = (value: number, moneda = 'USD') =>
+  moneda === 'USD'
+    ? `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+    : `${value.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${moneda}`;
 
-const KpiCards = ({ kpis }: KpiCardsProps) => (
+const KpiCards = ({ kpis, moneda = 'USD' }: KpiCardsProps) => (
   <Box
     sx={{
       display: 'grid',
@@ -132,9 +137,9 @@ const KpiCards = ({ kpis }: KpiCardsProps) => (
       }
     }}
   >
-    <KpiCard title="Saldo Asignado USD" value={formatNumber(kpis.saldoAsignado)} icon={<AccountBalanceWalletIcon />} accent="#1E3A8A" />
-    <KpiCard title="Saldo Actual USD" value={formatNumber(kpis.saldoActual)} icon={<TrendingUpIcon />} accent="#0EA5E9" />
-    <KpiCard title="Recuperado USD" value={formatNumber(kpis.recuperado)} icon={<PointOfSaleIcon />} accent="#22C55E" />
+    <KpiCard title={`Saldo Asignado ${moneda}`} value={formatNumber(kpis.saldoAsignado, moneda)} icon={<AccountBalanceWalletIcon />} accent="#1E3A8A" />
+    <KpiCard title={`Saldo Actual ${moneda}`} value={formatNumber(kpis.saldoActual, moneda)} icon={<TrendingUpIcon />} accent="#0EA5E9" />
+    <KpiCard title={`Recuperado ${moneda}`} value={formatNumber(kpis.recuperado, moneda)} icon={<PointOfSaleIcon />} accent="#22C55E" />
     <KpiCard title="% Recuperación" value={`${kpis.porcentajeRecuperacion.toFixed(2)}%`} icon={<PercentIcon />} accent="#E6007E" />
     <KpiCard title="Total Cuentas" value={kpis.totalCuentas.toLocaleString()} icon={<PersonIcon />} accent="#7C3AED" />
   </Box>
