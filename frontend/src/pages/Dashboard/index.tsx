@@ -1,8 +1,11 @@
-import { Box, Typography } from '@mui/material';
+import { Box, Button, MenuItem, TextField, Typography } from '@mui/material';
+import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import { useEffect, useMemo, useState } from 'react';
 import DashboardFilters from '../../components/Dashboard/DashboardFilters';
 import KpiCards from '../../components/Dashboard/KpiCards';
 import DashboardCharts from '../../components/Dashboard/DashboardCharts';
+import DashboardZonaSector from '../../components/Dashboard/DashboardZonaSector';
+import DashboardOnePage from '../../components/Dashboard/DashboardOnePage';
 import DashboardTable from '../../components/Dashboard/DashboardTable';
 import TopGestoresTable from '../../components/Dashboard/TopGestoresTable';
 import TopZonasTable from '../../components/Dashboard/TopZonasTable';
@@ -11,7 +14,8 @@ import ResumenCampaniaTable from '../../components/Dashboard/ResumenCampaniaTabl
 import { useDashboard } from '../../hooks/useDashboard';
 import { useAuth } from '../../context/AuthContext';
 import { getCalidadResumen } from '../../services/controlService';
-import type { DashboardFilterOptions, DashboardFilterParams, DashboardMultiFilterParams } from '../../types/cartera';
+import { MONEDA_POR_PAIS } from '../../services/gestionService';
+import type { DashboardFilterOptions, DashboardFilterParams, DashboardMultiFilterParams, DashboardKpi } from '../../types/cartera';
 
 // Alturas de tile compartidas: garantizan que las tarjetas de una misma fila midan igual.
 const TABLE_TILE = 300;
@@ -24,6 +28,8 @@ const sanitizeSelectedValues = (values: string[], availableOptions: string[]) =>
 
 const DashboardPage = () => {
   const [filters, setFilters] = useState<DashboardMultiFilterParams>({ pais: [], gestor: [], gerente: [], zona: [], pd: [], campania: [] });
+  const [moneda, setMoneda] = useState<'USD' | 'LOCAL'>('USD');
+  const [onePageOpen, setOnePageOpen] = useState(false);
 
   // La carga inicial del dashboard usa ÚNICAMENTE /api/dashboard.
   // Los filtros se memoizan para que sólo se vuelva a consultar cuando cambian
@@ -131,6 +137,20 @@ const DashboardPage = () => {
     );
   }
 
+  // Selector de moneda: solo cuando hay exactamente un país seleccionado.
+  const singlePais = filters.pais.length === 1;
+  const monedaCode = singlePais ? (MONEDA_POR_PAIS[filters.pais[0].toUpperCase()] ?? 'USD') : 'USD';
+  const monedaSel: 'USD' | 'LOCAL' = singlePais && moneda === 'LOCAL' ? 'LOCAL' : 'USD';
+  const monedaLabel = monedaSel === 'LOCAL' ? monedaCode : 'USD';
+  // KPIs monetarios en moneda local (datos reales del resumen por PD ya filtrado). No altera % ni cuentas.
+  const localTotals = dashboard.resumenPD.reduce(
+    (a, p) => ({ asignado: a.asignado + p.saldoAsignadoLocal, actual: a.actual + p.saldoActualLocal, recuperado: a.recuperado + p.recuperadoLocal }),
+    { asignado: 0, actual: 0, recuperado: 0 }
+  );
+  const kpisDisplay: DashboardKpi = monedaSel === 'LOCAL'
+    ? { saldoAsignado: localTotals.asignado, saldoActual: localTotals.actual, recuperado: localTotals.recuperado, porcentajeRecuperacion: dashboard.kpis.porcentajeRecuperacion, totalCuentas: dashboard.kpis.totalCuentas }
+    : dashboard.kpis;
+
   return (
     /*
      * Lienzo ejecutivo: una sola rejilla CSS de 12 columnas con gap uniforme.
@@ -151,17 +171,37 @@ const DashboardPage = () => {
         <DashboardFilters filters={filters} onChange={handleChangeFilters} onClear={handleClearFilters} options={availableOptions} />
       </Box>
 
-      {/* Banda 2 · KPIs — una sola fila */}
-      <Box sx={{ gridColumn: '1 / -1' }}>
-        <KpiCards kpis={dashboard.kpis} />
+      {/* Banda 2 · Barra de acciones (moneda + OnePage) */}
+      <Box sx={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 1.5 }}>
+        {singlePais && (
+          <TextField select size="small" label="Moneda" value={moneda} onChange={(e) => setMoneda(e.target.value as 'USD' | 'LOCAL')} sx={{ minWidth: 170 }}>
+            <MenuItem value="USD">USD</MenuItem>
+            <MenuItem value="LOCAL">Moneda Local ({monedaCode})</MenuItem>
+          </TextField>
+        )}
+        <Button variant="outlined" startIcon={<DescriptionOutlinedIcon />} onClick={() => setOnePageOpen(true)} sx={{ textTransform: 'none' }}>Generar OnePage</Button>
       </Box>
 
-      {canCalidadVer && calNota && (
+      {/* Banda 2 · KPIs — una sola fila */}
+      <Box sx={{ gridColumn: '1 / -1' }}>
+        <KpiCards kpis={kpisDisplay} moneda={monedaLabel} />
+      </Box>
+
+      {canCalidadVer && (
         <Box sx={{ gridColumn: '1 / -1' }}>
           <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1.5, px: 2, py: 1, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
             <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase' }}>Calidad de llamada global</Typography>
-            <Typography sx={{ fontSize: 20, fontWeight: 800 }}>{calNota.nota}</Typography>
-            <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>{calNota.evaluaciones} evaluaciones · fuente: Control Operativo</Typography>
+            {calNota && calNota.evaluaciones > 0 ? (
+              <>
+                <Typography sx={{ fontSize: 20, fontWeight: 800 }}>{calNota.nota}</Typography>
+                <Typography sx={{ fontSize: 12, fontWeight: 700, color: calNota.nota >= 75 ? 'success.main' : calNota.nota >= 60 ? 'warning.main' : 'error.main' }}>
+                  {calNota.nota >= 90 ? 'Excelente' : calNota.nota >= 75 ? 'Bueno' : calNota.nota >= 60 ? 'Aceptable' : 'Requiere mejora'}
+                </Typography>
+                <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>/ 100 · {calNota.evaluaciones} evaluaciones · fuente: Control Operativo</Typography>
+              </>
+            ) : (
+              <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>Sin evaluaciones disponibles</Typography>
+            )}
           </Box>
         </Box>
       )}
@@ -169,6 +209,11 @@ const DashboardPage = () => {
       {/* Banda 3 · Gráficos — 6 tarjetas idénticas en 2 columnas × 3 filas */}
       <Box sx={{ gridColumn: '1 / -1' }}>
         <DashboardCharts pds={dashboard.pds} resumenPD={dashboard.resumenPD} countrySummary={dashboard.countrySummary} />
+      </Box>
+
+      {/* Banda 3.5 · Saldos por Zona y Sector (después de PD/Riesgo, antes de Tops) */}
+      <Box sx={{ gridColumn: '1 / -1' }}>
+        <DashboardZonaSector data={dashboard.zonaSectorSummary} moneda={monedaSel} monedaCode={monedaCode} />
       </Box>
 
       {/* Banda 4 · Top Gestores + Top Zonas — sin filtros aplicados */}
@@ -191,6 +236,18 @@ const DashboardPage = () => {
       <Box sx={{ gridColumn: '1 / -1', height: DETAIL_TILE }}>
         <DashboardTable data={dashboard.cuentas} />
       </Box>
+
+      <DashboardOnePage
+        open={onePageOpen}
+        onClose={() => setOnePageOpen(false)}
+        filters={filters}
+        kpis={kpisDisplay}
+        moneda={monedaLabel}
+        calidad={calNota}
+        puedeCalidad={canCalidadVer}
+        zonaSector={dashboard.zonaSectorSummary}
+        resumenPD={dashboard.resumenPD}
+      />
     </Box>
   );
 };

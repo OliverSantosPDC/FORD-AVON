@@ -158,8 +158,24 @@ export interface DashboardResponse {
   topZonasDetalle: GroupSummaryItem[];
   resumenCampania: CampaniaSummaryItem[];
   countrySummary: CountrySummaryItem[];
+  zonaSectorSummary: ZonaSectorSummaryItem[];
   filterOptions: DashboardFilterOptions;
   cuentas: Record<string, unknown>[];
+}
+
+export interface ZonaSectorSectorItem {
+  sector: string;
+  saldoActualUsd: number;
+  saldoActualLocal: number;
+  cuentas: number;
+}
+
+export interface ZonaSectorSummaryItem {
+  zona: string;
+  saldoActualUsd: number;
+  saldoActualLocal: number;
+  cuentas: number;
+  sectores: ZonaSectorSectorItem[];
 }
 
 export interface InteligenciaResponse {
