@@ -1,0 +1,92 @@
+export type Lang = 'es' | 'en';
+
+/**
+ * Diccionario central de traducciones de INTERFAZ (no datos de negocio).
+ * Claves planas namespaced (`nav.*`, `common.*`, `config.*`). El fallback es la clave misma.
+ * Ampliar aquí y consumir con `t('clave')` — sin traducciones dispersas por componente.
+ */
+export const translations: Record<Lang, Record<string, string>> = {
+  es: {
+    // Navegación
+    'nav.dashboard': 'Dashboard',
+    'nav.inteligencia': 'Centro de Inteligencia',
+    'nav.calendario': 'Calendario',
+    'nav.control_operativo': 'Control Operativo',
+    'nav.asignacion': 'Asignación',
+    'nav.gestion': 'Gestión',
+    'nav.repositorio': 'Repositorio',
+    'nav.usuarios': 'Usuarios',
+    'nav.configuracion': 'Configuración',
+    'nav.informacion': 'Información',
+    // Grupos de navegación
+    'nav.group.analisis': 'Análisis',
+    'nav.group.operacion': 'Operación',
+    'nav.group.administracion': 'Administración',
+    // Comunes
+    'common.save': 'Guardar',
+    'common.cancel': 'Cancelar',
+    'common.delete': 'Eliminar',
+    'common.edit': 'Editar',
+    'common.confirm': 'Confirmar',
+    'common.close': 'Cerrar',
+    'common.search': 'Buscar',
+    'common.filters': 'Filtros',
+    'common.clear': 'Limpiar',
+    'common.export': 'Exportar',
+    'common.loading': 'Cargando...',
+    'common.noData': 'Sin datos disponibles',
+    'common.error': 'Ocurrió un error',
+    'common.actions': 'Acciones',
+    'common.status': 'Estado',
+    'common.active': 'Activo',
+    'common.inactive': 'Inactivo',
+    'common.total': 'Total',
+    'common.saldo': 'Saldo',
+    'common.recuperado': 'Recuperado',
+    'common.language': 'Idioma',
+    'common.theme': 'Tema',
+    'common.logout': 'Cerrar sesión',
+    'common.spanish': 'Español',
+    'common.english': 'Inglés'
+  },
+  en: {
+    'nav.dashboard': 'Dashboard',
+    'nav.inteligencia': 'Intelligence Center',
+    'nav.calendario': 'Calendar',
+    'nav.control_operativo': 'Operational Control',
+    'nav.asignacion': 'Assignment',
+    'nav.gestion': 'Management',
+    'nav.repositorio': 'Repository',
+    'nav.usuarios': 'Users',
+    'nav.configuracion': 'Settings',
+    'nav.informacion': 'Information',
+    'nav.group.analisis': 'Analytics',
+    'nav.group.operacion': 'Operations',
+    'nav.group.administracion': 'Administration',
+    'common.save': 'Save',
+    'common.cancel': 'Cancel',
+    'common.delete': 'Delete',
+    'common.edit': 'Edit',
+    'common.confirm': 'Confirm',
+    'common.close': 'Close',
+    'common.search': 'Search',
+    'common.filters': 'Filters',
+    'common.clear': 'Clear',
+    'common.export': 'Export',
+    'common.loading': 'Loading...',
+    'common.noData': 'No data available',
+    'common.error': 'An error occurred',
+    'common.actions': 'Actions',
+    'common.status': 'Status',
+    'common.active': 'Active',
+    'common.inactive': 'Inactive',
+    'common.total': 'Total',
+    'common.saldo': 'Balance',
+    'common.recuperado': 'Recovered',
+    'common.language': 'Language',
+    'common.theme': 'Theme',
+    'common.logout': 'Sign out',
+    'common.spanish': 'Spanish',
+    'common.english': 'English'
+  }
+};
