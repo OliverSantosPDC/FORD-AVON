@@ -4,6 +4,7 @@ import {
   AppBar,
   Avatar,
   Box,
+  Collapse,
   CssBaseline,
   Divider,
   Drawer,
@@ -22,13 +23,15 @@ import {
   Tooltip
 } from '@mui/material';
 import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import LogoutIcon from '@mui/icons-material/Logout';
 import { useThemeMode } from '../theme/ThemeProviderWrapper';
 import { useI18n } from '../i18n/LanguageProvider';
 import { useAuth } from '../context/AuthContext';
-import { MODULES } from '../config/modules';
+import { MODULES, NAV_GROUPS, type NavGroup, type ModuleDef } from '../config/modules';
 import pdcLogo from '../assets/branding/pdc-logo.svg';
 import avonLogo from '../assets/branding/avon-logo.svg';
 
@@ -58,6 +61,13 @@ const RootLayout = () => {
 
   // Menú generado desde la fuente única de módulos, filtrado por permisos.
   const visibleModules = useMemo(() => MODULES.filter((m) => hasPermission(m.permission)), [hasPermission]);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<NavGroup>>(new Set());
+  const toggleGroup = (g: NavGroup) =>
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(g)) next.delete(g); else next.add(g);
+      return next;
+    });
 
   const updateDate = useMemo(
     () => new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date()),
@@ -104,66 +114,86 @@ const RootLayout = () => {
       </Toolbar>
       <Divider sx={{ mb: 1.25, borderColor: mode === 'light' ? '#E5E7EB' : '#17233F' }} />
       <List sx={{ flexGrow: 1, py: 0.5 }}>
-        {visibleModules.map((item) => {
-          const selected = location.pathname === item.path;
-          return (
-            <ListItem key={item.key} disablePadding>
-              <ListItemButton
-                component={RouterLink}
-                to={item.path}
-                selected={selected}
-                sx={{
-                  position: 'relative',
-                  overflow: 'hidden',
-                  py: 1,
-                  borderRadius: 2.5,
-                  mb: 0.75,
-                  mx: 1,
-                  pl: 1.25,
-                  transition: 'transform 320ms cubic-bezier(0.4, 0, 0.2, 1), background-color 320ms ease, box-shadow 320ms ease',
-                  bgcolor: selected ? 'rgba(230, 0, 126, 0.12)' : 'transparent',
-                  color: mode === 'light' ? '#5B6472' : '#E2E8F0',
-                  borderLeft: selected ? '3px solid #E6007E' : '3px solid transparent',
-                  transform: selected ? 'translateX(3px)' : 'translateX(0)',
-                  boxShadow: selected
-                    ? '0 0 0 1px rgba(230, 0, 126, 0.14), 0 8px 22px rgba(230, 0, 126, 0.18)'
-                    : 'none',
-                  '&::after': selected
-                    ? {
-                        content: '""',
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        width: '60%',
-                        height: '100%',
-                        background: 'linear-gradient(100deg, transparent 0%, rgba(230, 0, 126, 0.16) 50%, transparent 100%)',
-                        animation: 'navGlow 3.6s ease-in-out infinite',
-                        pointerEvents: 'none'
-                      }
-                    : {},
-                  '@keyframes navGlow': {
-                    '0%': { transform: 'translateX(-120%)', opacity: 0 },
-                    '35%': { opacity: 1 },
-                    '100%': { transform: 'translateX(260%)', opacity: 0 }
-                  },
-                  '&:hover': {
-                    bgcolor: mode === 'light' ? 'rgba(230, 0, 126, 0.08)' : 'rgba(255, 255, 255, 0.06)',
-                    transform: 'translateX(3px)'
-                  }
-                }}
-              >
-                <ListItemIcon sx={{ color: selected ? '#E6007E' : '#1E3A8A', minWidth: 30, transition: 'color 320ms ease' }}>{item.icon}</ListItemIcon>
-                <ListItemText
-                  primary={item.i18nKey ? t(item.i18nKey) : item.label}
-                  primaryTypographyProps={{
-                    fontWeight: selected ? 700 : 600,
-                    fontSize: 11.5,
-                    color: mode === 'light' ? '#4B5563' : '#F8FAFC',
-                    noWrap: true
+        {NAV_GROUPS.map((grp) => {
+          const items = visibleModules.filter((m) => (m.group ?? 'administracion') === grp.key);
+          if (items.length === 0) return null;
+          const hasActive = items.some((m) => location.pathname === m.path);
+          const expanded = !collapsedGroups.has(grp.key) || hasActive;
+          const renderModuleItem = (item: ModuleDef) => {
+            const selected = location.pathname === item.path;
+            return (
+              <ListItem key={item.key} disablePadding>
+                <ListItemButton
+                  component={RouterLink}
+                  to={item.path}
+                  selected={selected}
+                  sx={{
+                    position: 'relative',
+                    overflow: 'hidden',
+                    py: 1,
+                    borderRadius: 2.5,
+                    mb: 0.75,
+                    mx: 1,
+                    pl: 1.25,
+                    transition: 'transform 320ms cubic-bezier(0.4, 0, 0.2, 1), background-color 320ms ease, box-shadow 320ms ease',
+                    bgcolor: selected ? 'rgba(230, 0, 126, 0.12)' : 'transparent',
+                    color: mode === 'light' ? '#5B6472' : '#E2E8F0',
+                    borderLeft: selected ? '3px solid #E6007E' : '3px solid transparent',
+                    transform: selected ? 'translateX(3px)' : 'translateX(0)',
+                    boxShadow: selected
+                      ? '0 0 0 1px rgba(230, 0, 126, 0.14), 0 8px 22px rgba(230, 0, 126, 0.18)'
+                      : 'none',
+                    '&::after': selected
+                      ? {
+                          content: '""',
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          width: '60%',
+                          height: '100%',
+                          background: 'linear-gradient(100deg, transparent 0%, rgba(230, 0, 126, 0.16) 50%, transparent 100%)',
+                          animation: 'navGlow 3.6s ease-in-out infinite',
+                          pointerEvents: 'none'
+                        }
+                      : {},
+                    '@keyframes navGlow': {
+                      '0%': { transform: 'translateX(-120%)', opacity: 0 },
+                      '35%': { opacity: 1 },
+                      '100%': { transform: 'translateX(260%)', opacity: 0 }
+                    },
+                    '&:hover': {
+                      bgcolor: mode === 'light' ? 'rgba(230, 0, 126, 0.08)' : 'rgba(255, 255, 255, 0.06)',
+                      transform: 'translateX(3px)'
+                    }
                   }}
+                >
+                  <ListItemIcon sx={{ color: selected ? '#E6007E' : '#1E3A8A', minWidth: 30, transition: 'color 320ms ease' }}>{item.icon}</ListItemIcon>
+                  <ListItemText
+                    primary={item.i18nKey ? t(item.i18nKey) : item.label}
+                    primaryTypographyProps={{
+                      fontWeight: selected ? 700 : 600,
+                      fontSize: 11.5,
+                      color: mode === 'light' ? '#4B5563' : '#F8FAFC',
+                      noWrap: true
+                    }}
+                  />
+                </ListItemButton>
+              </ListItem>
+            );
+          };
+          return (
+            <Box key={grp.key} sx={{ mb: 0.5 }}>
+              <ListItemButton onClick={() => toggleGroup(grp.key)} sx={{ mx: 1, borderRadius: 2, py: 0.4 }}>
+                <ListItemText
+                  primary={t(grp.i18nKey)}
+                  primaryTypographyProps={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.6, textTransform: 'uppercase', color: mode === 'light' ? '#94A3B8' : '#64748B', noWrap: true }}
                 />
+                {expanded ? <ExpandLessIcon sx={{ fontSize: 18, color: 'text.secondary' }} /> : <ExpandMoreIcon sx={{ fontSize: 18, color: 'text.secondary' }} />}
               </ListItemButton>
-            </ListItem>
+              <Collapse in={expanded} unmountOnExit>
+                {items.map(renderModuleItem)}
+              </Collapse>
+            </Box>
           );
         })}
       </List>
