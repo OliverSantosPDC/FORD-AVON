@@ -47,7 +47,13 @@ export const translations: Record<Lang, Record<string, string>> = {
     'common.theme': 'Tema',
     'common.logout': 'Cerrar sesión',
     'common.spanish': 'Español',
-    'common.english': 'Inglés'
+    'common.english': 'Inglés',
+    'common.retry': 'Reintentar',
+    'common.reload': 'Recargar',
+    'error.boundaryTitle': 'Ocurrió un problema',
+    'error.boundaryBody': 'No se pudo mostrar esta sección. Puedes reintentar o recargar la aplicación.',
+    'error.loadFailed': 'No se pudo cargar la información.',
+    'empty.default': 'No hay información para mostrar.'
   },
   en: {
     'nav.dashboard': 'Dashboard',
@@ -87,6 +93,12 @@ export const translations: Record<Lang, Record<string, string>> = {
     'common.theme': 'Theme',
     'common.logout': 'Sign out',
     'common.spanish': 'Spanish',
-    'common.english': 'English'
+    'common.english': 'English',
+    'common.retry': 'Retry',
+    'common.reload': 'Reload',
+    'error.boundaryTitle': 'Something went wrong',
+    'error.boundaryBody': 'This section could not be displayed. You can retry or reload the application.',
+    'error.loadFailed': 'The information could not be loaded.',
+    'empty.default': 'There is no information to display.'
   }
 };
