@@ -13,6 +13,7 @@ import { TablePagination } from '@mui/material';
 import { useAuth } from '../../context/AuthContext';
 import { exportRowsToCsv, exportRowsToExcel } from '../../utils/tableExport';
 import { MODULES } from '../../config/modules';
+import UsuariosPage from '../Usuarios';
 import {
   getGeneral, putGeneral, getCatalogos, crearCatalogo, actualizarCatalogo,
   getVariables, crearVariable, actualizarVariable, getRoles, putRolPermisos, getPlantillas, subirPlantilla, descargarPlantilla, subirAsset,
@@ -34,7 +35,11 @@ const VAR_TIPOS = ['texto', 'numero', 'booleano', 'fecha', 'json'];
 const ConfiguracionPage = () => {
   const { hasPermission } = useAuth();
   const canEdit = hasPermission('configuracion.editar');
+  const canUsuarios = hasPermission('modulo.usuarios');
   const [tab, setTab] = useState(0);
+  // Pestaña "Usuarios" (integra el módulo existente dentro de Configuración) al final,
+  // para no desplazar los índices de los paneles existentes. Índice fijo = 7 cuando aplica.
+  const TAB_USUARIOS = 7;
   const [toast, setToast] = useState<string | null>(null);
 
   // General
@@ -148,7 +153,7 @@ const ConfiguracionPage = () => {
   return (
     <Box sx={{ p: { xs: 1, md: 2 } }}>
       <Tabs value={tab} onChange={(_e, v) => setTab(v)} variant="scrollable" sx={{ mb: 2 }}>
-        {['General', 'Catálogos', 'Roles y permisos', 'Apariencia', 'Plantillas', 'Variables', 'Auditoría'].map((t) => <Tab key={t} label={t} sx={{ textTransform: 'none' }} />)}
+        {['General', 'Catálogos', 'Roles y permisos', 'Apariencia', 'Plantillas', 'Variables', 'Auditoría', ...(canUsuarios ? ['Usuarios'] : [])].map((t) => <Tab key={t} label={t} sx={{ textTransform: 'none' }} />)}
       </Tabs>
 
       {/* GENERAL */}
@@ -428,6 +433,13 @@ const ConfiguracionPage = () => {
             <TablePagination component="div" count={audTotal} page={audPage} onPageChange={(_e, p) => setAudPage(p)} rowsPerPage={audRpp} onRowsPerPageChange={(e) => { setAudRpp(parseInt(e.target.value, 10)); setAudPage(0); }} rowsPerPageOptions={[25, 50, 100]} labelRowsPerPage="Filas" />
           </Stack>
         </Paper>
+      )}
+
+      {/* USUARIOS (módulo integrado dentro de Configuración; reutiliza la página existente) */}
+      {canUsuarios && tab === TAB_USUARIOS && (
+        <Box sx={{ mx: -2 }}>
+          <UsuariosPage />
+        </Box>
       )}
 
       <Snackbar open={Boolean(toast)} autoHideDuration={3500} onClose={() => setToast(null)} message={toast ?? ''} />
