@@ -19,7 +19,13 @@ const ThemeProviderWrapper = ({ children }: { children: React.ReactNode }) => {
     const stored = localStorage.getItem(LOCAL_STORAGE_KEY) as PaletteMode | null;
     if (stored === 'dark' || stored === 'light') {
       setMode(stored);
+      return;
     }
+    // Sin preferencia guardada: usar la configuración del sistema (prefers-color-scheme).
+    const prefersDark = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-color-scheme: dark)').matches
+      : false;
+    setMode(prefersDark ? 'dark' : 'light');
   }, []);
 
   useEffect(() => {

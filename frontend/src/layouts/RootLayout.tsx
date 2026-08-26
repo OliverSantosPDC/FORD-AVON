@@ -26,6 +26,7 @@ import LightModeIcon from '@mui/icons-material/LightMode';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import LogoutIcon from '@mui/icons-material/Logout';
 import { useThemeMode } from '../theme/ThemeProviderWrapper';
+import { useI18n } from '../i18n/LanguageProvider';
 import { useAuth } from '../context/AuthContext';
 import { MODULES } from '../config/modules';
 import pdcLogo from '../assets/branding/pdc-logo.svg';
@@ -44,6 +45,7 @@ const RootLayout = () => {
   const theme = useTheme();
   const navigate = useNavigate();
   const { mode, toggleMode } = useThemeMode();
+  const { lang, setLang, t } = useI18n();
   const { user, role, hasPermission, logout } = useAuth();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [time, setTime] = useState(() => new Date());
@@ -152,7 +154,7 @@ const RootLayout = () => {
               >
                 <ListItemIcon sx={{ color: selected ? '#E6007E' : '#1E3A8A', minWidth: 30, transition: 'color 320ms ease' }}>{item.icon}</ListItemIcon>
                 <ListItemText
-                  primary={item.label}
+                  primary={item.i18nKey ? t(item.i18nKey) : item.label}
                   primaryTypographyProps={{
                     fontWeight: selected ? 700 : 600,
                     fontSize: 11.5,
@@ -233,7 +235,27 @@ const RootLayout = () => {
                 </Box>
               </Box>
             </Box>
-            <Tooltip title="Cambiar tema">
+            <Tooltip title={t('common.language')}>
+              <IconButton
+                size="small"
+                onClick={() => setLang(lang === 'es' ? 'en' : 'es')}
+                color="inherit"
+                aria-label={t('common.language')}
+                sx={{
+                  bgcolor: mode === 'light' ? '#FFFFFF' : '#0F172A',
+                  border: '1px solid',
+                  borderColor: mode === 'light' ? '#EEF2F7' : '#334155',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  width: 34, height: 34,
+                  transition: 'all 220ms ease-in-out',
+                  '&:hover': { transform: 'translateY(-1px)', boxShadow: '0 10px 24px rgba(15, 23, 42, 0.12)' }
+                }}
+              >
+                {lang.toUpperCase()}
+              </IconButton>
+            </Tooltip>
+            <Tooltip title={t('common.theme')}>
               <IconButton
                 size="small"
                 onClick={toggleMode}

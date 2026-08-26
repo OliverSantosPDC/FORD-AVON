@@ -23,20 +23,22 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 export interface ModuleDef {
   key: string;
   label: string;
+  /** Clave de traducción i18n para el nombre del módulo (fallback: `label`). */
+  i18nKey?: string;
   path: string;
   permission: string;
   icon: ReactNode;
 }
 
 export const MODULES: ModuleDef[] = [
-  { key: 'dashboard', label: 'Dashboard', path: '/dashboard', permission: 'modulo.dashboard', icon: <DashboardIcon sx={{ fontSize: 22 }} /> },
-  { key: 'inteligencia', label: 'Centro de Inteligencia', path: '/inteligencia', permission: 'modulo.centro_inteligencia', icon: <PsychologyIcon sx={{ fontSize: 22 }} /> },
-  { key: 'calendario', label: 'Calendario', path: '/calendario', permission: 'modulo.calendario', icon: <CalendarTodayIcon sx={{ fontSize: 22 }} /> },
-  { key: 'control-operativo', label: 'Control Operativo', path: '/control-operativo', permission: 'control_operativo.ver', icon: <CenterFocusStrongIcon sx={{ fontSize: 22 }} /> },
-  { key: 'asignacion', label: 'Asignación', path: '/asignacion', permission: 'control_operativo.asignacion.ver', icon: <CenterFocusStrongIcon sx={{ fontSize: 22 }} /> },
-  { key: 'gestion', label: 'Gestión', path: '/gestion', permission: 'modulo.gestion', icon: <TrendingUpIcon sx={{ fontSize: 22 }} /> },
-  { key: 'repositorio', label: 'Repositorio', path: '/repositorio', permission: 'modulo.repositorio', icon: <FolderIcon sx={{ fontSize: 22 }} /> },
-  { key: 'usuarios', label: 'Usuarios', path: '/usuarios', permission: 'modulo.usuarios', icon: <PersonIcon sx={{ fontSize: 22 }} /> },
-  { key: 'configuracion', label: 'Configuración', path: '/configuracion', permission: 'configuracion.ver', icon: <SettingsIcon sx={{ fontSize: 22 }} /> },
-  { key: 'informacion', label: 'Información', path: '/informacion', permission: 'modulo.informacion', icon: <InfoOutlinedIcon sx={{ fontSize: 22 }} /> }
+  { key: 'dashboard', label: 'Dashboard', i18nKey: 'nav.dashboard', path: '/dashboard', permission: 'modulo.dashboard', icon: <DashboardIcon sx={{ fontSize: 22 }} /> },
+  { key: 'inteligencia', label: 'Centro de Inteligencia', i18nKey: 'nav.inteligencia', path: '/inteligencia', permission: 'modulo.centro_inteligencia', icon: <PsychologyIcon sx={{ fontSize: 22 }} /> },
+  { key: 'calendario', label: 'Calendario', i18nKey: 'nav.calendario', path: '/calendario', permission: 'modulo.calendario', icon: <CalendarTodayIcon sx={{ fontSize: 22 }} /> },
+  { key: 'control-operativo', label: 'Control Operativo', i18nKey: 'nav.control_operativo', path: '/control-operativo', permission: 'control_operativo.ver', icon: <CenterFocusStrongIcon sx={{ fontSize: 22 }} /> },
+  { key: 'asignacion', label: 'Asignación', i18nKey: 'nav.asignacion', path: '/asignacion', permission: 'control_operativo.asignacion.ver', icon: <CenterFocusStrongIcon sx={{ fontSize: 22 }} /> },
+  { key: 'gestion', label: 'Gestión', i18nKey: 'nav.gestion', path: '/gestion', permission: 'modulo.gestion', icon: <TrendingUpIcon sx={{ fontSize: 22 }} /> },
+  { key: 'repositorio', label: 'Repositorio', i18nKey: 'nav.repositorio', path: '/repositorio', permission: 'modulo.repositorio', icon: <FolderIcon sx={{ fontSize: 22 }} /> },
+  { key: 'usuarios', label: 'Usuarios', i18nKey: 'nav.usuarios', path: '/usuarios', permission: 'modulo.usuarios', icon: <PersonIcon sx={{ fontSize: 22 }} /> },
+  { key: 'configuracion', label: 'Configuración', i18nKey: 'nav.configuracion', path: '/configuracion', permission: 'configuracion.ver', icon: <SettingsIcon sx={{ fontSize: 22 }} /> },
+  { key: 'informacion', label: 'Información', i18nKey: 'nav.informacion', path: '/informacion', permission: 'modulo.informacion', icon: <InfoOutlinedIcon sx={{ fontSize: 22 }} /> }
 ];
