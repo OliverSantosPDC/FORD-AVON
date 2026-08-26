@@ -13,6 +13,7 @@ import configRoutes from './routes/configRoutes';
 import controlRoutes from './routes/controlRoutes';
 import catalogosRoutes from './routes/catalogosRoutes';
 import inteligenciaRoutes from './routes/inteligenciaRoutes';
+import asignacionRoutes from './routes/asignacionRoutes';
 
 const app = express();
 const port = process.env.PORT ?? 4000;
@@ -58,6 +59,7 @@ app.use('/api', configRoutes);
 app.use('/api', controlRoutes);
 app.use('/api', catalogosRoutes);
 app.use('/api', inteligenciaRoutes);
+app.use('/api', asignacionRoutes);
 app.use('/api', carteraRoutes);
 app.use('/api', dashboardRoutes);
 app.use('/api', uploadRoutes);

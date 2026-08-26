@@ -12,6 +12,7 @@ import InformacionPage from '../pages/Informacion';
 import GestionPage from '../pages/Gestion';
 import ConfiguracionPage from '../pages/Configuracion';
 import ControlOperativoPage from '../pages/ControlOperativo';
+import AsignacionPage from '../pages/Asignacion';
 import PlaceholderPage from '../pages/PlaceholderPage';
 import { ProtectedRoute, PermissionRoute } from '../components/ProtectedRoute';
 
@@ -50,6 +51,10 @@ const AppRoutes = () => (
 
         <Route element={<PermissionRoute permission="control_operativo.ver" />}>
           <Route path="control-operativo" element={<ControlOperativoPage />} />
+        </Route>
+
+        <Route element={<PermissionRoute permission="control_operativo.asignacion.ver" />}>
+          <Route path="asignacion" element={<AsignacionPage />} />
         </Route>
 
         <Route element={<PermissionRoute permission="modulo.gestion" />}>

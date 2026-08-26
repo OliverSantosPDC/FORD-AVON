@@ -33,6 +33,7 @@ export const MODULES: ModuleDef[] = [
   { key: 'inteligencia', label: 'Centro de Inteligencia', path: '/inteligencia', permission: 'modulo.centro_inteligencia', icon: <PsychologyIcon sx={{ fontSize: 22 }} /> },
   { key: 'calendario', label: 'Calendario', path: '/calendario', permission: 'modulo.calendario', icon: <CalendarTodayIcon sx={{ fontSize: 22 }} /> },
   { key: 'control-operativo', label: 'Control Operativo', path: '/control-operativo', permission: 'control_operativo.ver', icon: <CenterFocusStrongIcon sx={{ fontSize: 22 }} /> },
+  { key: 'asignacion', label: 'Asignación', path: '/asignacion', permission: 'control_operativo.asignacion.ver', icon: <CenterFocusStrongIcon sx={{ fontSize: 22 }} /> },
   { key: 'gestion', label: 'Gestión', path: '/gestion', permission: 'modulo.gestion', icon: <TrendingUpIcon sx={{ fontSize: 22 }} /> },
   { key: 'repositorio', label: 'Repositorio', path: '/repositorio', permission: 'modulo.repositorio', icon: <FolderIcon sx={{ fontSize: 22 }} /> },
   { key: 'usuarios', label: 'Usuarios', path: '/usuarios', permission: 'modulo.usuarios', icon: <PersonIcon sx={{ fontSize: 22 }} /> },
