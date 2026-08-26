@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Alert, Box, Button, Checkbox, Chip, CircularProgress, Collapse, Divider, FormControlLabel, Grid, IconButton,
   MenuItem, Paper, Snackbar, Stack, Switch, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
@@ -37,6 +38,16 @@ const ConfiguracionPage = () => {
   const canEdit = hasPermission('configuracion.editar');
   const canUsuarios = hasPermission('modulo.usuarios');
   const [tab, setTab] = useState(0);
+  // Deep-link de pestaña desde la navegación (?tab=N). Compatibilidad con la ruta actual.
+  const [searchParams] = useSearchParams();
+  useEffect(() => {
+    const raw = searchParams.get('tab');
+    if (raw === null) return;
+    const n = Number(raw);
+    const maxTab = canUsuarios ? 7 : 6;
+    if (Number.isInteger(n) && n >= 0 && n <= maxTab) setTab(n);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, canUsuarios]);
   // Pestaña "Usuarios" (integra el módulo existente dentro de Configuración) al final,
   // para no desplazar los índices de los paneles existentes. Índice fijo = 7 cuando aplica.
   const TAB_USUARIOS = 7;

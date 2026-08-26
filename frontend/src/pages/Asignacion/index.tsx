@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Alert, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
   FormControlLabel, Grid, MenuItem, Paper, Snackbar, Stack, Tab, Table, TableBody, TableCell, TableContainer,
@@ -24,6 +25,14 @@ const AsignacionPage = () => {
   const canExportBase = hasPermission('control_operativo.base_marcacion.exportar');
 
   const [tab, setTab] = useState(0);
+  // Deep-link de pestaña desde la navegación (?tab=0..3). Compatibilidad con /asignacion.
+  const [searchParams] = useSearchParams();
+  useEffect(() => {
+    const raw = searchParams.get('tab');
+    if (raw === null) return;
+    const n = Number(raw);
+    if (Number.isInteger(n) && n >= 0 && n <= 3) setTab(n);
+  }, [searchParams]);
   const [gestores, setGestores] = useState<AsignacionGestor[]>([]);
   const [cuentas, setCuentas] = useState<Array<Record<string, unknown>>>([]);
   const [loading, setLoading] = useState(true);

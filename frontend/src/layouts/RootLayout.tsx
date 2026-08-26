@@ -23,19 +23,20 @@ import {
   Tooltip
 } from '@mui/material';
 import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone';
-import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import MenuOpenIcon from '@mui/icons-material/MenuOpen';
+import SidebarNav from '../components/layout/SidebarNav';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import LogoutIcon from '@mui/icons-material/Logout';
 import { useThemeMode } from '../theme/ThemeProviderWrapper';
 import { useI18n } from '../i18n/LanguageProvider';
 import { useAuth } from '../context/AuthContext';
-import { MODULES, NAV_GROUPS, type NavGroup, type ModuleDef } from '../config/modules';
 import pdcLogo from '../assets/branding/pdc-logo.svg';
 import avonLogo from '../assets/branding/avon-logo.svg';
 
-const drawerWidth = 225;
+const EXPANDED_WIDTH = 240;
+const COLLAPSED_WIDTH = 68;
+const SIDEBAR_KEY = 'ford-avon-sidebar-collapsed';
 
 const initialsOf = (nombre?: string | null, apellido?: string | null): string => {
   const a = (nombre ?? '').trim().charAt(0);
@@ -59,15 +60,18 @@ const RootLayout = () => {
     return () => window.clearInterval(timer);
   }, []);
 
-  // Menú generado desde la fuente única de módulos, filtrado por permisos.
-  const visibleModules = useMemo(() => MODULES.filter((m) => hasPermission(m.permission)), [hasPermission]);
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<NavGroup>>(new Set());
-  const toggleGroup = (g: NavGroup) =>
-    setCollapsedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(g)) next.delete(g); else next.add(g);
+  // Sidebar colapsable (persistente).
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
+  useEffect(() => {
+    setSidebarCollapsed(localStorage.getItem(SIDEBAR_KEY) === '1');
+  }, []);
+  const toggleSidebar = () =>
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem(SIDEBAR_KEY, next ? '1' : '0');
       return next;
     });
+  const drawerWidth = sidebarCollapsed ? COLLAPSED_WIDTH : EXPANDED_WIDTH;
 
   const updateDate = useMemo(
     () => new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date()),
@@ -106,97 +110,21 @@ const RootLayout = () => {
         '&::-webkit-scrollbar': { display: 'none', width: 0, height: 0 }
       }}
     >
-      <Toolbar sx={{ px: 1.75, py: 1.25, minHeight: 52 }}>
-        <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Box component="img" src={pdcLogo} alt="Logo PDC" sx={{ width: 60, height: 18 }} />
-          <Box component="img" src={avonLogo} alt="Logo AVON" sx={{ width: 60, height: 18 }} />
-        </Box>
+      <Toolbar sx={{ px: 1, py: 1.25, minHeight: 52, display: 'flex', alignItems: 'center', justifyContent: sidebarCollapsed ? 'center' : 'space-between', gap: 0.5 }}>
+        {!sidebarCollapsed && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box component="img" src={pdcLogo} alt="Logo PDC" sx={{ width: 54, height: 16 }} />
+            <Box component="img" src={avonLogo} alt="Logo AVON" sx={{ width: 54, height: 16 }} />
+          </Box>
+        )}
+        <Tooltip title={sidebarCollapsed ? t('nav.expand') : t('nav.collapse')} placement="right" arrow>
+          <IconButton size="small" onClick={toggleSidebar} aria-label="toggle sidebar">
+            <MenuOpenIcon fontSize="small" sx={{ transform: sidebarCollapsed ? 'rotate(180deg)' : 'none', transition: 'transform 200ms ease' }} />
+          </IconButton>
+        </Tooltip>
       </Toolbar>
       <Divider sx={{ mb: 1.25, borderColor: mode === 'light' ? '#E5E7EB' : '#17233F' }} />
-      <List sx={{ flexGrow: 1, py: 0.5 }}>
-        {NAV_GROUPS.map((grp) => {
-          const items = visibleModules.filter((m) => (m.group ?? 'administracion') === grp.key);
-          if (items.length === 0) return null;
-          const hasActive = items.some((m) => location.pathname === m.path);
-          const expanded = !collapsedGroups.has(grp.key) || hasActive;
-          const renderModuleItem = (item: ModuleDef) => {
-            const selected = location.pathname === item.path;
-            return (
-              <ListItem key={item.key} disablePadding>
-                <ListItemButton
-                  component={RouterLink}
-                  to={item.path}
-                  selected={selected}
-                  sx={{
-                    position: 'relative',
-                    overflow: 'hidden',
-                    py: 1,
-                    borderRadius: 2.5,
-                    mb: 0.75,
-                    mx: 1,
-                    pl: 1.25,
-                    transition: 'transform 320ms cubic-bezier(0.4, 0, 0.2, 1), background-color 320ms ease, box-shadow 320ms ease',
-                    bgcolor: selected ? 'rgba(230, 0, 126, 0.12)' : 'transparent',
-                    color: mode === 'light' ? '#5B6472' : '#E2E8F0',
-                    borderLeft: selected ? '3px solid #E6007E' : '3px solid transparent',
-                    transform: selected ? 'translateX(3px)' : 'translateX(0)',
-                    boxShadow: selected
-                      ? '0 0 0 1px rgba(230, 0, 126, 0.14), 0 8px 22px rgba(230, 0, 126, 0.18)'
-                      : 'none',
-                    '&::after': selected
-                      ? {
-                          content: '""',
-                          position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          width: '60%',
-                          height: '100%',
-                          background: 'linear-gradient(100deg, transparent 0%, rgba(230, 0, 126, 0.16) 50%, transparent 100%)',
-                          animation: 'navGlow 3.6s ease-in-out infinite',
-                          pointerEvents: 'none'
-                        }
-                      : {},
-                    '@keyframes navGlow': {
-                      '0%': { transform: 'translateX(-120%)', opacity: 0 },
-                      '35%': { opacity: 1 },
-                      '100%': { transform: 'translateX(260%)', opacity: 0 }
-                    },
-                    '&:hover': {
-                      bgcolor: mode === 'light' ? 'rgba(230, 0, 126, 0.08)' : 'rgba(255, 255, 255, 0.06)',
-                      transform: 'translateX(3px)'
-                    }
-                  }}
-                >
-                  <ListItemIcon sx={{ color: selected ? '#E6007E' : '#1E3A8A', minWidth: 30, transition: 'color 320ms ease' }}>{item.icon}</ListItemIcon>
-                  <ListItemText
-                    primary={item.i18nKey ? t(item.i18nKey) : item.label}
-                    primaryTypographyProps={{
-                      fontWeight: selected ? 700 : 600,
-                      fontSize: 11.5,
-                      color: mode === 'light' ? '#4B5563' : '#F8FAFC',
-                      noWrap: true
-                    }}
-                  />
-                </ListItemButton>
-              </ListItem>
-            );
-          };
-          return (
-            <Box key={grp.key} sx={{ mb: 0.5 }}>
-              <ListItemButton onClick={() => toggleGroup(grp.key)} sx={{ mx: 1, borderRadius: 2, py: 0.4 }}>
-                <ListItemText
-                  primary={t(grp.i18nKey)}
-                  primaryTypographyProps={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.6, textTransform: 'uppercase', color: mode === 'light' ? '#94A3B8' : '#64748B', noWrap: true }}
-                />
-                {expanded ? <ExpandLessIcon sx={{ fontSize: 18, color: 'text.secondary' }} /> : <ExpandMoreIcon sx={{ fontSize: 18, color: 'text.secondary' }} />}
-              </ListItemButton>
-              <Collapse in={expanded} unmountOnExit>
-                {items.map(renderModuleItem)}
-              </Collapse>
-            </Box>
-          );
-        })}
-      </List>
+      <SidebarNav collapsed={sidebarCollapsed} />
       <Box sx={{ p: 1.75 }}>
         <Typography variant="caption" sx={{ color: mode === 'light' ? '#6B7280' : '#94A3B8', fontSize: 10 }}>
           FORD-AVON · v1.0.0

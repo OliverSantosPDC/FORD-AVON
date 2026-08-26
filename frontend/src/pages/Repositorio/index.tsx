@@ -255,7 +255,7 @@ const RepositorioPage = () => {
   return (
     <Box sx={{ p: { xs: 1, md: 2 } }}>
       <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ mb: 2 }}>
-        <Tab label="Cargar cartera" sx={{ textTransform: 'none' }} />
+        <Tab label="Gestión de Cartera" sx={{ textTransform: 'none' }} />
         {puedeAdministrarUsuarios && <Tab label="Gestión masiva de usuarios" sx={{ textTransform: 'none' }} />}
         {puedeCalendario && <Tab label="Gestión de calendario" sx={{ textTransform: 'none' }} />}
       </Tabs>
