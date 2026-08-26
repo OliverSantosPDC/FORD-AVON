@@ -81,7 +81,7 @@ const SidebarNav = ({ collapsed, onNavigate }: Props) => {
     const open = openNodes.has(node.key) || subtreeActive(node);
     return (
       <Box key={node.key}>
-        <ListItemButton onClick={() => toggle(node.key)} sx={{ mx: 1, my: 0.25, borderRadius: 2, pl: 1.25 + depth * 1.25, py: 0.6 }}>
+        <ListItemButton onClick={() => toggle(node.key)} sx={{ mx: 0.5, my: 0.25, borderRadius: 2, pl: 1, py: 0.6 }}>
           <ListItemIcon sx={{ minWidth: 28, color: '#1E3A8A' }}>{node.icon}</ListItemIcon>
           <ListItemText
             primary={label(node.i18nKey, node.label)}
@@ -96,7 +96,9 @@ const SidebarNav = ({ collapsed, onNavigate }: Props) => {
           {open ? <KeyboardArrowDownIcon sx={{ fontSize: 18, color: 'text.secondary' }} /> : <KeyboardArrowRightIcon sx={{ fontSize: 18, color: 'text.secondary' }} />}
         </ListItemButton>
         <Collapse in={open} unmountOnExit>
-          {node.children.map((child) => (child.kind === 'node' ? renderNode(child, depth + 1) : renderLeaf(child, depth + 1)))}
+          <Box sx={{ ml: depth === 0 ? 1.5 : 2, borderLeft: '1px solid', borderColor: 'divider', pl: 0.25 }}>
+            {node.children.map((child) => (child.kind === 'node' ? renderNode(child, depth + 1) : renderLeaf(child, depth + 1)))}
+          </Box>
         </Collapse>
       </Box>
     );
@@ -113,9 +115,8 @@ const SidebarNav = ({ collapsed, onNavigate }: Props) => {
         onClick={onNavigate}
         selected={active}
         sx={{
-          mx: 1, my: 0.2, borderRadius: 2, pl: 1.25 + depth * 1.25, py: 0.7,
+          mx: 0.5, my: 0.15, borderRadius: 2, pl: 1, py: 0.6,
           bgcolor: active ? 'rgba(230, 0, 126, 0.12)' : 'transparent',
-          borderLeft: active ? '3px solid #E6007E' : '3px solid transparent',
           '&:hover': { bgcolor: 'action.hover' }
         }}
       >

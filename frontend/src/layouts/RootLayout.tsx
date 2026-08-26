@@ -151,6 +151,11 @@ const RootLayout = () => {
       >
         <Toolbar sx={{ justifyContent: 'space-between', px: { xs: 1.5, sm: 2.5, md: 3 }, py: 0.75, minHeight: 56, gap: 1.5 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+            <Tooltip title={sidebarCollapsed ? t('nav.expand') : t('nav.collapse')}>
+              <IconButton size="small" onClick={toggleSidebar} aria-label="toggle sidebar" edge="start">
+                <MenuOpenIcon fontSize="small" sx={{ transform: sidebarCollapsed ? 'rotate(180deg)' : 'none', transition: 'transform 200ms ease' }} />
+              </IconButton>
+            </Tooltip>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, px: 1.25, py: 0.5, borderRadius: 3, bgcolor: mode === 'light' ? 'rgba(30, 58, 138, 0.08)' : 'rgba(255, 255, 255, 0.06)', transition: 'background-color 220ms ease-in-out' }}>
               <Box component="img" src={pdcLogo} alt="Logo PDC" sx={{ width: 68, height: 19 }} />
               <Divider orientation="vertical" flexItem sx={{ borderColor: mode === 'light' ? '#D1D5DB' : '#17233F' }} />
@@ -276,7 +281,7 @@ const RootLayout = () => {
         </Toolbar>
       </AppBar>
 
-      <Box component="nav" sx={{ width: drawerWidth, flexShrink: 0 }} aria-label="sidebar navigation">
+      <Box component="nav" sx={{ width: drawerWidth, flexShrink: 0, transition: 'width 220ms ease' }} aria-label="sidebar navigation">
         <Drawer
           variant="permanent"
           open
@@ -286,6 +291,7 @@ const RootLayout = () => {
               width: drawerWidth,
               borderRight: 'none',
               overflowX: 'hidden',
+              transition: 'width 220ms ease',
               scrollbarWidth: 'none',
               msOverflowStyle: 'none',
               '&::-webkit-scrollbar': { display: 'none', width: 0, height: 0 }
@@ -296,7 +302,7 @@ const RootLayout = () => {
         </Drawer>
       </Box>
 
-      <Box component="main" sx={{ flexGrow: 1, minWidth: 0, p: 2, width: { md: `calc(100% - ${drawerWidth}px)` } }}>
+      <Box component="main" sx={{ flexGrow: 1, minWidth: 0, p: 2, width: { md: `calc(100% - ${drawerWidth}px)` }, transition: 'width 220ms ease' }}>
         <Toolbar />
         <Outlet />
       </Box>
