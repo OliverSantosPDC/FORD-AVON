@@ -1,5 +1,6 @@
 import { getSupabaseClient } from '../config/supabaseClient';
 import { registrarAuditoria } from './AuditoriaService';
+import { listarEventos } from './CalendarService';
 import type { ScopeContext } from './ScopeService';
 
 /**
@@ -210,4 +211,88 @@ export const gestoresParaCalidad = async (ctx: ScopeContext): Promise<Array<{ us
   return ((data ?? []) as Array<{ usuario_id: string | null; nombre_cartera: string | null }>)
     .filter((g) => g.nombre_cartera)
     .map((g) => ({ usuarioId: g.usuario_id, nombre: g.nombre_cartera as string }));
+};
+
+// ===================== RESUMEN OPERATIVO =====================
+const field = (r: Row, ...keys: string[]): unknown => { for (const k of keys) { const v = r[k]; if (v !== null && v !== undefined && String(v).trim() !== '') return v; } return undefined; };
+const distribucion = (rows: Row[], keyFn: (r: Row) => string) => {
+  const m = new Map<string, { cuentas: number; saldoUsd: number }>();
+  for (const r of rows) { const k = keyFn(r) || 'Sin dato'; const it = m.get(k) ?? { cuentas: 0, saldoUsd: 0 }; it.cuentas += 1; it.saldoUsd += num(field(r, 'saldo_actual_usd', 'saldo_actual')); m.set(k, it); }
+  return [...m.entries()].map(([clave, v]) => ({ clave, cuentas: v.cuentas, saldoUsd: Number(v.saldoUsd.toFixed(2)) })).sort((a, b) => b.saldoUsd - a.saldoUsd);
+};
+
+/**
+ * Resumen operativo con datos REALES: cartera (scoped+filtrada) + gestion_log (por codigo del alcance)
+ * + calendario (asuetos/incapacidades del mes). Respeta alcance porque las filas llegan ya scoped.
+ */
+export const resumenOperativo = async (ctx: ScopeContext, rows: Row[]) => {
+  // Mapas por cuenta.
+  const codigoGestor = new Map<string, string>();
+  const codigos = new Set<string>();
+  const cuentasPorGestor = new Map<string, number>();
+  for (const r of rows) {
+    const cod = s(field(r, 'codigo', 'code'));
+    const gestor = s(field(r, 'gestor')) || 'Sin gestor';
+    if (cod) { codigos.add(cod); codigoGestor.set(cod, gestor); }
+    cuentasPorGestor.set(gestor, (cuentasPorGestor.get(gestor) ?? 0) + 1);
+  }
+
+  // Gestiones por cuenta (gestion_log filtrado por el set de codigos del alcance).
+  const { data: logRaw } = await c().from('gestion_log').select('codigo').limit(500000);
+  const gestionesPorCuenta = new Map<string, number>();
+  ((logRaw ?? []) as Array<{ codigo: string | null }>).forEach((l) => {
+    const cod = s(l.codigo);
+    if (cod && codigos.has(cod)) gestionesPorCuenta.set(cod, (gestionesPorCuenta.get(cod) ?? 0) + 1);
+  });
+  let totalGestiones = 0;
+  const gestionesPorGestor = new Map<string, number>();
+  gestionesPorCuenta.forEach((n, cod) => { totalGestiones += n; const g = codigoGestor.get(cod) ?? 'Sin gestor'; gestionesPorGestor.set(g, (gestionesPorGestor.get(g) ?? 0) + n); });
+  const cuentasSinGestion = [...codigos].filter((cod) => !gestionesPorCuenta.has(cod)).length;
+  const cuentasConGestion = codigos.size - cuentasSinGestion;
+
+  const cuentasMasGestionadas = [...gestionesPorCuenta.entries()]
+    .map(([codigo, gestiones]) => ({ codigo, gestiones, gestor: codigoGestor.get(codigo) ?? 'Sin gestor' }))
+    .sort((a, b) => b.gestiones - a.gestiones).slice(0, 15);
+
+  const gestoresArr = [...cuentasPorGestor.entries()].map(([gestor, cuentas]) => {
+    const g = gestionesPorGestor.get(gestor) ?? 0;
+    return { gestor, gestiones: g, cuentas, productividad: cuentas > 0 ? Number((g / cuentas).toFixed(2)) : 0 };
+  });
+  const gestoresMasGestiones = [...gestoresArr].sort((a, b) => b.gestiones - a.gestiones).slice(0, 15);
+  const gestoresMenosGestiones = [...gestoresArr].filter((x) => x.cuentas > 0).sort((a, b) => a.gestiones - b.gestiones).slice(0, 15);
+
+  // Calendario del mes (asuetos por país, incapacidades por gestor). Respeta alcance.
+  const now = new Date();
+  const desde = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  const hasta = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+  let eventos: Row[] = [];
+  try { eventos = (await listarEventos(ctx, { desde, hasta })) as Row[]; } catch { eventos = []; }
+  const tipoTxt = (e: Row) => { const t = e.event_types as { codigo?: string; nombre?: string } | null; return `${t?.codigo ?? ''} ${t?.nombre ?? ''}`.toUpperCase(); };
+  const asuetosPaisMap = new Map<string, number>();
+  const incapGestorMap = new Map<string, number>();
+  eventos.forEach((e) => {
+    const txt = tipoTxt(e);
+    if (txt.includes('ASUETO') || txt.includes('FERIADO')) { const p = s(field(e, 'pais')) || 'Global'; asuetosPaisMap.set(p, (asuetosPaisMap.get(p) ?? 0) + 1); }
+    if (txt.includes('INCAP')) { const g = s(field(e, 'gestor_nombre')) || 'Sin gestor'; incapGestorMap.set(g, (incapGestorMap.get(g) ?? 0) + 1); }
+  });
+
+  return {
+    totales: {
+      cuentas: codigos.size, gestiones: totalGestiones, cuentasSinGestion, cuentasConGestion,
+      pctSinGestion: codigos.size ? Number(((cuentasSinGestion / codigos.size) * 100).toFixed(2)) : 0,
+      gestores: cuentasPorGestor.size
+    },
+    cuentasMasGestionadas,
+    gestoresMasGestiones,
+    gestoresMenosGestiones,
+    distribucion: {
+      pais: distribucion(rows, (r) => s(field(r, 'pais'))),
+      zona: distribucion(rows, (r) => s(field(r, 'zona'))),
+      sector: distribucion(rows, (r) => s(field(r, 'sector'))),
+      pd: distribucion(rows, (r) => s(field(r, 'pd_actual', 'pd'))),
+      riesgo: distribucion(rows, (r) => s(field(r, 'riesgo', 'nivel_riesgo', 'riesgo_pd')))
+    },
+    paisesMasAsuetos: [...asuetosPaisMap.entries()].map(([clave, total]) => ({ clave, total })).sort((a, b) => b.total - a.total),
+    gestoresMasIncapacidades: [...incapGestorMap.entries()].map(([clave, total]) => ({ clave, total })).sort((a, b) => b.total - a.total)
+  };
 };

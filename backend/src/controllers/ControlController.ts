@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { CarteraService } from '../services/CarteraService';
 import { CarteraRepository } from '../repositories/CarteraRepository';
 import { getCarteraDataSource } from '../config/dataSource';
-import { aggGestores, aggZonasGestores, aggPdCampanas, contadores, indicadores, pendientes, ControlError, crearEvaluacionCalidad, listarEvaluacionesCalidad, resumenCalidad, gestoresParaCalidad, type CalidadInput } from '../services/ControlService';
+import { aggGestores, aggZonasGestores, aggPdCampanas, contadores, indicadores, pendientes, ControlError, crearEvaluacionCalidad, listarEvaluacionesCalidad, resumenCalidad, gestoresParaCalidad, resumenOperativo, type CalidadInput } from '../services/ControlService';
 
 const carteraService = new CarteraService(new CarteraRepository(getCarteraDataSource()));
 
@@ -41,6 +41,9 @@ export class ControlController {
   }
   async pendientes(req: Request, res: Response): Promise<Response | void> {
     try { const ctx = this.scope(req, res); if (!ctx) return; return res.json(await pendientes(ctx)); } catch (e) { return this.fail(res, e); }
+  }
+  async resumenOperativo(req: Request, res: Response): Promise<Response | void> {
+    try { const ctx = this.scope(req, res); if (!ctx) return; const rows = await carteraService.listCartera(filtros(req.query), 1000000, ctx); return res.json(await resumenOperativo(ctx, rows)); } catch (e) { return this.fail(res, e); }
   }
 
   // ===== Calidad de Gestión =====

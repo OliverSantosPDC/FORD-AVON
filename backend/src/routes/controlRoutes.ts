@@ -16,6 +16,7 @@ router.get('/control/pd-campanas', requireAuth, requirePermission(VER), (req, re
 router.get('/control/cuentas', requireAuth, requirePermission(VER), (req, res) => c.cuentas(req, res));
 router.get('/control/indicadores', requireAuth, requirePermission(VER), (req, res) => c.indicadores(req, res));
 router.get('/control/pendientes', requireAuth, requirePermission(VER), (req, res) => c.pendientes(req, res));
+router.get('/control/resumen-operativo', requireAuth, requirePermission(VER), (req, res) => c.resumenOperativo(req, res));
 
 // Calidad de Gestión
 router.get('/control/calidad/gestores', requireAuth, requirePermission(CAL_VER), (req, res) => c.calidadGestores(req, res));
