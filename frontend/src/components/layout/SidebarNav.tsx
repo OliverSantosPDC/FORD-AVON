@@ -1,11 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
 import { Box, Collapse, List, ListItemButton, ListItemIcon, ListItemText, Tooltip } from '@mui/material';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import { useAuth } from '../../context/AuthContext';
 import { useI18n } from '../../i18n/LanguageProvider';
-import { NAVIGATION, flattenLeaves, nodeHasVisibleLeaf, type NavItem, type NavLeaf, type NavNode } from '../../config/navigation';
+import {
+  NAVIGATION, nodeHasVisibleLeaf, firstLeafPath, railItems,
+  type NavItem, type NavLeaf, type NavNode
+} from '../../config/navigation';
 
 interface Props {
   collapsed: boolean;
@@ -27,37 +30,55 @@ const SidebarNav = ({ collapsed, onNavigate }: Props) => {
     return s === i18nKey ? fallback : s;
   };
 
+  // ── Detección de ruta activa: base + ?tab. Sólo UNA hoja puede quedar activa. ──
   const isLeafActive = (leaf: NavLeaf): boolean => {
     const { base, tab } = splitPath(leaf.path);
     if (location.pathname !== base) return false;
-    if (tab === null) return true;
-    return new URLSearchParams(location.search).get('tab') === tab;
+    const curTab = new URLSearchParams(location.search).get('tab');
+    if (tab === null) return true; // hoja sin ?tab: activa en su ruta base
+    if (curTab === tab) return true;
+    return Boolean(leaf.activeWhenNoTab && curTab === null); // opción por defecto cuando no hay ?tab
   };
   const subtreeActive = (item: NavItem): boolean =>
     item.kind === 'leaf' ? isLeafActive(item) : item.children.some(subtreeActive);
 
   const [openNodes, setOpenNodes] = useState<Set<string>>(new Set());
   const toggle = (key: string) =>
-    setOpenNodes((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+    setOpenNodes((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; });
 
-  // Hojas visibles (respeta permisos). `lang` en deps para re-render de etiquetas.
-  const leavesVisibles = useMemo(
-    () => flattenLeaves(NAVIGATION).filter((l) => hasPermission(l.permission)),
+  // ── Apertura automática de ancestros de la hoja activa (sin cerrar lo que el usuario abrió). ──
+  useEffect(() => {
+    const findAncestors = (items: NavItem[], trail: string[]): string[] | null => {
+      for (const it of items) {
+        if (it.kind === 'leaf') { if (isLeafActive(it)) return trail; }
+        else { const r = findAncestors(it.children, [...trail, it.key]); if (r) return r; }
+      }
+      return null;
+    };
+    const anc = findAncestors(NAVIGATION, []);
+    if (anc && anc.length) setOpenNodes((prev) => { const n = new Set(prev); anc.forEach((k) => n.add(k)); return n; });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname, location.search]);
+
+  // Lista plana ordenada para el rail (nodos nivel-1 + hojas en pre-orden). `lang` re-renderiza etiquetas.
+  const rail = useMemo(
+    () => railItems().filter((it) => (it.kind === 'leaf' ? hasPermission(it.permission) : nodeHasVisibleLeaf(it, hasPermission))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [hasPermission, lang]
   );
 
-  // ===== Modo colapsado: rail de iconos (una entrada por hoja navegable) =====
+  // ===== Modo colapsado: rail de iconos preservando EXACTAMENTE el orden del árbol expandido =====
   if (collapsed) {
     return (
       <List sx={{ flexGrow: 1, py: 0.5 }}>
-        {leavesVisibles.map((leaf) => {
-          const active = isLeafActive(leaf);
+        {rail.map((it) => {
+          const to = it.kind === 'leaf' ? it.path : firstLeafPath(it);
+          const active = it.kind === 'leaf' ? isLeafActive(it) : subtreeActive(it);
           return (
-            <Tooltip key={leaf.key} title={label(leaf.i18nKey, leaf.label)} placement="right" arrow>
+            <Tooltip key={it.key} title={label(it.i18nKey, it.label)} placement="right" arrow>
               <ListItemButton
                 component={RouterLink}
-                to={leaf.path}
+                to={to}
                 onClick={onNavigate}
                 selected={active}
                 sx={{
@@ -66,7 +87,7 @@ const SidebarNav = ({ collapsed, onNavigate }: Props) => {
                   '&:hover': { bgcolor: 'action.hover' }
                 }}
               >
-                <ListItemIcon sx={{ minWidth: 0, color: active ? '#E6007E' : '#1E3A8A' }}>{leaf.icon}</ListItemIcon>
+                <ListItemIcon sx={{ minWidth: 0, color: active ? '#E6007E' : '#1E3A8A' }}>{it.icon}</ListItemIcon>
               </ListItemButton>
             </Tooltip>
           );
@@ -78,7 +99,7 @@ const SidebarNav = ({ collapsed, onNavigate }: Props) => {
   // ===== Modo expandido: árbol jerárquico colapsable =====
   const renderNode = (node: NavNode, depth: number) => {
     if (!nodeHasVisibleLeaf(node, hasPermission)) return null;
-    const open = openNodes.has(node.key) || subtreeActive(node);
+    const open = openNodes.has(node.key); // colapsable de forma independiente; los ancestros se abren al navegar
     return (
       <Box key={node.key}>
         <ListItemButton onClick={() => toggle(node.key)} sx={{ mx: 0.5, my: 0.25, borderRadius: 2, pl: 1, py: 0.6 }}>
@@ -97,14 +118,14 @@ const SidebarNav = ({ collapsed, onNavigate }: Props) => {
         </ListItemButton>
         <Collapse in={open} unmountOnExit>
           <Box sx={{ ml: depth === 0 ? 1.5 : 2, borderLeft: '1px solid', borderColor: 'divider', pl: 0.25 }}>
-            {node.children.map((child) => (child.kind === 'node' ? renderNode(child, depth + 1) : renderLeaf(child, depth + 1)))}
+            {node.children.map((child) => (child.kind === 'node' ? renderNode(child, depth + 1) : renderLeaf(child)))}
           </Box>
         </Collapse>
       </Box>
     );
   };
 
-  const renderLeaf = (leaf: NavLeaf, depth: number) => {
+  const renderLeaf = (leaf: NavLeaf) => {
     if (!hasPermission(leaf.permission)) return null;
     const active = isLeafActive(leaf);
     return (

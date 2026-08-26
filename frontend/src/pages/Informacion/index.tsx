@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Alert, Box, Button, Card, CardContent, CircularProgress, Divider, Grid, Link,
   Paper, Snackbar, Stack, Tab, Tabs, TextField, Typography
@@ -33,7 +34,27 @@ const InformacionPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState(0);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [editing, setEditing] = useState(false);
+
+  // Sincroniza la pestaña con ?tab= (identidad|cobros|herramientas). Por defecto: Identidad.
+  const TAB_SLUGS = ['identidad', 'cobros', 'herramientas'] as const;
+  useEffect(() => {
+    const raw = (searchParams.get('tab') ?? '').toLowerCase();
+    const idx = TAB_SLUGS.indexOf(raw as (typeof TAB_SLUGS)[number]);
+    const next = idx >= 0 ? idx : /^\d+$/.test(raw) ? Math.min(2, Math.max(0, Number(raw))) : 0;
+    setTab(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  // Al cambiar de pestaña dentro de la página, refleja la sección en la URL (mantiene el sidebar sincronizado).
+  const changeTab = (v: number) => {
+    setTab(v);
+    setEditing(false);
+    const p = new URLSearchParams(searchParams);
+    p.set('tab', TAB_SLUGS[v] ?? 'identidad');
+    setSearchParams(p, { replace: true });
+  };
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -92,7 +113,7 @@ const InformacionPage = () => {
 
   return (
     <Box sx={{ p: { xs: 1, md: 2 } }}>
-      <Tabs value={tab} onChange={(_e, v) => { setTab(v); setEditing(false); }} sx={{ mb: 2 }}>
+      <Tabs value={tab} onChange={(_e, v) => changeTab(v)} sx={{ mb: 2 }}>
         <Tab label="Identidad de la empresa" sx={{ textTransform: 'none' }} />
         <Tab label="Cobros Venta Directa" sx={{ textTransform: 'none' }} />
         <Tab label="Herramientas y Sistemas" sx={{ textTransform: 'none' }} />
