@@ -40,7 +40,7 @@ const CargarCarteraPage = () => {
 
   return (
     <Box sx={{ maxWidth: 720, mx: 'auto', py: 2 }}>
-      <Typography sx={{ fontSize: 20, fontWeight: 700, mb: 0.5 }}>Administración · Cargar cartera</Typography>
+      <Typography sx={{ fontSize: 20, fontWeight: 700, mb: 0.5 }}>Administración · Gestión de Cartera</Typography>
       <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 2 }}>
         Selecciona un archivo Excel (.xlsx). Se sube directo a Supabase Storage y luego se procesa para actualizar la cartera.
       </Typography>
