@@ -24,12 +24,54 @@ import {
 } from '../utils/carteraAggregations';
 import { applyScope } from './ScopeFilter';
 import type { ScopeContext } from './ScopeService';
+import { getSupabaseClient } from '../config/supabaseClient';
 
 export class CarteraService {
   private readonly repository: CarteraRepository;
 
   constructor(repository: CarteraRepository) {
     this.repository = repository;
+  }
+
+  /**
+   * GESTOR EFECTIVO (centralizado). Devuelve la asignación VIGENTE por cuenta:
+   * la más reciente en `asignaciones` (AUTO o MANUAL) gana. Una sola consulta
+   * (sin N+1). La cartera original NO se modifica: solo se usa para resolver
+   * el gestor efectivo en memoria.
+   */
+  private async getAsignacionesVigentes(): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    const { data, error } = await getSupabaseClient()
+      .from('asignaciones')
+      .select('codigo, gestor_nuevo, created_at')
+      .order('created_at', { ascending: false })
+      .limit(200000);
+    if (error || !data) return map;
+    for (const row of data as Array<{ codigo: string | null; gestor_nuevo: string | null }>) {
+      const codigo = row.codigo ?? '';
+      const gestor = row.gestor_nuevo ?? '';
+      // Como viene ordenado desc por fecha, la PRIMERA aparición de cada código es la vigente.
+      if (codigo && gestor && !map.has(codigo)) map.set(codigo, gestor);
+    }
+    return map;
+  }
+
+  /**
+   * Aplica el override de asignación SOBRE filas ya acotadas por scope.
+   * Seguridad: primero el alcance (sobre el gestor ORIGINAL), luego el gestor
+   * efectivo para visualización/agregación. No muta las filas cacheadas: clona
+   * solo las filas con override y conserva `gestor_original`.
+   */
+  private async overlayEffectiveGestor(scoped: CarteraRow[]): Promise<CarteraRow[]> {
+    if (scoped.length === 0) return scoped;
+    const vigentes = await this.getAsignacionesVigentes();
+    if (vigentes.size === 0) return scoped;
+    return scoped.map((row) => {
+      const codigo = String(row.codigo ?? row.code ?? row.id ?? '');
+      const efectivo = codigo ? vigentes.get(codigo) : undefined;
+      if (!efectivo || efectivo === row.gestor) return row;
+      return { ...row, gestor: efectivo, gestor_original: row.gestor ?? null };
+    });
   }
 
   /**
@@ -48,11 +90,16 @@ export class CarteraService {
     // 2) FRONTERA DE SEGURIDAD: aplicar el alcance ANTES de los filtros del
     //    usuario y ANTES de paginar. Global ⇒ todas; no global ⇒ solo su scope;
     //    scope vacío ⇒ cero filas. El scope SIEMPRE proviene del backend.
-    const scoped = applyScope(rows, scopeContext, {
+    const scopedOriginal = applyScope(rows, scopeContext, {
       gestorField: 'gestor',
       zonaField: 'zona',
       paisField: 'pais'
     });
+
+    // 2.b) GESTOR EFECTIVO: override de asignación vigente, DESPUÉS del scope
+    //      (seguridad primero) y ANTES de los filtros del usuario (para que el
+    //      filtro por gestor use el gestor efectivo).
+    const scoped = await this.overlayEffectiveGestor(scopedOriginal);
 
     // 3) Filtros de búsqueda del usuario (solo pueden ESTRECHAR, nunca ampliar).
     const multi = toMultiFilters(filters);
@@ -79,11 +126,14 @@ export class CarteraService {
     // TODAS las métricas, rankings, resúmenes y opciones de filtro se derivan de
     // `rows` (ya acotado). Global ⇒ todas; no global ⇒ solo su scope;
     // scope vacío ⇒ cero filas (KPIs en cero, sin datos globales).
-    const rows = applyScope(rawRows, scopeContext, {
+    const scopedOriginal = applyScope(rawRows, scopeContext, {
       gestorField: 'gestor',
       zonaField: 'zona',
       paisField: 'pais'
     });
+    // Gestor efectivo (override de asignación) tras el scope; todas las agregaciones
+    // y rankings se derivan de `rows`, por lo que reflejan el gestor efectivo.
+    const rows = await this.overlayEffectiveGestor(scopedOriginal);
 
     const tAgg = Date.now();
 
@@ -141,11 +191,12 @@ export class CarteraService {
     //    el alcance ANTES de mapear y de cualquier cálculo/ranking/top N.
     //    Global ⇒ todas; no global ⇒ solo su scope; scope vacío ⇒ cero filas.
     const rawRows = (await this.repository.getCartera()) as CarteraRow[];
-    const rows = applyScope(rawRows, scopeContext, {
+    const scopedOriginal = applyScope(rawRows, scopeContext, {
       gestorField: 'gestor',
       zonaField: 'zona',
       paisField: 'pais'
     });
+    const rows = await this.overlayEffectiveGestor(scopedOriginal);
     const cartera = rows.map(mapToCartera);
 
     return {
