@@ -35,6 +35,24 @@ export const getControlCuentas = async (f?: DashboardFilterParams): Promise<Arra
 export const getIndicadores = async (): Promise<Indicadores> => { const r = await apiFetch('/api/control/indicadores', { cache: 'no-store' }); if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.')); return r.json(); };
 export const getPendientes = async (): Promise<Pendientes> => { const r = await apiFetch('/api/control/pendientes', { cache: 'no-store' }); if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.')); return r.json(); };
 
+// ===== Resumen Operativo =====
+export interface DistribItem { clave: string; cuentas: number; saldoUsd: number; }
+export interface GestorGestiones { gestor: string; gestiones: number; cuentas: number; productividad: number; }
+export interface ResumenOperativo {
+  totales: { cuentas: number; gestiones: number; cuentasSinGestion: number; cuentasConGestion: number; pctSinGestion: number; gestores: number };
+  cuentasMasGestionadas: Array<{ codigo: string; gestiones: number; gestor: string }>;
+  gestoresMasGestiones: GestorGestiones[];
+  gestoresMenosGestiones: GestorGestiones[];
+  distribucion: { pais: DistribItem[]; zona: DistribItem[]; sector: DistribItem[]; pd: DistribItem[]; riesgo: DistribItem[] };
+  paisesMasAsuetos: Array<{ clave: string; total: number }>;
+  gestoresMasIncapacidades: Array<{ clave: string; total: number }>;
+}
+export const getResumenOperativo = async (f?: DashboardFilterParams): Promise<ResumenOperativo> => {
+  const r = await apiFetch(`/api/control/resumen-operativo${qs(f)}`, { cache: 'no-store' });
+  if (!r.ok) throw new Error(await err(r, 'No se pudo cargar el resumen operativo.'));
+  return r.json();
+};
+
 // ===== Calidad de Gestión =====
 export interface CalidadEvaluacion {
   id: string; gestor_nombre: string; pais: string | null; zona: string | null; cuenta: string | null;

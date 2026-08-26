@@ -15,10 +15,10 @@ import { useAuth } from '../../context/AuthContext';
 import type { DashboardFilterOptions, DashboardMultiFilterParams } from '../../types/cartera';
 import {
   getControlDashboard, getControlGestores, getControlZonas, getControlPdCampanas, getControlCuentas,
-  getIndicadores, getPendientes, getCalidadResumen, getCalidadEvaluaciones, getCalidadGestores, crearEvaluacionCalidad,
+  getIndicadores, getPendientes, getResumenOperativo, getCalidadResumen, getCalidadEvaluaciones, getCalidadGestores, crearEvaluacionCalidad,
   CALIDAD_RUBRICA, CALIDAD_PENALIZACIONES,
   type ControlDashboard, type ControlNode, type Indicadores, type Pendientes,
-  type CalidadResumen, type CalidadEvaluacion, type CalidadGestor
+  type CalidadResumen, type CalidadEvaluacion, type CalidadGestor, type ResumenOperativo
 } from '../../services/controlService';
 import {
   getDetalleCuenta, getInfoCuenta, tipificarCuenta, crearPromesa, subirAdjunto, crearCarta, aprobarCarta, rechazarCarta,
@@ -98,6 +98,7 @@ const ControlOperativoPage = () => {
   const [cuentas, setCuentas] = useState<Array<Record<string, unknown>>>([]);
   const [ind, setInd] = useState<Indicadores | null>(null);
   const [pend, setPend] = useState<Pendientes | null>(null);
+  const [resumenOp, setResumenOp] = useState<ResumenOperativo | null>(null);
   const [estado, setEstado] = useState<Record<string, EstadoCuenta>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -160,8 +161,8 @@ const ControlOperativoPage = () => {
   const load = async () => {
     setLoading(true); setError(null);
     try {
-      const [d, ge, z, pc, cu, i, pe] = await Promise.all([getControlDashboard(filters), getControlGestores(filters), getControlZonas(filters), getControlPdCampanas(filters), getControlCuentas(filters), getIndicadores(), getPendientes()]);
-      setDash(d); setGestores(ge); setZonas(z); setPdCamp(pc); setCuentas(cu); setInd(i); setPend(pe); setPage(0);
+      const [d, ge, z, pc, cu, i, pe, ro] = await Promise.all([getControlDashboard(filters), getControlGestores(filters), getControlZonas(filters), getControlPdCampanas(filters), getControlCuentas(filters), getIndicadores(), getPendientes(), getResumenOperativo(filters)]);
+      setDash(d); setGestores(ge); setZonas(z); setPdCamp(pc); setCuentas(cu); setInd(i); setPend(pe); setResumenOp(ro); setPage(0);
     } catch (e) { setError(e instanceof Error ? e.message : 'No fue posible cargar el control operativo.'); }
     finally { setLoading(false); }
   };
@@ -245,6 +246,76 @@ const ControlOperativoPage = () => {
               <KpiMini l="Cartas emitidas" v={ind.cartasEmitidas} /><KpiMini l="Cartas aprobadas" v={ind.cartasAprobadas} />
               <KpiMini l="Acuerdos" v={ind.acuerdos} /><KpiMini l="Adjuntos" v={ind.adjuntos} />
             </Stack>
+          )}
+
+          {/* Resumen Operativo */}
+          {resumenOp && (
+            <Paper sx={{ p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
+              <Typography sx={{ fontWeight: 700, mb: 1 }}>Resumen Operativo</Typography>
+              <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>
+                <KpiMini l="Cuentas" v={resumenOp.totales.cuentas.toLocaleString('es')} />
+                <KpiMini l="Gestiones" v={resumenOp.totales.gestiones.toLocaleString('es')} />
+                <KpiMini l="Sin gestión" v={`${resumenOp.totales.cuentasSinGestion.toLocaleString('es')} (${resumenOp.totales.pctSinGestion}%)`} />
+                <KpiMini l="Con gestión" v={resumenOp.totales.cuentasConGestion.toLocaleString('es')} />
+                <KpiMini l="Gestores" v={resumenOp.totales.gestores} />
+              </Stack>
+              <Grid container spacing={2}>
+                {([['País', resumenOp.distribucion.pais], ['Zona', resumenOp.distribucion.zona], ['Sector', resumenOp.distribucion.sector], ['PD', resumenOp.distribucion.pd], ['Riesgo', resumenOp.distribucion.riesgo]] as const).map(([lbl, arr]) => (
+                  <Grid item xs={12} sm={6} md={4} key={lbl}>
+                    <Typography sx={{ fontSize: 12, fontWeight: 700, mb: 0.5 }}>Distribución por {lbl}</Typography>
+                    <Stack spacing={0.25} sx={{ maxHeight: 160, overflowY: 'auto' }}>
+                      {arr.length === 0 ? <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Sin datos.</Typography> : arr.slice(0, 15).map((x) => (
+                        <Box key={x.clave} sx={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>{x.clave}</span>
+                          <span>{x.cuentas} · {money(x.saldoUsd)}</span>
+                        </Box>
+                      ))}
+                    </Stack>
+                  </Grid>
+                ))}
+              </Grid>
+              <Grid container spacing={2} sx={{ mt: 0.5 }}>
+                {([['Gestores · más gestiones', resumenOp.gestoresMasGestiones], ['Gestores · menos gestiones', resumenOp.gestoresMenosGestiones]] as const).map(([lbl, arr]) => (
+                  <Grid item xs={12} md={6} key={lbl}>
+                    <Typography sx={{ fontSize: 12, fontWeight: 700, mb: 0.5 }}>{lbl}</Typography>
+                    <TableContainer sx={{ maxHeight: 200 }}>
+                      <Table size="small" stickyHeader>
+                        <TableHead><TableRow>{['Gestor', 'Gestiones', 'Cuentas', 'Prod.'].map((h) => <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>)}</TableRow></TableHead>
+                        <TableBody>
+                          {arr.length === 0 ? <TableRow><TableCell colSpan={4} align="center" sx={{ py: 1, color: 'text.secondary' }}>Sin datos.</TableCell></TableRow> : arr.map((g) => (
+                            <TableRow key={g.gestor} hover><TableCell>{g.gestor}</TableCell><TableCell align="right">{g.gestiones}</TableCell><TableCell align="right">{g.cuentas}</TableCell><TableCell align="right">{g.productividad}</TableCell></TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </Grid>
+                ))}
+                <Grid item xs={12} md={6}>
+                  <Typography sx={{ fontSize: 12, fontWeight: 700, mb: 0.5 }}>Cuentas con más gestiones</Typography>
+                  <TableContainer sx={{ maxHeight: 200 }}>
+                    <Table size="small" stickyHeader>
+                      <TableHead><TableRow>{['Cuenta', 'Gestor', 'Gestiones'].map((h) => <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>)}</TableRow></TableHead>
+                      <TableBody>
+                        {resumenOp.cuentasMasGestionadas.length === 0 ? <TableRow><TableCell colSpan={3} align="center" sx={{ py: 1, color: 'text.secondary' }}>Sin datos.</TableCell></TableRow> : resumenOp.cuentasMasGestionadas.map((cta) => (
+                          <TableRow key={cta.codigo} hover><TableCell>{cta.codigo}</TableCell><TableCell>{cta.gestor}</TableCell><TableCell align="right">{cta.gestiones}</TableCell></TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography sx={{ fontSize: 12, fontWeight: 700, mb: 0.5 }}>Calendario del mes</Typography>
+                  <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', mt: 0.5 }}>Países con más asuetos</Typography>
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
+                    {resumenOp.paisesMasAsuetos.length === 0 ? <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Sin asuetos registrados.</Typography> : resumenOp.paisesMasAsuetos.map((p) => <Chip key={p.clave} size="small" label={`${p.clave}: ${p.total}`} />)}
+                  </Stack>
+                  <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary' }}>Gestores con más incapacidades</Typography>
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                    {resumenOp.gestoresMasIncapacidades.length === 0 ? <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Sin incapacidades registradas.</Typography> : resumenOp.gestoresMasIncapacidades.map((g) => <Chip key={g.clave} size="small" color="warning" variant="outlined" label={`${g.clave}: ${g.total}`} />)}
+                  </Stack>
+                </Grid>
+              </Grid>
+            </Paper>
           )}
 
           <Grid container spacing={2}>
