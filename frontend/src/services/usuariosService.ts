@@ -35,6 +35,9 @@ export interface UsuarioPayload {
   apellido?: string | null;
   roleId?: string;
   activo?: boolean;
+  /** Contraseña inicial (solo al crear). */
+  password?: string;
+  // Se conservan por compatibilidad de firma; Usuarios ya no los define (asignación semimanual).
   nombreCartera?: string | null;
   gestorIds?: string[];
   zonaIds?: string[];
@@ -88,6 +91,16 @@ export const updateUsuario = async (id: string, payload: UsuarioPayload): Promis
 export const deleteUsuario = async (id: string): Promise<void> => {
   const res = await apiFetch(`/api/usuarios/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(await parseError(res, 'No se pudo eliminar el usuario.'));
+};
+
+/** Restablece la contraseña de un usuario (admin). No devuelve la contraseña. */
+export const resetPasswordUsuario = async (id: string, password: string): Promise<void> => {
+  const res = await apiFetch(`/api/usuarios/${id}/password`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password })
+  });
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudo restablecer la contraseña.'));
 };
 
 /* ===== Carga masiva de usuarios (módulo Repositorio) ===== */

@@ -55,10 +55,18 @@ export interface CrearUsuarioInput {
   apellido?: string | null;
   roleId: string;
   activo?: boolean;
+  /** Contraseña inicial definida por el administrador. Si se omite, se genera una temporal. */
+  password?: string;
+  // NOTA: nombreCartera/gestorIds/zonaIds se conservan por compatibilidad de firma pero
+  // la gestión de Usuarios ya NO los define; la asignación de cartera es semimanual
+  // (módulo Asignación → tabla asignaciones → gestor efectivo en CarteraService).
   nombreCartera?: string | null;
   gestorIds?: string[];
   zonaIds?: string[];
 }
+
+/** Longitud mínima segura para contraseñas definidas por administrador. */
+export const MIN_PASSWORD_LEN = 8;
 
 export type ActualizarUsuarioInput = Partial<Omit<CrearUsuarioInput, 'email'>>;
 
@@ -250,10 +258,14 @@ export const crearUsuario = async (input: CrearUsuarioInput): Promise<{ id: stri
   if (!email) throw new UsuariosError('El correo es obligatorio.');
   if (!input.roleId) throw new UsuariosError('El rol es obligatorio.');
 
-  // 1) Creación DIRECTA en Supabase Auth con contraseña temporal y email confirmado
-  //    (sin invitación). El usuario puede iniciar sesión de inmediato.
-  //    La contraseña NO se persiste en texto plano en ningún lugar.
-  const password = generarPasswordTemporal();
+  // 1) Creación DIRECTA en Supabase Auth con email confirmado (sin invitación).
+  //    Si el administrador definió una contraseña válida, se usa; si no, se genera
+  //    una temporal. La contraseña NO se persiste en texto plano en ningún lugar.
+  const inputPw = (input.password ?? '').trim();
+  if (inputPw && inputPw.length < MIN_PASSWORD_LEN) {
+    throw new UsuariosError(`La contraseña debe tener al menos ${MIN_PASSWORD_LEN} caracteres.`);
+  }
+  const password = inputPw || generarPasswordTemporal();
   const { data: created, error: createError } = await client.auth.admin.createUser({
     email,
     password,
@@ -283,6 +295,18 @@ export const crearUsuario = async (input: CrearUsuarioInput): Promise<{ id: stri
   await sincronizarRelaciones(userId, clave, input);
 
   return { id: userId, password };
+};
+
+/**
+ * Restablece la contraseña de un usuario existente vía Supabase Auth admin.
+ * No requiere la contraseña anterior. No devuelve ni persiste la contraseña.
+ */
+export const restablecerPassword = async (id: string, password: string): Promise<void> => {
+  const pw = (password ?? '').trim();
+  if (!pw) throw new UsuariosError('La contraseña es obligatoria.');
+  if (pw.length < MIN_PASSWORD_LEN) throw new UsuariosError(`La contraseña debe tener al menos ${MIN_PASSWORD_LEN} caracteres.`);
+  const { error } = await getSupabaseClient().auth.admin.updateUserById(id, { password: pw });
+  if (error) throw new UsuariosError(`No se pudo restablecer la contraseña: ${error.message}`);
 };
 
 export const actualizarUsuario = async (id: string, input: ActualizarUsuarioInput): Promise<void> => {
