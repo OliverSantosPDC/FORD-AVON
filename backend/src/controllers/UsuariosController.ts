@@ -5,6 +5,7 @@ import {
   obtenerCatalogos,
   crearUsuario,
   actualizarUsuario,
+  restablecerPassword,
   eliminarUsuario,
   validarImportacion,
   aplicarImportacion,
@@ -64,6 +65,18 @@ export class UsuariosController {
       return res.status(201).json(result);
     } catch (error) {
       return this.fail(res, error, 'No se pudo crear el usuario.');
+    }
+  }
+
+  async resetPassword(req: Request, res: Response): Promise<Response> {
+    try {
+      const { password } = (req.body ?? {}) as { password?: string };
+      await restablecerPassword(req.params.id, String(password ?? ''));
+      // Auditoría SIN contraseña.
+      await registrarAuditoria(req.auth?.userId ?? null, 'RESET_PASSWORD_USUARIO', 'usuarios', req.params.id, {});
+      return res.json({ ok: true });
+    } catch (error) {
+      return this.fail(res, error, 'No se pudo restablecer la contraseña.');
     }
   }
 

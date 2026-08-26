@@ -34,6 +34,7 @@ import {
 } from '@mui/material';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import LockResetIcon from '@mui/icons-material/LockReset';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -44,6 +45,7 @@ import {
   createUsuario,
   updateUsuario,
   deleteUsuario,
+  resetPasswordUsuario,
   getPasswordRequests,
   resolvePasswordRequest,
   type UsuarioListItem,
@@ -59,9 +61,9 @@ interface FormState {
   apellido: string;
   roleId: string;
   activo: boolean;
-  nombreCartera: string;
   gestorIds: string[];
-  zonaIds: string[];
+  password: string;
+  passwordConfirm: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -71,9 +73,9 @@ const EMPTY_FORM: FormState = {
   apellido: '',
   roleId: '',
   activo: true,
-  nombreCartera: '',
   gestorIds: [],
-  zonaIds: []
+  password: '',
+  passwordConfirm: ''
 };
 
 const UsuariosPage = () => {
@@ -89,6 +91,10 @@ const UsuariosPage = () => {
   const [toast, setToast] = useState<string | null>(null);
   const [createdCreds, setCreatedCreds] = useState<{ email: string; password: string } | null>(null);
   const [showCreds, setShowCreds] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [resetUser, setResetUser] = useState<{ id: string; email: string } | null>(null);
+  const [resetPw, setResetPw] = useState({ password: '', confirm: '' });
+  const [resetBusy, setResetBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [pwReqs, setPwReqs] = useState<PasswordRequest[]>([]);
@@ -152,9 +158,9 @@ const UsuariosPage = () => {
         apellido: u.apellido ?? '',
         roleId: u.roleId ?? '',
         activo: u.activo,
-        nombreCartera: u.nombreCartera ?? '',
         gestorIds: u.gestorIds ?? [],
-        zonaIds: u.zonaIds ?? []
+        password: '',
+        passwordConfirm: ''
       });
       setDialogOpen(true);
     } catch (err) {
@@ -179,10 +185,13 @@ const UsuariosPage = () => {
       roleId: form.roleId,
       activo: form.activo
     };
-    if (!form.id) payload.email = form.email.trim();
-    if (selectedRoleClave === 'gestor') payload.nombreCartera = form.nombreCartera || null;
+    if (!form.id) {
+      payload.email = form.email.trim();
+      if (form.password) payload.password = form.password;
+    }
+    // La asignación de cartera es semimanual (módulo Asignación); Usuarios ya no define
+    // nombre_cartera ni zona. Se conserva la asignación supervisor→gestores.
     if (selectedRoleClave === 'supervisor') payload.gestorIds = form.gestorIds;
-    if (selectedRoleClave === 'gerente_zona') payload.zonaIds = form.zonaIds;
     return payload;
   };
 
@@ -192,9 +201,15 @@ const UsuariosPage = () => {
       setFormError('Correo, nombre y rol son obligatorios.');
       return;
     }
-    if (selectedRoleClave === 'gestor' && !form.nombreCartera) {
-      setFormError('Selecciona el gestor de cartera (nombre_cartera) para asignar el alcance.');
-      return;
+    if (!form.id) {
+      if (!form.password || form.password.length < 8) {
+        setFormError('La contraseña debe tener al menos 8 caracteres.');
+        return;
+      }
+      if (form.password !== form.passwordConfirm) {
+        setFormError('Las contraseñas no coinciden.');
+        return;
+      }
     }
     setSaving(true);
     try {
@@ -212,6 +227,23 @@ const UsuariosPage = () => {
       setFormError(err instanceof Error ? err.message : 'No se pudo guardar.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const doResetPassword = async () => {
+    if (!resetUser) return;
+    if (!resetPw.password || resetPw.password.length < 8) { setToast('La contraseña debe tener al menos 8 caracteres.'); return; }
+    if (resetPw.password !== resetPw.confirm) { setToast('Las contraseñas no coinciden.'); return; }
+    setResetBusy(true);
+    try {
+      await resetPasswordUsuario(resetUser.id, resetPw.password);
+      setToast('Contraseña restablecida.');
+      setResetUser(null);
+      setResetPw({ password: '', confirm: '' });
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'No se pudo restablecer la contraseña.');
+    } finally {
+      setResetBusy(false);
     }
   };
 
@@ -294,6 +326,9 @@ const UsuariosPage = () => {
                     <TableCell>
                       <Button size="small" startIcon={<EditOutlinedIcon fontSize="small" />} onClick={() => openEdit(u.id)} sx={{ textTransform: 'none' }}>
                         Editar
+                      </Button>
+                      <Button size="small" startIcon={<LockResetIcon fontSize="small" />} onClick={() => { setResetUser({ id: u.id, email: u.email }); setResetPw({ password: '', confirm: '' }); }} sx={{ textTransform: 'none' }}>
+                        Contraseña
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -390,7 +425,7 @@ const UsuariosPage = () => {
               select
               label="Rol"
               value={form.roleId}
-              onChange={(e) => setForm((f) => ({ ...f, roleId: e.target.value, nombreCartera: '', gestorIds: [], zonaIds: [] }))}
+              onChange={(e) => setForm((f) => ({ ...f, roleId: e.target.value, gestorIds: [] }))}
               size="small"
               fullWidth
             >
@@ -399,21 +434,34 @@ const UsuariosPage = () => {
               ))}
             </TextField>
 
-            {/* Relación por rol */}
-            {selectedRoleClave === 'gestor' && (
-              <TextField
-                select
-                label="Gestor de cartera (nombre_cartera)"
-                value={form.nombreCartera}
-                onChange={(e) => setForm((f) => ({ ...f, nombreCartera: e.target.value }))}
-                helperText="Debe coincidir con cartera.gestor; define el alcance del gestor."
-                size="small"
-                fullWidth
-              >
-                {(catalogos?.carteraGestores ?? []).map((g) => (
-                  <MenuItem key={g} value={g}>{g}</MenuItem>
-                ))}
-              </TextField>
+            {/* Contraseña inicial (solo al crear). La asignación de cartera es semimanual. */}
+            {!form.id && (
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                <TextField
+                  label="Contraseña inicial"
+                  type={showPassword ? 'text' : 'password'}
+                  value={form.password}
+                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                  size="small" fullWidth
+                  helperText="Mínimo 8 caracteres."
+                  InputProps={{ endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton size="small" onClick={() => setShowPassword((v) => !v)} edge="end">
+                        {showPassword ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
+                      </IconButton>
+                    </InputAdornment>
+                  ) }}
+                />
+                <TextField
+                  label="Confirmar contraseña"
+                  type={showPassword ? 'text' : 'password'}
+                  value={form.passwordConfirm}
+                  onChange={(e) => setForm((f) => ({ ...f, passwordConfirm: e.target.value }))}
+                  size="small" fullWidth
+                  error={Boolean(form.passwordConfirm) && form.password !== form.passwordConfirm}
+                  helperText={Boolean(form.passwordConfirm) && form.password !== form.passwordConfirm ? 'No coincide.' : ' '}
+                />
+              </Stack>
             )}
 
             {selectedRoleClave === 'supervisor' && (
@@ -436,32 +484,6 @@ const UsuariosPage = () => {
                     <MenuItem key={g.id} value={g.id}>
                       <Checkbox checked={form.gestorIds.includes(g.id)} size="small" />
                       <ListItemText primary={g.nombreCartera ?? g.id} />
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            )}
-
-            {selectedRoleClave === 'gerente_zona' && (
-              <FormControl size="small" fullWidth>
-                <InputLabel id="ger-zonas">Zonas asignadas</InputLabel>
-                <Select
-                  labelId="ger-zonas"
-                  multiple
-                  value={form.zonaIds}
-                  onChange={(e) => setForm((f) => ({ ...f, zonaIds: e.target.value as string[] }))}
-                  input={<OutlinedInput label="Zonas asignadas" />}
-                  renderValue={(sel) =>
-                    (catalogos?.zonas ?? [])
-                      .filter((z) => (sel as string[]).includes(z.id))
-                      .map((z) => z.nombre)
-                      .join(', ')
-                  }
-                >
-                  {(catalogos?.zonas ?? []).map((z) => (
-                    <MenuItem key={z.id} value={z.id}>
-                      <Checkbox checked={form.zonaIds.includes(z.id)} size="small" />
-                      <ListItemText primary={z.nombre} />
                     </MenuItem>
                   ))}
                 </Select>
@@ -547,6 +569,40 @@ const UsuariosPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setCreatedCreds(null)} variant="contained" sx={{ textTransform: 'none' }}>Entendido</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Restablecer contraseña */}
+      <Dialog open={Boolean(resetUser)} onClose={resetBusy ? undefined : () => setResetUser(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Restablecer contraseña</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2} sx={{ mt: 0.5 }}>
+            <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>Usuario: <strong>{resetUser?.email}</strong>. No se muestra la contraseña actual.</Typography>
+            <TextField
+              label="Nueva contraseña" type={showPassword ? 'text' : 'password'} value={resetPw.password}
+              onChange={(e) => setResetPw((p) => ({ ...p, password: e.target.value }))} size="small" fullWidth
+              helperText="Mínimo 8 caracteres."
+              InputProps={{ endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton size="small" onClick={() => setShowPassword((v) => !v)} edge="end">
+                    {showPassword ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
+                  </IconButton>
+                </InputAdornment>
+              ) }}
+            />
+            <TextField
+              label="Confirmar contraseña" type={showPassword ? 'text' : 'password'} value={resetPw.confirm}
+              onChange={(e) => setResetPw((p) => ({ ...p, confirm: e.target.value }))} size="small" fullWidth
+              error={Boolean(resetPw.confirm) && resetPw.password !== resetPw.confirm}
+              helperText={Boolean(resetPw.confirm) && resetPw.password !== resetPw.confirm ? 'No coincide.' : ' '}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setResetUser(null)} disabled={resetBusy} sx={{ textTransform: 'none' }}>Cancelar</Button>
+          <Button variant="contained" onClick={doResetPassword} disabled={resetBusy} sx={{ textTransform: 'none' }}>
+            {resetBusy ? <CircularProgress size={18} color="inherit" /> : 'Restablecer'}
+          </Button>
         </DialogActions>
       </Dialog>
 
