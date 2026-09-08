@@ -3,3 +3,10 @@ dist/
 .env
 .env.*
 !.env.example
+
+# Datos reales de cartera / archivos temporales de Excel — NUNCA versionar.
+# La cartera vive en Supabase Storage; el backend solo la usa localmente en tiempo
+# de ejecución (import/fallback), nunca commiteada al repositorio.
+backend/data/
+~$*.xlsx
+~$*.xls

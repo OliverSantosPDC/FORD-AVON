@@ -8,6 +8,7 @@
     "start": "node dist/main.js",
     "dev": "ts-node-dev --respawn --transpile-only src/main.ts",
     "test:supabase": "npm run build && node dist/scripts/testSupabase.js",
+    "test:scope": "npm run build && node --test test/scope-fix.test.cjs",
     "import:cartera:test": "npm run build && node dist/scripts/importCartera.js --limit=100 --test",
     "import:cartera": "npm run build && node dist/scripts/importCartera.js",
     "clear:cartera": "npm run build && node dist/scripts/clearCartera.js"

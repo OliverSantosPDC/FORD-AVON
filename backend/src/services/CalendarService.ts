@@ -112,6 +112,19 @@ export const obtenerEvento = async (id: string, ctx: ScopeContext) => {
   return dentroDeAlcance(data as Record<string, unknown>, alcance) ? data : null;
 };
 
+/**
+ * Verifica si un evento (dado por su usuario_id/zona_id propuestos, p. ej. al crear o
+ * reasignar) caería dentro del alcance del actor. Reutiliza exactamente la misma lógica
+ * de resolverAlcance/dentroDeAlcance que ya usan listarEventos/obtenerEvento.
+ */
+export const eventoEnAlcance = async (
+  input: { usuarioId?: string | null; zonaId?: string | null },
+  ctx: ScopeContext
+): Promise<boolean> => {
+  const alcance = await resolverAlcance(ctx);
+  return dentroDeAlcance({ usuario_id: input.usuarioId ?? null, zona_id: input.zonaId ?? null }, alcance);
+};
+
 const toRow = (input: CalendarEventInput, creadoPor?: string | null): Record<string, unknown> => ({
   titulo: input.titulo?.trim(),
   descripcion: input.descripcion?.trim() ?? null,

@@ -6,7 +6,8 @@ import {
   registrarTipificacion, detalleCuenta, crearPromesa, actualizarPromesa,
   registrarAdjunto, eliminarAdjunto, subirArchivoStorage,
   crearCarta, listarCartas, resolverCarta,
-  aggregarZonasPd, aggregarPdCampanas, estadoCuentas, infoCuenta, GestionError
+  aggregarZonasPd, aggregarPdCampanas, estadoCuentas, infoCuenta, GestionError,
+  filtrarCodigosEnAlcance, codigoDePromesa, codigoDeAdjunto, gestorDeCarta, gestorEnAlcance
 } from '../services/GestionService';
 import { registrarAuditoria } from '../services/AuditoriaService';
 
@@ -64,13 +65,18 @@ export class GestionController {
     try {
       const ctx = this.scope(req, res); if (!ctx) return;
       const codigos = Array.isArray(req.body?.codigos) ? (req.body.codigos as unknown[]).map((c) => String(c)) : [];
-      return res.json(await estadoCuentas(codigos));
+      const codigosPermitidos = await filtrarCodigosEnAlcance(codigos, ctx);
+      return res.json(await estadoCuentas(codigosPermitidos));
     } catch (e) { return this.fail(res, e, 'No se pudo cargar el estado de cuentas.'); }
   }
 
-  async detalle(req: Request, res: Response): Promise<Response> {
-    try { return res.json(await detalleCuenta(req.params.codigo)); }
-    catch (e) { return this.fail(res, e, 'No se pudo cargar el detalle.'); }
+  async detalle(req: Request, res: Response): Promise<Response | void> {
+    try {
+      const ctx = this.scope(req, res); if (!ctx) return;
+      const row = await infoCuenta(req.params.codigo, ctx);
+      if (!row) return res.status(404).json({ error: 'Cuenta no encontrada en tu alcance.' });
+      return res.json(await detalleCuenta(req.params.codigo));
+    } catch (e) { return this.fail(res, e, 'No se pudo cargar el detalle.'); }
   }
 
   async info(req: Request, res: Response): Promise<Response | void> {
@@ -82,8 +88,11 @@ export class GestionController {
     } catch (e) { return this.fail(res, e, 'No se pudo cargar la información.'); }
   }
 
-  async tipificar(req: Request, res: Response): Promise<Response> {
+  async tipificar(req: Request, res: Response): Promise<Response | void> {
     try {
+      const ctx = this.scope(req, res); if (!ctx) return;
+      const row = await infoCuenta(req.params.codigo, ctx);
+      if (!row) return res.status(404).json({ error: 'Cuenta no encontrada en tu alcance.' });
       const actor = req.auth?.userId ?? null;
       await registrarTipificacion(req.params.codigo, req.body?.tipificacion, req.body?.comentario ?? null, req.body?.tipoContacto ?? null, req.body?.canal ?? null, actor);
       await registrarAuditoria(actor, 'GESTION_TIPIFICACION', 'gestion', req.params.codigo, { tipificacion: req.body?.tipificacion });
@@ -91,8 +100,11 @@ export class GestionController {
     } catch (e) { return this.fail(res, e, 'No se pudo tipificar la cuenta.'); }
   }
 
-  async crearPromesa(req: Request, res: Response): Promise<Response> {
+  async crearPromesa(req: Request, res: Response): Promise<Response | void> {
     try {
+      const ctx = this.scope(req, res); if (!ctx) return;
+      const row = await infoCuenta(req.params.codigo, ctx);
+      if (!row) return res.status(404).json({ error: 'Cuenta no encontrada en tu alcance.' });
       const actor = req.auth?.userId ?? null;
       const r = await crearPromesa(req.params.codigo, req.body ?? {}, actor);
       await registrarAuditoria(actor, 'GESTION_PROMESA_CREAR', 'gestion', req.params.codigo, { promesaId: r.id });
@@ -100,8 +112,13 @@ export class GestionController {
     } catch (e) { return this.fail(res, e, 'No se pudo crear la promesa.'); }
   }
 
-  async actualizarPromesa(req: Request, res: Response): Promise<Response> {
+  async actualizarPromesa(req: Request, res: Response): Promise<Response | void> {
     try {
+      const ctx = this.scope(req, res); if (!ctx) return;
+      const codigo = await codigoDePromesa(req.params.id);
+      if (!codigo) return res.status(404).json({ error: 'Promesa no encontrada.' });
+      const row = await infoCuenta(codigo, ctx);
+      if (!row) return res.status(404).json({ error: 'Promesa no encontrada en tu alcance.' });
       const actor = req.auth?.userId ?? null;
       await actualizarPromesa(req.params.id, req.body ?? {});
       await registrarAuditoria(actor, 'GESTION_PROMESA_EDITAR', 'gestion', req.params.id, null);
@@ -109,8 +126,11 @@ export class GestionController {
     } catch (e) { return this.fail(res, e, 'No se pudo actualizar la promesa.'); }
   }
 
-  async subirAdjunto(req: Request, res: Response): Promise<Response> {
+  async subirAdjunto(req: Request, res: Response): Promise<Response | void> {
     try {
+      const ctx = this.scope(req, res); if (!ctx) return;
+      const row = await infoCuenta(req.params.codigo, ctx);
+      if (!row) return res.status(404).json({ error: 'Cuenta no encontrada en tu alcance.' });
       const actor = req.auth?.userId ?? null;
       if (!req.file?.buffer) return res.status(400).json({ error: 'Debes adjuntar un archivo.' });
       const path = await subirArchivoStorage(req.file.originalname, req.file.buffer, req.file.mimetype || 'application/octet-stream');
@@ -120,8 +140,13 @@ export class GestionController {
     } catch (e) { return this.fail(res, e, 'No se pudo subir el adjunto.'); }
   }
 
-  async eliminarAdjunto(req: Request, res: Response): Promise<Response> {
+  async eliminarAdjunto(req: Request, res: Response): Promise<Response | void> {
     try {
+      const ctx = this.scope(req, res); if (!ctx) return;
+      const codigo = await codigoDeAdjunto(req.params.id);
+      if (!codigo) return res.status(404).json({ error: 'Adjunto no encontrado.' });
+      const row = await infoCuenta(codigo, ctx);
+      if (!row) return res.status(404).json({ error: 'Adjunto no encontrado en tu alcance.' });
       const actor = req.auth?.userId ?? null;
       await eliminarAdjunto(req.params.id);
       await registrarAuditoria(actor, 'GESTION_ADJUNTO_ELIMINAR', 'gestion', req.params.id, null);
@@ -129,8 +154,11 @@ export class GestionController {
     } catch (e) { return this.fail(res, e, 'No se pudo eliminar el adjunto.'); }
   }
 
-  async crearCarta(req: Request, res: Response): Promise<Response> {
+  async crearCarta(req: Request, res: Response): Promise<Response | void> {
     try {
+      const ctx = this.scope(req, res); if (!ctx) return;
+      const row = await infoCuenta(req.params.codigo, ctx);
+      if (!row) return res.status(404).json({ error: 'Cuenta no encontrada en tu alcance.' });
       const actor = req.auth?.userId ?? null;
       const r = await crearCarta(req.params.codigo, req.body?.tipo, req.body?.comentario ?? null, actor);
       await registrarAuditoria(actor, 'GESTION_CARTA_CREAR', 'gestion', r.id, { codigo: req.params.codigo });
@@ -145,8 +173,12 @@ export class GestionController {
     } catch (e) { return this.fail(res, e, 'No se pudieron cargar las cartas.'); }
   }
 
-  async aprobarCarta(req: Request, res: Response): Promise<Response> {
+  async aprobarCarta(req: Request, res: Response): Promise<Response | void> {
     try {
+      const ctx = this.scope(req, res); if (!ctx) return;
+      const carta = await gestorDeCarta(req.params.id);
+      if (!carta) return res.status(404).json({ error: 'Carta no encontrada.' });
+      if (!(await gestorEnAlcance(carta.gestorId, ctx))) return res.status(404).json({ error: 'Carta no encontrada en tu alcance.' });
       const actor = req.auth?.userId ?? null;
       await resolverCarta(req.params.id, true, req.body?.comentario ?? null, actor);
       await registrarAuditoria(actor, 'GESTION_CARTA_APROBAR', 'gestion', req.params.id, null);
@@ -154,8 +186,12 @@ export class GestionController {
     } catch (e) { return this.fail(res, e, 'No se pudo aprobar la carta.'); }
   }
 
-  async rechazarCarta(req: Request, res: Response): Promise<Response> {
+  async rechazarCarta(req: Request, res: Response): Promise<Response | void> {
     try {
+      const ctx = this.scope(req, res); if (!ctx) return;
+      const carta = await gestorDeCarta(req.params.id);
+      if (!carta) return res.status(404).json({ error: 'Carta no encontrada.' });
+      if (!(await gestorEnAlcance(carta.gestorId, ctx))) return res.status(404).json({ error: 'Carta no encontrada en tu alcance.' });
       const actor = req.auth?.userId ?? null;
       await resolverCarta(req.params.id, false, req.body?.comentario ?? null, actor);
       await registrarAuditoria(actor, 'GESTION_CARTA_RECHAZAR', 'gestion', req.params.id, null);

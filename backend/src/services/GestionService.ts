@@ -16,7 +16,7 @@ export class GestionError extends Error {
 const client = () => getSupabaseClient();
 
 /** Ids de usuario visibles para el actor (self + usuarios de sus gestores). */
-const usuariosDelAlcance = async (ctx: ScopeContext): Promise<{ global: boolean; ids: Set<string> }> => {
+export const usuariosDelAlcance = async (ctx: ScopeContext): Promise<{ global: boolean; ids: Set<string> }> => {
   if (ctx.isGlobal) return { global: true, ids: new Set() };
   const ids = new Set<string>([ctx.userId]);
   if (ctx.gestorIds.length > 0) {
@@ -24,6 +24,48 @@ const usuariosDelAlcance = async (ctx: ScopeContext): Promise<{ global: boolean;
     ((data ?? []) as Array<{ usuario_id: string | null }>).forEach((g) => g.usuario_id && ids.add(g.usuario_id));
   }
   return { global: false, ids };
+};
+
+/** true si gestorId (dueño de una carta) cae dentro del alcance del actor. Reutiliza usuariosDelAlcance. */
+export const gestorEnAlcance = async (gestorId: string | null, ctx: ScopeContext): Promise<boolean> => {
+  const alcance = await usuariosDelAlcance(ctx);
+  if (alcance.global) return true;
+  return !!gestorId && alcance.ids.has(gestorId);
+};
+
+/** Filtra una lista de códigos, devolviendo sólo los que están dentro del alcance del actor. */
+export const filtrarCodigosEnAlcance = async (codigos: string[], ctx: ScopeContext): Promise<string[]> => {
+  if (codigos.length === 0) return [];
+  if (ctx.isGlobal) return codigos;
+  const { data, error } = await getSupabaseClient().from(SUPABASE_CARTERA_TABLE).select('codigo, gestor, zona, pais').in('codigo', codigos);
+  if (error) throw new GestionError(`No se pudo validar el alcance: ${error.message}`);
+  const rows = (data ?? []) as Array<Record<string, unknown>>;
+  const scoped = applyScope(rows, ctx, { gestorField: 'gestor', zonaField: 'zona', paisField: 'pais' });
+  return scoped.map((r) => String(r.codigo));
+};
+
+/** Código de cuenta asociado a una promesa (o null si la promesa no existe). */
+export const codigoDePromesa = async (id: string): Promise<string | null> => {
+  const { data, error } = await client().from('gestion_promesas').select('codigo').eq('id', id).limit(1);
+  if (error) throw new GestionError(`No se pudo leer la promesa: ${error.message}`);
+  const rows = (data ?? []) as Array<{ codigo: string | null }>;
+  return rows[0]?.codigo ?? null;
+};
+
+/** Código de cuenta asociado a un adjunto (o null si el adjunto no existe). */
+export const codigoDeAdjunto = async (id: string): Promise<string | null> => {
+  const { data, error } = await client().from('gestion_adjuntos').select('codigo').eq('id', id).limit(1);
+  if (error) throw new GestionError(`No se pudo leer el adjunto: ${error.message}`);
+  const rows = (data ?? []) as Array<{ codigo: string | null }>;
+  return rows[0]?.codigo ?? null;
+};
+
+/** Datos mínimos (gestor_id) de una carta por id, o null si la carta no existe. */
+export const gestorDeCarta = async (id: string): Promise<{ gestorId: string | null } | null> => {
+  const { data, error } = await client().from('gestion_cartas').select('gestor_id').eq('id', id).limit(1);
+  if (error) throw new GestionError(`No se pudo leer la carta: ${error.message}`);
+  const rows = (data ?? []) as Array<{ gestor_id: string | null }>;
+  return rows.length ? { gestorId: rows[0].gestor_id } : null;
 };
 
 /* ===== Tipificación / gestión ===== */

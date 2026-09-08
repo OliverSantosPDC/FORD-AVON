@@ -3,6 +3,7 @@ import {
   listarTipos,
   listarEventos,
   obtenerEvento,
+  eventoEnAlcance,
   crearEvento,
   actualizarEvento,
   eliminarEvento,
@@ -59,9 +60,15 @@ export class CalendarController {
 
   async create(req: Request, res: Response): Promise<Response> {
     try {
+      const ctx = req.auth?.scopeContext;
+      if (!ctx) return res.status(403).json({ error: 'Alcance de acceso no disponible.' });
+      const body = req.body as CalendarEventInput;
+      if (!(await eventoEnAlcance({ usuarioId: body?.usuarioId, zonaId: body?.zonaId }, ctx))) {
+        return res.status(403).json({ error: 'No puedes crear un evento fuera de tu alcance.' });
+      }
       const actorId = req.auth?.userId ?? null;
-      const result = await crearEvento(req.body as CalendarEventInput, actorId);
-      await registrarAuditoria(actorId, 'CREAR_EVENTO_CALENDARIO', 'calendario', result.id, { titulo: (req.body as CalendarEventInput)?.titulo });
+      const result = await crearEvento(body, actorId);
+      await registrarAuditoria(actorId, 'CREAR_EVENTO_CALENDARIO', 'calendario', result.id, { titulo: body?.titulo });
       return res.status(201).json(result);
     } catch (error) {
       return this.fail(res, error, 'No se pudo crear el evento.');
@@ -70,8 +77,16 @@ export class CalendarController {
 
   async update(req: Request, res: Response): Promise<Response> {
     try {
+      const ctx = req.auth?.scopeContext;
+      if (!ctx) return res.status(403).json({ error: 'Alcance de acceso no disponible.' });
+      const existente = await obtenerEvento(req.params.id, ctx);
+      if (!existente) return res.status(404).json({ error: 'Evento no encontrado.' });
+      const body = req.body as CalendarEventInput;
+      if (!(await eventoEnAlcance({ usuarioId: body?.usuarioId, zonaId: body?.zonaId }, ctx))) {
+        return res.status(403).json({ error: 'No puedes mover el evento fuera de tu alcance.' });
+      }
       const actorId = req.auth?.userId ?? null;
-      await actualizarEvento(req.params.id, req.body as CalendarEventInput);
+      await actualizarEvento(req.params.id, body);
       await registrarAuditoria(actorId, 'EDITAR_EVENTO_CALENDARIO', 'calendario', req.params.id, null);
       return res.json({ ok: true });
     } catch (error) {
@@ -81,6 +96,10 @@ export class CalendarController {
 
   async remove(req: Request, res: Response): Promise<Response> {
     try {
+      const ctx = req.auth?.scopeContext;
+      if (!ctx) return res.status(403).json({ error: 'Alcance de acceso no disponible.' });
+      const existente = await obtenerEvento(req.params.id, ctx);
+      if (!existente) return res.status(404).json({ error: 'Evento no encontrado.' });
       const actorId = req.auth?.userId ?? null;
       await eliminarEvento(req.params.id);
       await registrarAuditoria(actorId, 'ELIMINAR_EVENTO_CALENDARIO', 'calendario', req.params.id, null);
@@ -92,6 +111,10 @@ export class CalendarController {
 
   async setActivo(req: Request, res: Response): Promise<Response> {
     try {
+      const ctx = req.auth?.scopeContext;
+      if (!ctx) return res.status(403).json({ error: 'Alcance de acceso no disponible.' });
+      const existente = await obtenerEvento(req.params.id, ctx);
+      if (!existente) return res.status(404).json({ error: 'Evento no encontrado.' });
       const actorId = req.auth?.userId ?? null;
       const activo = Boolean((req.body as { activo?: boolean })?.activo);
       await setActivoEvento(req.params.id, activo);
