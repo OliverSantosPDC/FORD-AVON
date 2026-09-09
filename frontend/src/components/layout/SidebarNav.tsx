@@ -5,16 +5,9 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import { useAuth } from '../../context/AuthContext';
 import { useI18n } from '../../i18n/LanguageProvider';
-import {
-  NAVIGATION, nodeHasVisibleLeaf, firstLeafPath, railItems,
-  type NavItem, type NavLeaf, type NavNode
-} from '../../config/navigation';
+import { NAVIGATION, nodeHasVisibleLeaf, firstLeafPath, railItems, type NavItem, type NavLeaf, type NavNode } from '../../config/navigation';
 
-interface Props {
-  collapsed: boolean;
-  /** callback opcional al navegar (p.ej. cerrar el Drawer temporal en móvil). */
-  onNavigate?: () => void;
-}
+interface Props { collapsed: boolean; onNavigate?: () => void; }
 
 const splitPath = (path: string): { base: string; tab: string | null } => {
   const [base, q] = path.split('?');
@@ -25,129 +18,86 @@ const SidebarNav = ({ collapsed, onNavigate }: Props) => {
   const { hasPermission } = useAuth();
   const { t, lang } = useI18n();
   const location = useLocation();
-  const label = (i18nKey: string, fallback: string) => {
-    const s = t(i18nKey);
-    return s === i18nKey ? fallback : s;
-  };
+  const label = (i18nKey: string, fallback: string) => { const s = t(i18nKey); return s === i18nKey ? fallback : s; };
 
-  // ── Detección de ruta activa: base + ?tab. Sólo UNA hoja puede quedar activa. ──
   const isLeafActive = (leaf: NavLeaf): boolean => {
     const { base, tab } = splitPath(leaf.path);
     if (location.pathname !== base) return false;
     const curTab = new URLSearchParams(location.search).get('tab');
-    if (tab === null) return true; // hoja sin ?tab: activa en su ruta base
+    if (tab === null) return true;
     if (curTab === tab) return true;
-    return Boolean(leaf.activeWhenNoTab && curTab === null); // opción por defecto cuando no hay ?tab
+    return Boolean(leaf.activeWhenNoTab && curTab === null);
   };
-  const subtreeActive = (item: NavItem): boolean =>
-    item.kind === 'leaf' ? isLeafActive(item) : item.children.some(subtreeActive);
+  const subtreeActive = (item: NavItem): boolean => item.kind === 'leaf' ? isLeafActive(item) : item.children.some(subtreeActive);
 
-  const [openNodes, setOpenNodes] = useState<Set<string>>(new Set());
-  const toggle = (key: string) =>
-    setOpenNodes((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+  const allNodeKeys = useMemo(() => {
+    const keys: string[] = [];
+    const walk = (items: NavItem[]) => items.forEach((item) => { if (item.kind === 'node') { keys.push(item.key); walk(item.children); } });
+    walk(NAVIGATION);
+    return keys;
+  }, []);
+  const [openNodes, setOpenNodes] = useState<Set<string>>(() => new Set(allNodeKeys));
+  const toggle = (key: string) => setOpenNodes((prev) => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; });
 
-  // ── Apertura automática de ancestros de la hoja activa (sin cerrar lo que el usuario abrió). ──
   useEffect(() => {
     const findAncestors = (items: NavItem[], trail: string[]): string[] | null => {
-      for (const it of items) {
-        if (it.kind === 'leaf') { if (isLeafActive(it)) return trail; }
-        else { const r = findAncestors(it.children, [...trail, it.key]); if (r) return r; }
+      for (const item of items) {
+        if (item.kind === 'leaf') { if (isLeafActive(item)) return trail; }
+        else { const found = findAncestors(item.children, [...trail, item.key]); if (found) return found; }
       }
       return null;
     };
-    const anc = findAncestors(NAVIGATION, []);
-    if (anc && anc.length) setOpenNodes((prev) => { const n = new Set(prev); anc.forEach((k) => n.add(k)); return n; });
+    const ancestors = findAncestors(NAVIGATION, []);
+    if (ancestors?.length) setOpenNodes((prev) => { const next = new Set(prev); ancestors.forEach((key) => next.add(key)); return next; });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname, location.search]);
 
-  // Lista plana ordenada para el rail (nodos nivel-1 + hojas en pre-orden). `lang` re-renderiza etiquetas.
-  const rail = useMemo(
-    () => railItems().filter((it) => (it.kind === 'leaf' ? hasPermission(it.permission) : nodeHasVisibleLeaf(it, hasPermission))),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [hasPermission, lang]
-  );
+  const rail = useMemo(() => railItems().filter((item) => item.kind === 'leaf' ? hasPermission(item.permission) : nodeHasVisibleLeaf(item, hasPermission)), [hasPermission, lang]);
 
-  // ===== Modo colapsado: rail de iconos preservando EXACTAMENTE el orden del árbol expandido =====
   if (collapsed) {
-    return (
-      <List sx={{ flexGrow: 1, py: 0.5 }}>
-        {rail.map((it) => {
-          const to = it.kind === 'leaf' ? it.path : firstLeafPath(it);
-          const active = it.kind === 'leaf' ? isLeafActive(it) : subtreeActive(it);
-          return (
-            <Tooltip key={it.key} title={label(it.i18nKey, it.label)} placement="right" arrow>
-              <ListItemButton
-                component={RouterLink}
-                to={to}
-                onClick={onNavigate}
-                selected={active}
-                sx={{
-                  justifyContent: 'center', mx: 0.5, mb: 0.5, borderRadius: 2, py: 1,
-                  bgcolor: active ? 'rgba(230, 0, 126, 0.12)' : 'transparent',
-                  '&:hover': { bgcolor: 'action.hover' }
-                }}
-              >
-                <ListItemIcon sx={{ minWidth: 0, color: active ? '#E6007E' : '#1E3A8A' }}>{it.icon}</ListItemIcon>
-              </ListItemButton>
-            </Tooltip>
-          );
-        })}
-      </List>
-    );
+    return <List sx={{ flexGrow: 1, py: 0.5 }}>
+      {rail.map((item) => {
+        const to = item.kind === 'leaf' ? item.path : firstLeafPath(item);
+        const active = item.kind === 'leaf' ? isLeafActive(item) : subtreeActive(item);
+        return <Tooltip key={item.key} title={label(item.i18nKey, item.label)} placement="right" arrow>
+          <ListItemButton component={RouterLink} to={to} onClick={onNavigate} selected={active} sx={{ justifyContent: 'center', mx: 0.5, mb: 0.5, borderRadius: 2, py: 1, bgcolor: active ? 'rgba(230,0,126,.12)' : 'transparent', '&:hover': { bgcolor: 'action.hover' } }}>
+            <ListItemIcon sx={{ minWidth: 0, color: active ? '#E6007E' : '#1E3A8A' }}>{item.icon}</ListItemIcon>
+          </ListItemButton>
+        </Tooltip>;
+      })}
+    </List>;
   }
 
-  // ===== Modo expandido: árbol jerárquico colapsable =====
-  const renderNode = (node: NavNode, depth: number) => {
-    if (!nodeHasVisibleLeaf(node, hasPermission)) return null;
-    const open = openNodes.has(node.key); // colapsable de forma independiente; los ancestros se abren al navegar
-    return (
-      <Box key={node.key}>
-        <ListItemButton onClick={() => toggle(node.key)} sx={{ mx: 0.5, my: 0.25, borderRadius: 2, pl: 1, py: 0.6 }}>
-          <ListItemIcon sx={{ minWidth: 28, color: '#1E3A8A' }}>{node.icon}</ListItemIcon>
-          <ListItemText
-            primary={label(node.i18nKey, node.label)}
-            primaryTypographyProps={{
-              fontSize: depth === 0 ? 11 : 11.5,
-              fontWeight: depth === 0 ? 800 : 700,
-              textTransform: depth === 0 ? 'uppercase' : 'none',
-              letterSpacing: depth === 0 ? 0.5 : 0,
-              color: 'text.secondary', noWrap: true
-            }}
-          />
-          {open ? <KeyboardArrowDownIcon sx={{ fontSize: 18, color: 'text.secondary' }} /> : <KeyboardArrowRightIcon sx={{ fontSize: 18, color: 'text.secondary' }} />}
-        </ListItemButton>
-        <Collapse in={open} unmountOnExit>
-          <Box sx={{ ml: depth === 0 ? 1.5 : 2, borderLeft: '1px solid', borderColor: 'divider', pl: 0.25 }}>
-            {node.children.map((child) => (child.kind === 'node' ? renderNode(child, depth + 1) : renderLeaf(child)))}
-          </Box>
-        </Collapse>
-      </Box>
-    );
-  };
-
-  const renderLeaf = (leaf: NavLeaf) => {
+  const renderLeaf = (leaf: NavLeaf, depth: number) => {
     if (!hasPermission(leaf.permission)) return null;
     const active = isLeafActive(leaf);
-    return (
-      <ListItemButton
-        key={leaf.key}
-        component={RouterLink}
-        to={leaf.path}
-        onClick={onNavigate}
-        selected={active}
-        sx={{
-          mx: 0.5, my: 0.15, borderRadius: 2, pl: 1, py: 0.6,
-          bgcolor: active ? 'rgba(230, 0, 126, 0.12)' : 'transparent',
-          '&:hover': { bgcolor: 'action.hover' }
-        }}
-      >
-        <ListItemIcon sx={{ minWidth: 26, color: active ? '#E6007E' : '#1E3A8A' }}>{leaf.icon}</ListItemIcon>
-        <ListItemText primary={label(leaf.i18nKey, leaf.label)} primaryTypographyProps={{ fontSize: 11.5, fontWeight: active ? 700 : 600, noWrap: true }} />
-      </ListItemButton>
-    );
+    return <ListItemButton key={leaf.key} component={RouterLink} to={leaf.path} onClick={onNavigate} selected={active} sx={{ mx: 0.5, my: 0.15, borderRadius: 1.75, pl: depth === 2 ? 2.75 : 1.5, py: depth === 2 ? 0.5 : 0.6, minHeight: depth === 2 ? 34 : 38, bgcolor: active ? 'rgba(230,0,126,.11)' : 'transparent', '&:hover': { bgcolor: active ? 'rgba(230,0,126,.15)' : 'action.hover' } }}>
+      <Box sx={{ width: 16, mr: 0.75, display: 'flex', justifyContent: 'center' }}><Box sx={{ width: active ? 7 : 5, height: active ? 7 : 5, borderRadius: '50%', bgcolor: active ? '#E6007E' : 'text.disabled', transition: 'all 120ms ease' }} /></Box>
+      <ListItemText primary={label(leaf.i18nKey, leaf.label)} primaryTypographyProps={{ fontSize: depth === 2 ? 12 : 12.5, fontWeight: active ? 700 : 500, noWrap: true, color: active ? '#E6007E' : 'text.primary' }} />
+    </ListItemButton>;
   };
 
-  return <List sx={{ flexGrow: 1, py: 0.5 }}>{NAVIGATION.map((node) => renderNode(node, 0))}</List>;
+  const renderNode = (node: NavNode, depth: number) => {
+    if (!nodeHasVisibleLeaf(node, hasPermission)) return null;
+    const open = openNodes.has(node.key);
+    const active = subtreeActive(node);
+    const isModule = depth === 0;
+    const isMenu = depth === 1;
+    return <Box key={node.key}>
+      <ListItemButton onClick={() => toggle(node.key)} sx={{ mx: 0.5, mt: isModule ? 1 : 0.25, mb: isModule ? 0.35 : 0.15, borderRadius: isModule ? 1.5 : 1.75, pl: isModule ? 1 : 1.5, py: isModule ? 0.65 : 0.7, minHeight: isModule ? 40 : 40, bgcolor: isModule ? 'transparent' : active ? 'rgba(30,58,138,.055)' : 'transparent', '&:hover': { bgcolor: isModule ? 'rgba(30,58,138,.045)' : 'action.hover' } }}>
+        <ListItemIcon sx={{ minWidth: isModule ? 30 : 30, color: active ? '#1E3A8A' : '#1E3A8A' }}>{node.icon}</ListItemIcon>
+        <ListItemText primary={label(node.i18nKey, node.label)} primaryTypographyProps={{ fontSize: isModule ? 11 : 13, fontWeight: isModule ? 800 : 650, textTransform: isModule ? 'uppercase' : 'none', letterSpacing: isModule ? 0.8 : 0, color: isModule ? 'text.secondary' : 'text.primary', noWrap: true }} />
+        <Box sx={{ display: 'flex', transition: 'transform 180ms ease', transform: open ? 'rotate(0deg)' : 'rotate(0deg)' }}>{open ? <KeyboardArrowDownIcon sx={{ fontSize: isModule ? 19 : 18, color: 'text.secondary' }} /> : <KeyboardArrowRightIcon sx={{ fontSize: isModule ? 19 : 18, color: 'text.secondary' }} />}</Box>
+      </ListItemButton>
+      <Collapse in={open} timeout={180} unmountOnExit>
+        <Box sx={{ ml: isModule ? 1.75 : 2.25, mr: 0.5, borderLeft: '1px solid', borderColor: isModule ? 'rgba(30,58,138,.14)' : 'divider', pl: 0.35 }}>
+          {node.children.map((child) => child.kind === 'node' ? renderNode(child, depth + 1) : renderLeaf(child, depth + 1))}
+        </Box>
+      </Collapse>
+    </Box>;
+  };
+
+  return <List sx={{ flexGrow: 1, py: 0.25 }}>{NAVIGATION.map((node) => renderNode(node, 0))}</List>;
 };
 
 export default SidebarNav;

@@ -24,17 +24,9 @@ import BusinessIcon from '@mui/icons-material/Business';
 import PaymentsIcon from '@mui/icons-material/Payments';
 import BuildIcon from '@mui/icons-material/Build';
 
-/**
- * Árbol de navegación jerárquico. SOLO reorganiza rutas/pestañas EXISTENTES; no crea páginas.
- * - Hojas → rutas reales (con ?tab= donde la página soporta pestañas). PermissionRoute sigue
- *   protegiendo cada ruta. Un grupo es visible si el usuario tiene permiso sobre alguna hoja.
- * - Iconos únicos por elemento (excepción: el mismo destino /calendario comparte icono).
- * No existen como funcionalidad independiente (y por tanto NO se inventan): "Aprobaciones",
- * "Aprobaciones y escalamientos", "Resultados de evaluaciones".
- */
+/** Árbol de navegación jerárquico. Las hojas usan únicamente rutas/permisos existentes. */
 export interface NavLeaf {
   kind: 'leaf'; key: string; i18nKey: string; label: string; path: string; permission: string; icon: ReactNode;
-  /** Marca la hoja como activa cuando la ruta base no lleva ?tab (opción por defecto). */
   activeWhenNoTab?: boolean;
 }
 export interface NavNode { kind: 'node'; key: string; i18nKey: string; label: string; icon: ReactNode; children: NavItem[]; }
@@ -90,8 +82,26 @@ export const NAVIGATION: NavNode[] = [
   {
     kind: 'node', key: 'administracion', i18nKey: 'nav.group.administracion', label: 'Administración', icon: ico(AdminPanelSettingsIcon),
     children: [
-      leaf('repositorio', 'nav.repositorio', 'Repositorio', '/repositorio', 'modulo.repositorio', Inventory2Icon),
-      leaf('configuracion', 'nav.configuracion', 'Configuración', '/configuracion', 'configuracion.ver', SettingsIcon),
+      {
+        kind: 'node', key: 'repositorio', i18nKey: 'nav.repositorio', label: 'Repositorio', icon: ico(Inventory2Icon),
+        children: [
+          leaf('repo-cartera', 'nav.repositorio.cartera', 'Gestión de Cartera', '/repositorio?tab=0', 'modulo.repositorio', Inventory2Icon, true),
+          leaf('repo-usuarios', 'nav.repositorio.usuarios', 'Gestión masiva de Usuarios', '/repositorio?tab=1', 'usuarios.administrar_global', Inventory2Icon),
+          leaf('repo-calendario', 'nav.repositorio.calendario', 'Gestión de Calendario', '/repositorio?tab=2', 'calendario.crear', CalendarMonthIcon)
+        ]
+      },
+      {
+        kind: 'node', key: 'configuracion', i18nKey: 'nav.configuracion', label: 'Configuración', icon: ico(SettingsIcon),
+        children: [
+          leaf('config-general', 'nav.configuracion.general', 'General', '/configuracion?tab=0', 'configuracion.ver', SettingsIcon, true),
+          leaf('config-catalogos', 'nav.configuracion.catalogos', 'Catálogos', '/configuracion?tab=1', 'configuracion.ver', SettingsIcon),
+          leaf('config-roles', 'nav.configuracion.roles', 'Roles y permisos', '/configuracion?tab=2', 'configuracion.ver', SettingsIcon),
+          leaf('config-apariencia', 'nav.configuracion.apariencia', 'Apariencia', '/configuracion?tab=3', 'configuracion.ver', SettingsIcon),
+          leaf('config-plantillas', 'nav.configuracion.plantillas', 'Plantillas', '/configuracion?tab=4', 'configuracion.ver', SettingsIcon),
+          leaf('config-variables', 'nav.configuracion.variables', 'Variables', '/configuracion?tab=5', 'configuracion.ver', SettingsIcon),
+          leaf('config-auditoria', 'nav.configuracion.auditoria', 'Auditoría', '/configuracion?tab=6', 'configuracion.ver', SettingsIcon)
+        ]
+      },
       {
         kind: 'node', key: 'informacion', i18nKey: 'nav.informacion', label: 'Información', icon: ico(InfoOutlinedIcon),
         children: [
@@ -104,19 +114,12 @@ export const NAVIGATION: NavNode[] = [
   }
 ];
 
-/** ¿El usuario tiene permiso sobre alguna hoja del subárbol? */
 export const nodeHasVisibleLeaf = (item: NavItem, has: (perm: string) => boolean): boolean =>
   item.kind === 'leaf' ? has(item.permission) : item.children.some((c) => nodeHasVisibleLeaf(c, has));
 
-/** Primera hoja del subárbol (destino de un nodo en el rail colapsado). */
 export const firstLeafPath = (item: NavItem): string =>
   item.kind === 'leaf' ? item.path : (item.children[0] ? firstLeafPath(item.children[0]) : '/');
 
-/**
- * Rail colapsado: recorrido en PRE-ORDEN que preserva EXACTAMENTE el orden del árbol expandido.
- * Emite las hojas y los nodos de nivel 1 (hijos directos de los grupos superiores); los nodos
- * más profundos (p.ej. Asignación) no se emiten como icono, pero sí se recorren sus hojas.
- */
 const railWalk = (items: NavItem[], depth: number): NavItem[] =>
   items.flatMap((it) => (it.kind === 'leaf' ? [it] : [...(depth === 1 ? [it] : []), ...railWalk(it.children, depth + 1)]));
 export const railItems = (): NavItem[] => NAVIGATION.flatMap((g) => railWalk(g.children, 1));
