@@ -30,7 +30,7 @@ const SidebarNav = ({ collapsed, onNavigate }: Props) => {
   };
   const subtreeActive = (item: NavItem): boolean => item.kind === 'leaf' ? isLeafActive(item) : item.children.some(subtreeActive);
 
-  // Predeterminado: módulos abiertos; los menús internos empiezan cerrados.
+  // Estado inicial: los tres módulos están abiertos; los menús internos permanecen cerrados.
   const moduleKeys = useMemo(() => NAVIGATION.map((item) => item.key), []);
   const [openNodes, setOpenNodes] = useState<Set<string>>(() => new Set(moduleKeys));
   const initialRender = useRef(true);
@@ -41,9 +41,8 @@ const SidebarNav = ({ collapsed, onNavigate }: Props) => {
     return next;
   });
 
-  // Después de la carga inicial, un cambio de ruta abre los ancestros necesarios.
-  // Esto conserva la vista inicial tipo "módulos abiertos / menús cerrados" y mantiene
-  // navegación profunda funcional cuando el usuario cambia de sección.
+  // En navegación posterior se abren únicamente los ancestros necesarios para mostrar
+  // la página destino, sin alterar el estado visual inicial.
   useEffect(() => {
     if (initialRender.current) {
       initialRender.current = false;
@@ -99,11 +98,46 @@ const SidebarNav = ({ collapsed, onNavigate }: Props) => {
     const open = openNodes.has(node.key);
     const active = subtreeActive(node);
     const isModule = depth === 0;
+
+    const moduleSx = isModule ? {
+      bgcolor: open ? 'rgba(30,58,138,.075)' : 'transparent',
+      boxShadow: open ? '0 2px 8px rgba(15,23,42,.06)' : 'none',
+      borderLeft: open ? '3px solid rgba(30,58,138,.82)' : '3px solid transparent',
+      '&:hover': { bgcolor: open ? 'rgba(30,58,138,.10)' : 'rgba(30,58,138,.045)' }
+    } : {
+      bgcolor: active ? 'rgba(30,58,138,.055)' : 'transparent',
+      '&:hover': { bgcolor: 'action.hover' }
+    };
+
     return <Box key={node.key}>
-      <ListItemButton onClick={() => toggle(node.key)} sx={{ mx: 0.5, mt: isModule ? 1 : 0.25, mb: isModule ? 0.35 : 0.15, borderRadius: isModule ? 1.5 : 1.75, pl: isModule ? 1 : 1.5, py: isModule ? 0.65 : 0.7, minHeight: isModule ? 40 : 40, bgcolor: isModule ? 'transparent' : active ? 'rgba(30,58,138,.055)' : 'transparent', '&:hover': { bgcolor: isModule ? 'rgba(30,58,138,.045)' : 'action.hover' } }}>
+      <ListItemButton
+        onClick={() => toggle(node.key)}
+        sx={{
+          mx: 0.5,
+          mt: isModule ? 1 : 0.25,
+          mb: isModule ? 0.45 : 0.15,
+          borderRadius: isModule ? 1.5 : 1.75,
+          pl: isModule ? 0.85 : 1.5,
+          pr: 1,
+          py: isModule ? 0.7 : 0.7,
+          minHeight: isModule ? 42 : 40,
+          transition: 'background-color 180ms ease, box-shadow 180ms ease, border-color 180ms ease, transform 120ms ease',
+          ...moduleSx
+        }}
+      >
         <ListItemIcon sx={{ minWidth: 30, color: '#1E3A8A' }}>{node.icon}</ListItemIcon>
-        <ListItemText primary={label(node.i18nKey, node.label)} primaryTypographyProps={{ fontSize: isModule ? 11 : 13, fontWeight: isModule ? 800 : 650, textTransform: isModule ? 'uppercase' : 'none', letterSpacing: isModule ? 0.8 : 0, color: isModule ? 'text.secondary' : 'text.primary', noWrap: true }} />
-        <Box sx={{ display: 'flex' }}>
+        <ListItemText
+          primary={label(node.i18nKey, node.label)}
+          primaryTypographyProps={{
+            fontSize: isModule ? 11 : 13,
+            fontWeight: isModule ? 800 : 650,
+            textTransform: isModule ? 'uppercase' : 'none',
+            letterSpacing: isModule ? 0.8 : 0,
+            color: isModule ? (open ? 'text.primary' : 'text.secondary') : 'text.primary',
+            noWrap: true
+          }}
+        />
+        <Box sx={{ display: 'flex', transition: 'transform 180ms ease', transform: open ? 'rotate(0deg)' : 'rotate(0deg)' }}>
           {open ? <KeyboardArrowDownIcon sx={{ fontSize: isModule ? 19 : 18, color: 'text.secondary' }} /> : <KeyboardArrowRightIcon sx={{ fontSize: isModule ? 19 : 18, color: 'text.secondary' }} />}
         </Box>
       </ListItemButton>
