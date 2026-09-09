@@ -23,6 +23,16 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import BusinessIcon from '@mui/icons-material/Business';
 import PaymentsIcon from '@mui/icons-material/Payments';
 import BuildIcon from '@mui/icons-material/Build';
+import FolderOpenIcon from '@mui/icons-material/FolderOpen';
+import GroupIcon from '@mui/icons-material/Group';
+import EventNoteOutlinedIcon from '@mui/icons-material/EventNoteOutlined';
+import TuneIcon from '@mui/icons-material/Tune';
+import CategoryIcon from '@mui/icons-material/Category';
+import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined';
+import PaletteIcon from '@mui/icons-material/Palette';
+import DescriptionIcon from '@mui/icons-material/Description';
+import DataObjectIcon from '@mui/icons-material/DataObject';
+import FactCheckIcon from '@mui/icons-material/FactCheck';
 
 /** Árbol de navegación jerárquico. Las hojas usan únicamente rutas/permisos existentes. */
 export interface NavLeaf {
@@ -85,21 +95,21 @@ export const NAVIGATION: NavNode[] = [
       {
         kind: 'node', key: 'repositorio', i18nKey: 'nav.repositorio', label: 'Repositorio', icon: ico(Inventory2Icon),
         children: [
-          leaf('repo-cartera', 'nav.repositorio.cartera', 'Gestión de Cartera', '/repositorio?tab=0', 'modulo.repositorio', Inventory2Icon, true),
-          leaf('repo-usuarios', 'nav.repositorio.usuarios', 'Gestión masiva de Usuarios', '/repositorio?tab=1', 'usuarios.administrar_global', Inventory2Icon),
-          leaf('repo-calendario', 'nav.repositorio.calendario', 'Gestión de Calendario', '/repositorio?tab=2', 'calendario.crear', CalendarMonthIcon)
+          leaf('repo-cartera', 'nav.repositorio.cartera', 'Gestión de Cartera', '/repositorio?tab=0', 'modulo.repositorio', FolderOpenIcon, true),
+          leaf('repo-usuarios', 'nav.repositorio.usuarios', 'Gestión masiva de Usuarios', '/repositorio?tab=1', 'usuarios.administrar_global', GroupIcon),
+          leaf('repo-calendario', 'nav.repositorio.calendario', 'Gestión de Calendario', '/repositorio?tab=2', 'calendario.crear', EventNoteOutlinedIcon)
         ]
       },
       {
         kind: 'node', key: 'configuracion', i18nKey: 'nav.configuracion', label: 'Configuración', icon: ico(SettingsIcon),
         children: [
-          leaf('config-general', 'nav.configuracion.general', 'General', '/configuracion?tab=0', 'configuracion.ver', SettingsIcon, true),
-          leaf('config-catalogos', 'nav.configuracion.catalogos', 'Catálogos', '/configuracion?tab=1', 'configuracion.ver', SettingsIcon),
-          leaf('config-roles', 'nav.configuracion.roles', 'Roles y permisos', '/configuracion?tab=2', 'configuracion.ver', SettingsIcon),
-          leaf('config-apariencia', 'nav.configuracion.apariencia', 'Apariencia', '/configuracion?tab=3', 'configuracion.ver', SettingsIcon),
-          leaf('config-plantillas', 'nav.configuracion.plantillas', 'Plantillas', '/configuracion?tab=4', 'configuracion.ver', SettingsIcon),
-          leaf('config-variables', 'nav.configuracion.variables', 'Variables', '/configuracion?tab=5', 'configuracion.ver', SettingsIcon),
-          leaf('config-auditoria', 'nav.configuracion.auditoria', 'Auditoría', '/configuracion?tab=6', 'configuracion.ver', SettingsIcon)
+          leaf('config-general', 'nav.configuracion.general', 'General', '/configuracion?tab=0', 'configuracion.ver', TuneIcon, true),
+          leaf('config-catalogos', 'nav.configuracion.catalogos', 'Catálogos', '/configuracion?tab=1', 'configuracion.ver', CategoryIcon),
+          leaf('config-roles', 'nav.configuracion.roles', 'Roles y permisos', '/configuracion?tab=2', 'configuracion.ver', AdminPanelSettingsOutlinedIcon),
+          leaf('config-apariencia', 'nav.configuracion.apariencia', 'Apariencia', '/configuracion?tab=3', 'configuracion.ver', PaletteIcon),
+          leaf('config-plantillas', 'nav.configuracion.plantillas', 'Plantillas', '/configuracion?tab=4', 'configuracion.ver', DescriptionIcon),
+          leaf('config-variables', 'nav.configuracion.variables', 'Variables', '/configuracion?tab=5', 'configuracion.ver', DataObjectIcon),
+          leaf('config-auditoria', 'nav.configuracion.auditoria', 'Auditoría', '/configuracion?tab=6', 'configuracion.ver', FactCheckIcon)
         ]
       },
       {
