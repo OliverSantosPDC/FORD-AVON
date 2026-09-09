@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
 import { Box, Collapse, List, ListItemButton, ListItemIcon, ListItemText, Tooltip } from '@mui/material';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
@@ -30,25 +30,42 @@ const SidebarNav = ({ collapsed, onNavigate }: Props) => {
   };
   const subtreeActive = (item: NavItem): boolean => item.kind === 'leaf' ? isLeafActive(item) : item.children.some(subtreeActive);
 
-  const allNodeKeys = useMemo(() => {
-    const keys: string[] = [];
-    const walk = (items: NavItem[]) => items.forEach((item) => { if (item.kind === 'node') { keys.push(item.key); walk(item.children); } });
-    walk(NAVIGATION);
-    return keys;
-  }, []);
-  const [openNodes, setOpenNodes] = useState<Set<string>>(() => new Set(allNodeKeys));
-  const toggle = (key: string) => setOpenNodes((prev) => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; });
+  // Predeterminado: módulos abiertos; los menús internos empiezan cerrados.
+  const moduleKeys = useMemo(() => NAVIGATION.map((item) => item.key), []);
+  const [openNodes, setOpenNodes] = useState<Set<string>>(() => new Set(moduleKeys));
+  const initialRender = useRef(true);
 
+  const toggle = (key: string) => setOpenNodes((prev) => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+
+  // Después de la carga inicial, un cambio de ruta abre los ancestros necesarios.
+  // Esto conserva la vista inicial tipo "módulos abiertos / menús cerrados" y mantiene
+  // navegación profunda funcional cuando el usuario cambia de sección.
   useEffect(() => {
+    if (initialRender.current) {
+      initialRender.current = false;
+      return;
+    }
     const findAncestors = (items: NavItem[], trail: string[]): string[] | null => {
       for (const item of items) {
-        if (item.kind === 'leaf') { if (isLeafActive(item)) return trail; }
-        else { const found = findAncestors(item.children, [...trail, item.key]); if (found) return found; }
+        if (item.kind === 'leaf') {
+          if (isLeafActive(item)) return trail;
+        } else {
+          const found = findAncestors(item.children, [...trail, item.key]);
+          if (found) return found;
+        }
       }
       return null;
     };
     const ancestors = findAncestors(NAVIGATION, []);
-    if (ancestors?.length) setOpenNodes((prev) => { const next = new Set(prev); ancestors.forEach((key) => next.add(key)); return next; });
+    if (ancestors?.length) setOpenNodes((prev) => {
+      const next = new Set(prev);
+      ancestors.forEach((key) => next.add(key));
+      return next;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname, location.search]);
 
@@ -82,12 +99,13 @@ const SidebarNav = ({ collapsed, onNavigate }: Props) => {
     const open = openNodes.has(node.key);
     const active = subtreeActive(node);
     const isModule = depth === 0;
-    const isMenu = depth === 1;
     return <Box key={node.key}>
       <ListItemButton onClick={() => toggle(node.key)} sx={{ mx: 0.5, mt: isModule ? 1 : 0.25, mb: isModule ? 0.35 : 0.15, borderRadius: isModule ? 1.5 : 1.75, pl: isModule ? 1 : 1.5, py: isModule ? 0.65 : 0.7, minHeight: isModule ? 40 : 40, bgcolor: isModule ? 'transparent' : active ? 'rgba(30,58,138,.055)' : 'transparent', '&:hover': { bgcolor: isModule ? 'rgba(30,58,138,.045)' : 'action.hover' } }}>
-        <ListItemIcon sx={{ minWidth: isModule ? 30 : 30, color: active ? '#1E3A8A' : '#1E3A8A' }}>{node.icon}</ListItemIcon>
+        <ListItemIcon sx={{ minWidth: 30, color: '#1E3A8A' }}>{node.icon}</ListItemIcon>
         <ListItemText primary={label(node.i18nKey, node.label)} primaryTypographyProps={{ fontSize: isModule ? 11 : 13, fontWeight: isModule ? 800 : 650, textTransform: isModule ? 'uppercase' : 'none', letterSpacing: isModule ? 0.8 : 0, color: isModule ? 'text.secondary' : 'text.primary', noWrap: true }} />
-        <Box sx={{ display: 'flex', transition: 'transform 180ms ease', transform: open ? 'rotate(0deg)' : 'rotate(0deg)' }}>{open ? <KeyboardArrowDownIcon sx={{ fontSize: isModule ? 19 : 18, color: 'text.secondary' }} /> : <KeyboardArrowRightIcon sx={{ fontSize: isModule ? 19 : 18, color: 'text.secondary' }} />}</Box>
+        <Box sx={{ display: 'flex' }}>
+          {open ? <KeyboardArrowDownIcon sx={{ fontSize: isModule ? 19 : 18, color: 'text.secondary' }} /> : <KeyboardArrowRightIcon sx={{ fontSize: isModule ? 19 : 18, color: 'text.secondary' }} />}
+        </Box>
       </ListItemButton>
       <Collapse in={open} timeout={180} unmountOnExit>
         <Box sx={{ ml: isModule ? 1.75 : 2.25, mr: 0.5, borderLeft: '1px solid', borderColor: isModule ? 'rgba(30,58,138,.14)' : 'divider', pl: 0.35 }}>
