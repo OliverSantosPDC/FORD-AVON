@@ -20,17 +20,38 @@ const SidebarNav = ({ collapsed, onNavigate }: Props) => {
   const location = useLocation();
   const label = (i18nKey: string, fallback: string) => { const s = t(i18nKey); return s === i18nKey ? fallback : s; };
 
-  const isLeafActive = (leaf: NavLeaf): boolean => {
-    const { base, tab } = splitPath(leaf.path);
-    if (location.pathname !== base) return false;
-    const curTab = new URLSearchParams(location.search).get('tab');
-    if (tab === null) return true;
-    if (curTab === tab) return true;
-    return Boolean(leaf.activeWhenNoTab && curTab === null);
+  const matchesCurrentLocation = (leaf: NavLeaf): boolean => {
+    if (location.pathname !== splitPath(leaf.path).base) return false;
+    const leafTab = splitPath(leaf.path).tab;
+    const currentTab = new URLSearchParams(location.search).get('tab');
+    if (leafTab === null) return true;
+    if (currentTab === leafTab) return true;
+    return Boolean(leaf.activeWhenNoTab && currentTab === null);
   };
+
+  // Si dos menús apuntan a la misma ruta (por ejemplo Calendario), solo el primer
+  // elemento coincidente se considera activo. Así nunca aparecen dos submenús rosas
+  // simultáneamente para la misma página.
+  const activeLeafKey = useMemo(() => {
+    const find = (items: NavItem[]): string | null => {
+      for (const item of items) {
+        if (item.kind === 'leaf') {
+          if (hasPermission(item.permission) && matchesCurrentLocation(item)) return item.key;
+        } else {
+          const found = find(item.children);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    return find(NAVIGATION);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname, location.search, hasPermission, lang]);
+
+  const isLeafActive = (leaf: NavLeaf): boolean => leaf.key === activeLeafKey;
   const subtreeActive = (item: NavItem): boolean => item.kind === 'leaf' ? isLeafActive(item) : item.children.some(subtreeActive);
 
-  // Estado inicial: los tres módulos están abiertos; los menús internos permanecen cerrados.
+  // Predeterminado: módulos abiertos; los menús internos empiezan cerrados.
   const moduleKeys = useMemo(() => NAVIGATION.map((item) => item.key), []);
   const [openNodes, setOpenNodes] = useState<Set<string>>(() => new Set(moduleKeys));
   const initialRender = useRef(true);
@@ -41,8 +62,9 @@ const SidebarNav = ({ collapsed, onNavigate }: Props) => {
     return next;
   });
 
-  // En navegación posterior se abren únicamente los ancestros necesarios para mostrar
-  // la página destino, sin alterar el estado visual inicial.
+  // Después de la carga inicial, un cambio de ruta abre los ancestros necesarios.
+  // Esto conserva la vista inicial tipo "módulos abiertos / menús cerrados" y mantiene
+  // navegación profunda funcional cuando el usuario cambia de sección.
   useEffect(() => {
     if (initialRender.current) {
       initialRender.current = false;
@@ -66,7 +88,7 @@ const SidebarNav = ({ collapsed, onNavigate }: Props) => {
       return next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname, location.search]);
+  }, [location.pathname, location.search, activeLeafKey]);
 
   const rail = useMemo(() => railItems().filter((item) => item.kind === 'leaf' ? hasPermission(item.permission) : nodeHasVisibleLeaf(item, hasPermission)), [hasPermission, lang]);
 
@@ -98,46 +120,11 @@ const SidebarNav = ({ collapsed, onNavigate }: Props) => {
     const open = openNodes.has(node.key);
     const active = subtreeActive(node);
     const isModule = depth === 0;
-
-    const moduleSx = isModule ? {
-      bgcolor: open ? 'rgba(30,58,138,.075)' : 'transparent',
-      boxShadow: open ? '0 2px 8px rgba(15,23,42,.06)' : 'none',
-      borderLeft: open ? '3px solid rgba(30,58,138,.82)' : '3px solid transparent',
-      '&:hover': { bgcolor: open ? 'rgba(30,58,138,.10)' : 'rgba(30,58,138,.045)' }
-    } : {
-      bgcolor: active ? 'rgba(30,58,138,.055)' : 'transparent',
-      '&:hover': { bgcolor: 'action.hover' }
-    };
-
     return <Box key={node.key}>
-      <ListItemButton
-        onClick={() => toggle(node.key)}
-        sx={{
-          mx: 0.5,
-          mt: isModule ? 1 : 0.25,
-          mb: isModule ? 0.45 : 0.15,
-          borderRadius: isModule ? 1.5 : 1.75,
-          pl: isModule ? 0.85 : 1.5,
-          pr: 1,
-          py: isModule ? 0.7 : 0.7,
-          minHeight: isModule ? 42 : 40,
-          transition: 'background-color 180ms ease, box-shadow 180ms ease, border-color 180ms ease, transform 120ms ease',
-          ...moduleSx
-        }}
-      >
+      <ListItemButton onClick={() => toggle(node.key)} sx={{ mx: 0.5, mt: isModule ? 1 : 0.25, mb: isModule ? 0.35 : 0.15, borderRadius: isModule ? 1.5 : 1.75, pl: isModule ? 1 : 1.5, py: isModule ? 0.65 : 0.7, minHeight: isModule ? 40 : 40, bgcolor: isModule ? 'transparent' : active ? 'rgba(30,58,138,.055)' : 'transparent', '&:hover': { bgcolor: isModule ? 'rgba(30,58,138,.045)' : 'action.hover' } }}>
         <ListItemIcon sx={{ minWidth: 30, color: '#1E3A8A' }}>{node.icon}</ListItemIcon>
-        <ListItemText
-          primary={label(node.i18nKey, node.label)}
-          primaryTypographyProps={{
-            fontSize: isModule ? 11 : 13,
-            fontWeight: isModule ? 800 : 650,
-            textTransform: isModule ? 'uppercase' : 'none',
-            letterSpacing: isModule ? 0.8 : 0,
-            color: isModule ? (open ? 'text.primary' : 'text.secondary') : 'text.primary',
-            noWrap: true
-          }}
-        />
-        <Box sx={{ display: 'flex', transition: 'transform 180ms ease', transform: open ? 'rotate(0deg)' : 'rotate(0deg)' }}>
+        <ListItemText primary={label(node.i18nKey, node.label)} primaryTypographyProps={{ fontSize: isModule ? 11 : 13, fontWeight: isModule ? 800 : 650, textTransform: isModule ? 'uppercase' : 'none', letterSpacing: isModule ? 0.8 : 0, color: isModule ? 'text.secondary' : 'text.primary', noWrap: true }} />
+        <Box sx={{ display: 'flex' }}>
           {open ? <KeyboardArrowDownIcon sx={{ fontSize: isModule ? 19 : 18, color: 'text.secondary' }} /> : <KeyboardArrowRightIcon sx={{ fontSize: isModule ? 19 : 18, color: 'text.secondary' }} />}
         </Box>
       </ListItemButton>
