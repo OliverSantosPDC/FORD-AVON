@@ -1,10 +1,8 @@
 import Autocomplete from '@mui/material/Autocomplete';
-import { Box, Button, Chip, Collapse, IconButton, MenuItem, Paper, TextField, Typography, useTheme } from '@mui/material';
+import { Box, Button, Chip, MenuItem, Popover, TextField, Typography, useTheme } from '@mui/material';
 import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import { useState } from 'react';
+import { useState, type MouseEvent as ReactMouseEvent } from 'react';
 import type { DashboardMultiFilterParams } from '../../types/cartera';
 import { MONEDA_OPTIONS } from '../../utils/monedaOptions';
 
@@ -52,7 +50,8 @@ const filterCount = (filters: DashboardMultiFilterParams) =>
 const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMonedaChange }: DashboardFiltersProps) => {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
-  const [expanded, setExpanded] = useState(false);
+  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+  const open = Boolean(anchorEl);
 
   const handleMultiChange = (field: keyof DashboardMultiFilterParams, values: string[]) => {
     onChange({
@@ -74,46 +73,68 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
   const showMoneda = moneda !== undefined && onMonedaChange;
 
   return (
-    <Paper
-      sx={{
-        px: 2,
-        py: 1.5,
-        borderRadius: 2.5,
-        bgcolor: 'background.paper',
-        border: '1px solid',
-        borderColor: 'divider',
-        boxShadow: isDark ? '0 10px 26px rgba(0, 0, 0, 0.3)' : '0 10px 26px rgba(15, 23, 42, 0.06)'
-      }}
-    >
-      <Box
-        onClick={() => setExpanded((prev) => !prev)}
-        sx={{ display: 'flex', alignItems: 'center', gap: 0.75, cursor: 'pointer', userSelect: 'none', width: 'fit-content' }}
+    <>
+      <Button
+        onClick={(event: ReactMouseEvent<HTMLElement>) => setAnchorEl(anchorEl ? null : event.currentTarget)}
+        startIcon={<FilterAltOutlinedIcon sx={{ fontSize: 16 }} />}
+        sx={{
+          position: 'fixed',
+          top: 76,
+          right: 20,
+          zIndex: 1200,
+          borderRadius: 3,
+          textTransform: 'none',
+          fontSize: 11,
+          fontWeight: 800,
+          letterSpacing: 0.6,
+          px: 1.5,
+          py: 0.75,
+          minHeight: 34,
+          bgcolor: isDark ? '#111827' : '#FFFFFF',
+          color: isDark ? '#E2E8F0' : '#1E3A8A',
+          border: '1px solid',
+          borderColor: isDark ? '#334155' : '#E5E7EB',
+          boxShadow: isDark ? '0 10px 26px rgba(0, 0, 0, 0.35)' : '0 10px 26px rgba(15, 23, 42, 0.12)',
+          '&:hover': { bgcolor: isDark ? '#111827' : '#FFFFFF', borderColor: '#E6007E' }
+        }}
       >
-        <FilterAltOutlinedIcon sx={{ fontSize: 18, color: '#E6007E' }} />
-        <Typography sx={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.8, textTransform: 'uppercase', color: 'text.secondary' }}>
-          Filtros
-        </Typography>
+        FILTROS
         {activeCount > 0 && (
-          <Chip label={activeCount} size="small" sx={{ height: 18, fontSize: 10, bgcolor: 'rgba(230, 0, 126, 0.14)', color: '#E6007E' }} />
+          <Chip label={activeCount} size="small" sx={{ height: 18, fontSize: 10, ml: 0.75, bgcolor: 'rgba(230, 0, 126, 0.14)', color: '#E6007E' }} />
         )}
-        <IconButton size="small" sx={{ width: 22, height: 22, ml: 0.25 }} aria-label={expanded ? 'Contraer filtros' : 'Expandir filtros'}>
-          {expanded ? <ExpandLessIcon sx={{ fontSize: 16 }} /> : <ExpandMoreIcon sx={{ fontSize: 16 }} />}
-        </IconButton>
-      </Box>
+      </Button>
 
-      <Collapse in={expanded} timeout="auto">
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', mt: 1.5 }}>
+      <Popover
+        open={open}
+        anchorEl={anchorEl}
+        onClose={() => setAnchorEl(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        PaperProps={{
+          sx: {
+            mt: 1,
+            borderRadius: 2.5,
+            border: '1px solid',
+            borderColor: 'divider',
+            boxShadow: isDark ? '0 20px 50px rgba(0, 0, 0, 0.45)' : '0 20px 50px rgba(15, 23, 42, 0.14)',
+            width: { xs: 'calc(100vw - 32px)', sm: 460, md: 680 },
+            maxWidth: '95vw'
+          }
+        }}
+      >
+        <Box sx={{ p: 2 }}>
+          <Typography sx={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.8, textTransform: 'uppercase', color: 'text.secondary', mb: 1.25 }}>
+            Filtros
+          </Typography>
+
           <Box
             sx={{
               display: 'grid',
               gap: 1.25,
-              flex: 1,
-              minWidth: 0,
               gridTemplateColumns: {
                 xs: '1fr',
                 sm: 'repeat(2, minmax(0, 1fr))',
-                md: 'repeat(3, minmax(0, 1fr))',
-                lg: showMoneda ? 'repeat(7, minmax(0, 1fr))' : 'repeat(6, minmax(0, 1fr))'
+                md: 'repeat(3, minmax(0, 1fr))'
               }
             }}
           >
@@ -247,19 +268,21 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
             )}
           </Box>
 
-          <Button
-            size="small"
-            variant="outlined"
-            color="secondary"
-            onClick={onClear}
-            startIcon={<RestartAltIcon sx={{ fontSize: 16 }} />}
-            sx={{ borderRadius: 2, textTransform: 'none', fontSize: 12, height: 34, flexShrink: 0, px: 1.5 }}
-          >
-            Limpiar
-          </Button>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1.5 }}>
+            <Button
+              size="small"
+              variant="outlined"
+              color="secondary"
+              onClick={onClear}
+              startIcon={<RestartAltIcon sx={{ fontSize: 16 }} />}
+              sx={{ borderRadius: 2, textTransform: 'none', fontSize: 12, height: 34, px: 1.5 }}
+            >
+              Limpiar
+            </Button>
+          </Box>
         </Box>
-      </Collapse>
-    </Paper>
+      </Popover>
+    </>
   );
 };
 

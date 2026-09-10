@@ -16,7 +16,6 @@ import {
   ListItemText,
   Toolbar,
   Typography,
-  useTheme,
   Menu,
   MenuItem,
   Badge,
@@ -46,7 +45,6 @@ const initialsOf = (nombre?: string | null, apellido?: string | null): string =>
 };
 
 const RootLayout = () => {
-  const theme = useTheme();
   const navigate = useNavigate();
   const { mode, toggleMode } = useThemeMode();
   const { lang, setLang, t } = useI18n();
@@ -134,14 +132,13 @@ const RootLayout = () => {
   );
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       <CssBaseline />
       <AppBar
-        position="fixed"
+        position="static"
         color="inherit"
         elevation={0}
         sx={{
-          zIndex: theme.zIndex.drawer + 1,
           bgcolor: mode === 'light' ? '#FFFFFFCC' : '#111827CC',
           backdropFilter: 'blur(15px)',
           borderBottom: '1px solid',
@@ -281,30 +278,31 @@ const RootLayout = () => {
         </Toolbar>
       </AppBar>
 
-      <Box component="nav" sx={{ width: drawerWidth, flexShrink: 0, transition: 'width 220ms ease' }} aria-label="sidebar navigation">
-        <Drawer
-          variant="permanent"
-          open
-          sx={{
-            '& .MuiDrawer-paper': {
-              boxSizing: 'border-box',
-              width: drawerWidth,
-              borderRight: 'none',
-              overflowX: 'hidden',
-              transition: 'width 220ms ease',
-              scrollbarWidth: 'none',
-              msOverflowStyle: 'none',
-              '&::-webkit-scrollbar': { display: 'none', width: 0, height: 0 }
-            }
-          }}
-        >
-          {drawer}
-        </Drawer>
-      </Box>
+      <Box sx={{ display: 'flex', flex: 1, minHeight: 0 }}>
+        <Box component="nav" sx={{ width: drawerWidth, flexShrink: 0, transition: 'width 220ms ease' }} aria-label="sidebar navigation">
+          <Drawer
+            variant="permanent"
+            open
+            sx={{
+              '& .MuiDrawer-paper': {
+                boxSizing: 'border-box',
+                width: drawerWidth,
+                borderRight: 'none',
+                overflowX: 'hidden',
+                transition: 'width 220ms ease',
+                scrollbarWidth: 'none',
+                msOverflowStyle: 'none',
+                '&::-webkit-scrollbar': { display: 'none', width: 0, height: 0 }
+              }
+            }}
+          >
+            {drawer}
+          </Drawer>
+        </Box>
 
-      <Box component="main" sx={{ flexGrow: 1, minWidth: 0, p: 2, width: { md: `calc(100% - ${drawerWidth}px)` }, transition: 'width 220ms ease' }}>
-        <Toolbar />
-        <Outlet />
+        <Box component="main" sx={{ flexGrow: 1, minWidth: 0, p: 2, width: { md: `calc(100% - ${drawerWidth}px)` }, transition: 'width 220ms ease' }}>
+          <Outlet />
+        </Box>
       </Box>
     </Box>
   );
