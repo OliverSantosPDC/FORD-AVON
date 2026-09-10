@@ -28,7 +28,7 @@ const normalizePd = (value: unknown) => {
 };
 
 interface Props { filters: DashboardFilterParams; moneda: 'USD' | 'LOCAL'; monedaCode: string; }
-interface PivotRow { pdInicial: string; [key: string]: string | number; }
+interface PivotRow { pdActual: string; [key: string]: string | number; }
 interface TooltipEntry { dataKey?: string | number; value?: string | number; }
 
 const formatUsd = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 0 });
@@ -41,14 +41,14 @@ const formatCompact = (value: number) => {
 const PDMigrationTooltip = ({ active, payload, label, monedaLabel }: { active?: boolean; payload?: TooltipEntry[]; label?: string | number; monedaLabel: string }) => {
   if (!active || !payload?.length) return null;
   const entry = payload.find((item) => Number(item.value ?? 0) > 0) ?? payload[0];
-  const actual = String(entry?.dataKey ?? '').toUpperCase();
+  const inicial = String(entry?.dataKey ?? '').toUpperCase();
   const value = Number(entry?.value ?? 0);
 
   return (
     <Box sx={{ borderRadius: 1.5, border: '1px solid #E2E8F0', boxShadow: '0 16px 40px rgba(15, 23, 42, 0.14)', backgroundColor: '#FFFFFF', px: 1.5, py: 1 }}>
-      <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#0F172A', mb: 0.5 }}>PD Inicial: {label}</Typography>
-      <Typography sx={{ fontSize: 12, color: '#475569' }}>PD Actual: {actual}</Typography>
-      <Typography sx={{ fontSize: 12, color: '#475569' }}>Saldo actual: {formatUsd(value)} {monedaLabel}</Typography>
+      <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#0F172A', mb: 0.5 }}>PD Actual: {label}</Typography>
+      <Typography sx={{ fontSize: 12, color: '#475569' }}>PD Inicial: {inicial}</Typography>
+      <Typography sx={{ fontSize: 12, color: '#475569' }}>Saldo inicial: {formatUsd(value)} {monedaLabel}</Typography>
     </Box>
   );
 };
@@ -71,7 +71,7 @@ const PDMigrationChart = ({ filters, moneda, monedaCode }: Props) => {
     cuentas.forEach((row) => {
       const inicial = normalizePd(row.pd_inicial);
       const actual = normalizePd(row.pd_actual);
-      const saldo = Number((moneda === 'USD' ? row.saldo_actual_usd : row.saldo_actual) ?? 0);
+      const saldo = Number((moneda === 'USD' ? row.saldo_inicial_usd : row.saldo_inicial) ?? 0);
       if (!inicial || !actual || !Number.isFinite(saldo) || saldo <= 0) return;
       const key = `${inicial}|${actual}`;
       flowMap.set(key, (flowMap.get(key) ?? 0) + saldo);
@@ -79,28 +79,28 @@ const PDMigrationChart = ({ filters, moneda, monedaCode }: Props) => {
 
     const seriesSet = new Set<string>();
     const grouped = new Map<string, PivotRow>();
-    PD_ORDER.forEach((pdInicial) => grouped.set(pdInicial, { pdInicial }));
+    PD_ORDER.forEach((pdActual) => grouped.set(pdActual, { pdActual }));
 
     flowMap.forEach((value, key) => {
       const [pdInicial, pdActual] = key.split('|');
-      const row = grouped.get(pdInicial);
+      const row = grouped.get(pdActual);
       if (!row) return;
-      row[pdActual] = value;
-      seriesSet.add(pdActual);
+      row[pdInicial] = value;
+      seriesSet.add(pdInicial);
     });
 
     const series = PD_ORDER.filter((pd) => seriesSet.has(pd));
-    const unorderedRows = PD_ORDER.map((pdInicial) => {
-      const row = grouped.get(pdInicial) ?? { pdInicial };
-      series.forEach((pdActual) => { if (typeof row[pdActual] !== 'number') row[pdActual] = 0; });
+    const unorderedRows = PD_ORDER.map((pdActual) => {
+      const row = grouped.get(pdActual) ?? { pdActual };
+      series.forEach((pdInicial) => { if (typeof row[pdInicial] !== 'number') row[pdInicial] = 0; });
       return row;
     });
 
     const rowTotal = (row: PivotRow) =>
-      Object.entries(row).reduce((sum, [key, value]) => (key === 'pdInicial' || typeof value !== 'number' ? sum : sum + value), 0);
+      Object.entries(row).reduce((sum, [key, value]) => (key === 'pdActual' || typeof value !== 'number' ? sum : sum + value), 0);
 
     const rows = [...unorderedRows].sort((a, b) => {
-      const result = sortKey === 'valor' ? rowTotal(a) - rowTotal(b) : PD_ORDER.indexOf(a.pdInicial) - PD_ORDER.indexOf(b.pdInicial);
+      const result = sortKey === 'valor' ? rowTotal(a) - rowTotal(b) : PD_ORDER.indexOf(a.pdActual) - PD_ORDER.indexOf(b.pdActual);
       return sortDir === 'asc' ? result : -result;
     });
 
@@ -130,18 +130,18 @@ const PDMigrationChart = ({ filters, moneda, monedaCode }: Props) => {
   ];
 
   return (
-    <ChartCard title="MOVIMIENTO DE CARTERA POR PD" subtitle="PD inicial → PD actual · saldo actual" chartId="chart-pd-migration" fileBaseName="movimiento-cartera-pd" height={240} sortOptions={sortOptions} csvHeaders={['PD Inicial', 'PD Actual', `Saldo Actual ${monedaLabel}`]} csvRows={csvRows}>
+    <ChartCard title="MOVIMIENTO DE CARTERA POR PD" subtitle="PD actual → PD inicial · saldo inicial" chartId="chart-pd-migration" fileBaseName="movimiento-cartera-pd" height={240} sortOptions={sortOptions} csvHeaders={['PD Inicial', 'PD Actual', `Saldo Inicial ${monedaLabel}`]} csvRows={csvRows}>
       {(height) => (
         <Box sx={{ width: '100%', height: '100%', position: 'relative' }}>
           <ResponsiveContainer width="100%" height={height}>
             <BarChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }} barCategoryGap="28%">
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
-              <XAxis dataKey="pdInicial" tick={{ fill: '#475569', fontSize: 10.5 }} axisLine={false} tickLine={false} />
+              <XAxis dataKey="pdActual" tick={{ fill: '#475569', fontSize: 10.5 }} axisLine={false} tickLine={false} />
               <YAxis tickFormatter={formatCompact} tick={{ fill: '#475569', fontSize: 10.5 }} axisLine={false} tickLine={false} />
               <Tooltip cursor={{ fill: 'rgba(15, 23, 42, 0.04)' }} content={<PDMigrationTooltip monedaLabel={monedaLabel} />} />
               <Legend verticalAlign="bottom" iconType="circle" iconSize={8} wrapperStyle={{ paddingTop: 4, fontSize: 10.5, fontWeight: 600 }} />
-              {activeSeries.map((pdActual) => (
-                <Bar key={pdActual} dataKey={pdActual} name={pdActual} fill={PD_COLORS[pdActual]} radius={[4, 4, 0, 0]} barSize={14} isAnimationActive={false} />
+              {activeSeries.map((pdInicial) => (
+                <Bar key={pdInicial} dataKey={pdInicial} name={pdInicial} fill={PD_COLORS[pdInicial]} radius={[4, 4, 0, 0]} barSize={14} isAnimationActive={false} />
               ))}
             </BarChart>
           </ResponsiveContainer>
