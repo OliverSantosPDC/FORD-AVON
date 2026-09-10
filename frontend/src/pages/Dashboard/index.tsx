@@ -84,8 +84,6 @@ const DashboardPage = () => {
       <Box sx={{ gridColumn: '1 / -1' }}>
         <Box sx={{ display: 'grid', gap: 2, mt: 1 }}>
           <DashboardCharts
-            pds={dashboard.pds}
-            resumenPD={dashboard.resumenPD}
             countrySummary={dashboard.countrySummary}
             pdMigrationChart={<PDMigrationChart filters={dashboardFilters} />}
             zonaSector={<DashboardZonaSector data={dashboard.zonaSectorSummary} moneda={monedaSel} monedaCode={monedaCode} />}

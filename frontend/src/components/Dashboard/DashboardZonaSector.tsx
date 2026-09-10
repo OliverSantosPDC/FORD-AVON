@@ -1,7 +1,10 @@
-import { useMemo, useState } from 'react';
-import { Box, Chip, Collapse, IconButton, Paper, Stack, Tooltip, Typography } from '@mui/material';
+import { MouseEvent as ReactMouseEvent, useMemo, useState } from 'react';
+import { Box, Chip, Collapse, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Stack, Tooltip, Typography } from '@mui/material';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
+import SwapVertIcon from '@mui/icons-material/SwapVert';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import type { ZonaSectorSummary } from '../../types/cartera';
 
 interface Props {
@@ -15,12 +18,31 @@ const fmt = (value: number, moneda: 'USD' | 'LOCAL', code: string) =>
     ? `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
     : `${value.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${code}`;
 
+type ZonaSortKey = 'valor' | 'nombre';
+
 /** Saldos agrupados por Zona y, expandible, por Sector. Reactivo a filtros (datos ya vienen filtrados del backend). */
 const DashboardZonaSector = ({ data, moneda, monedaCode }: Props) => {
   const [open, setOpen] = useState<Set<string>>(new Set());
+  const [sortKey, setSortKey] = useState<ZonaSortKey>('valor');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [sortAnchor, setSortAnchor] = useState<null | HTMLElement>(null);
   const val = (z: { saldoActualUsd: number; saldoActualLocal: number }) => (moneda === 'USD' ? z.saldoActualUsd : z.saldoActualLocal);
   const valS = (s: { saldoActualUsd: number; saldoActualLocal: number }) => (moneda === 'USD' ? s.saldoActualUsd : s.saldoActualLocal);
   const max = useMemo(() => Math.max(1, ...data.map((z) => val(z))), [data, moneda]);
+
+  const sortedData = useMemo(() => {
+    return [...data].sort((a, b) => {
+      const result = sortKey === 'nombre' ? a.zona.localeCompare(b.zona, 'es', { sensitivity: 'base' }) : val(a) - val(b);
+      return sortDir === 'asc' ? result : -result;
+    });
+  }, [data, sortKey, sortDir, moneda]);
+
+  const sortOptions: Array<{ id: string; label: string; ascending: boolean; active: boolean; onClick: () => void }> = [
+    { id: 'menor-mayor', label: 'Menor a mayor', ascending: true, active: sortKey === 'valor' && sortDir === 'asc', onClick: () => { setSortKey('valor'); setSortDir('asc'); } },
+    { id: 'mayor-menor', label: 'Mayor a menor', ascending: false, active: sortKey === 'valor' && sortDir === 'desc', onClick: () => { setSortKey('valor'); setSortDir('desc'); } },
+    { id: 'az', label: 'A-Z', ascending: true, active: sortKey === 'nombre' && sortDir === 'asc', onClick: () => { setSortKey('nombre'); setSortDir('asc'); } },
+    { id: 'za', label: 'Z-A', ascending: false, active: sortKey === 'nombre' && sortDir === 'desc', onClick: () => { setSortKey('nombre'); setSortDir('desc'); } }
+  ];
 
   const toggle = (k: string) => { const n = new Set(open); n.has(k) ? n.delete(k) : n.add(k); setOpen(n); };
 
@@ -28,7 +50,36 @@ const DashboardZonaSector = ({ data, moneda, monedaCode }: Props) => {
     <Paper sx={{ p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, flexWrap: 'wrap', gap: 1 }}>
         <Typography sx={{ fontWeight: 700 }}>Saldos por Zona y Sector</Typography>
-        <Chip size="small" variant="outlined" label={moneda === 'USD' ? 'USD' : monedaCode} />
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Chip size="small" variant="outlined" label={moneda === 'USD' ? 'USD' : monedaCode} />
+          <Tooltip title="Ordenar">
+            <IconButton
+              size="small"
+              onClick={(event: ReactMouseEvent<HTMLElement>) => setSortAnchor(event.currentTarget)}
+              sx={{ width: 26, height: 26, border: '1px solid', borderColor: 'divider' }}
+            >
+              <SwapVertIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+          <Menu anchorEl={sortAnchor} open={Boolean(sortAnchor)} onClose={() => setSortAnchor(null)} PaperProps={{ sx: { minWidth: 180, borderRadius: 2.5 } }}>
+            {sortOptions.map((option) => (
+              <MenuItem
+                key={option.id}
+                dense
+                selected={option.active}
+                onClick={() => {
+                  option.onClick();
+                  setSortAnchor(null);
+                }}
+              >
+                <ListItemIcon>
+                  {option.ascending ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />}
+                </ListItemIcon>
+                <ListItemText primaryTypographyProps={{ fontSize: 13 }}>{option.label}</ListItemText>
+              </MenuItem>
+            ))}
+          </Menu>
+        </Box>
       </Box>
       {data.length === 0 ? (
         <Typography sx={{ fontSize: 13, color: 'text.secondary', py: 3, textAlign: 'center' }}>
@@ -36,7 +87,7 @@ const DashboardZonaSector = ({ data, moneda, monedaCode }: Props) => {
         </Typography>
       ) : (
         <Stack spacing={0.75} sx={{ maxHeight: 240, overflowY: 'auto' }}>
-          {data.map((z) => {
+          {sortedData.map((z) => {
             const sMax = Math.max(1, ...z.sectores.map((s) => valS(s)));
             const isOpen = open.has(z.zona);
             return (

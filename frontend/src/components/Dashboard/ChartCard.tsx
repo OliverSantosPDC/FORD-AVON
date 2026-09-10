@@ -10,16 +10,22 @@ import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import { downloadChartPng } from '../../utils/chartExport';
 import { exportRowsToCsv } from '../../utils/tableExport';
 
+/** Una opción del menú de orden de un gráfico (hasta 4: mayor→menor, menor→mayor, A-Z, Z-A). */
+export interface ChartSortOption {
+  id: string;
+  label: string;
+  active: boolean;
+  /** true = icono ascendente (↑), false = icono descendente (↓). */
+  ascending: boolean;
+  onClick: () => void;
+}
+
 interface ChartCardProps {
   title: string;
   subtitle?: string;
   chartId: string;
   height?: number;
-  sortDirection?: 'asc' | 'desc';
-  onSortAsc?: () => void;
-  onSortDesc?: () => void;
-  sortAscLabel?: string;
-  sortDescLabel?: string;
+  sortOptions?: ChartSortOption[];
   csvHeaders: string[];
   csvRows: Array<Array<string | number>>;
   fileBaseName: string;
@@ -31,11 +37,7 @@ const ChartCard = ({
   subtitle,
   chartId,
   height = 240,
-  sortDirection,
-  onSortAsc,
-  onSortDesc,
-  sortAscLabel = 'Ordenar ascendente',
-  sortDescLabel = 'Ordenar descendente',
+  sortOptions,
   csvHeaders,
   csvRows,
   fileBaseName,
@@ -96,37 +98,23 @@ const ChartCard = ({
           </IconButton>
         </Tooltip>
         <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleCloseMenu} PaperProps={{ sx: { minWidth: 225, borderRadius: 2.5 } }}>
-          {onSortAsc && (
+          {sortOptions?.map((option) => (
             <MenuItem
+              key={option.id}
               dense
-              selected={sortDirection === 'asc'}
+              selected={option.active}
               onClick={() => {
-                onSortAsc();
+                option.onClick();
                 handleCloseMenu();
               }}
             >
               <ListItemIcon>
-                <ArrowUpwardIcon fontSize="small" />
+                {option.ascending ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />}
               </ListItemIcon>
-              <ListItemText primaryTypographyProps={{ fontSize: 13 }}>{sortAscLabel}</ListItemText>
+              <ListItemText primaryTypographyProps={{ fontSize: 13 }}>{option.label}</ListItemText>
             </MenuItem>
-          )}
-          {onSortDesc && (
-            <MenuItem
-              dense
-              selected={sortDirection === 'desc'}
-              onClick={() => {
-                onSortDesc();
-                handleCloseMenu();
-              }}
-            >
-              <ListItemIcon>
-                <ArrowDownwardIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText primaryTypographyProps={{ fontSize: 13 }}>{sortDescLabel}</ListItemText>
-            </MenuItem>
-          )}
-          {(onSortAsc || onSortDesc) && <Divider />}
+          ))}
+          {sortOptions && sortOptions.length > 0 && <Divider />}
           <MenuItem
             dense
             onClick={() => {

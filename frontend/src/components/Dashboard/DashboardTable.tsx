@@ -101,7 +101,11 @@ const DashboardTable = ({ data }: DashboardTableProps) => {
     return [...filteredData].sort((a, b) => {
       const aValue = getCellValue(a.row, orderBy, a.country);
       const bValue = getCellValue(b.row, orderBy, b.country);
-      return order === 'asc' ? String(aValue).localeCompare(String(bValue)) : String(bValue).localeCompare(String(aValue));
+      const result =
+        typeof aValue === 'number' && typeof bValue === 'number'
+          ? aValue - bValue
+          : String(aValue).localeCompare(String(bValue), 'es', { sensitivity: 'base' });
+      return order === 'asc' ? result : -result;
     });
   }, [filteredData, orderBy, order]);
 

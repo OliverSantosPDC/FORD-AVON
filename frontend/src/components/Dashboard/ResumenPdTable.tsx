@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Box, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
+import { Box, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TableSortLabel, Typography } from '@mui/material';
 import type { ResumenPdItem } from '../../types/cartera';
 import TableActionsMenu from '../common/TableActionsMenu';
 import { copyRowsToClipboard, exportRowsToCsv, exportRowsToExcel } from '../../utils/tableExport';
@@ -31,18 +31,26 @@ const formatPercent = (value: number) => `${value.toFixed(2)}%`;
 
 const ResumenPdTable = ({ data }: ResumenPdTableProps) => {
   const [order, setOrder] = useState<'asc' | 'desc'>('asc');
+  const [orderBy, setOrderBy] = useState<ColumnId>('pd');
   const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
 
   const sortedData = useMemo(() => {
-    const withIndex = data.map((row, index) => ({ row, index, pdIndex: getPdIndex(String(row.pd)) }));
-    withIndex.sort((a, b) => {
-      const result = a.pdIndex - b.pdIndex || a.index - b.index;
+    return [...data].sort((a, b) => {
+      const result =
+        orderBy === 'pd'
+          ? getPdIndex(String(a.pd)) - getPdIndex(String(b.pd))
+          : a[orderBy] - b[orderBy];
       return order === 'asc' ? result : -result;
     });
-    return withIndex.map((entry) => entry.row);
-  }, [data, order]);
+  }, [data, order, orderBy]);
 
   const visibleColumns = columns.filter((column) => !hiddenColumns.includes(column.id));
+
+  const handleSort = (columnId: ColumnId) => {
+    const isAsc = orderBy === columnId && order === 'asc';
+    setOrder(isAsc ? 'desc' : 'asc');
+    setOrderBy(columnId);
+  };
 
   const toggleColumn = (id: string) => {
     setHiddenColumns((prev) => (prev.includes(id) ? prev.filter((columnId) => columnId !== id) : [...prev, id]));
@@ -114,8 +122,6 @@ const ResumenPdTable = ({ data }: ResumenPdTableProps) => {
           onCopy={handleCopy}
           onExportCsv={handleExportCsv}
           onExportExcel={handleExportExcel}
-          onToggleSort={() => setOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'))}
-          sortLabel={order === 'asc' ? 'Orden: PD0 → PD7 (invertir a PD7 → PD0)' : 'Orden: PD7 → PD0 (invertir a PD0 → PD7)'}
         />
       </Box>
       <TableContainer
@@ -136,9 +142,12 @@ const ResumenPdTable = ({ data }: ResumenPdTableProps) => {
                 <TableCell
                   key={column.id}
                   align={column.align}
+                  sortDirection={orderBy === column.id ? order : false}
                   sx={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, py: 0.75, whiteSpace: 'nowrap' }}
                 >
-                  {column.label}
+                  <TableSortLabel active={orderBy === column.id} direction={orderBy === column.id ? order : 'asc'} onClick={() => handleSort(column.id)}>
+                    {column.label}
+                  </TableSortLabel>
                 </TableCell>
               ))}
             </TableRow>

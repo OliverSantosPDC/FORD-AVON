@@ -1,8 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Box } from '@mui/material';
 import {
-  Area,
-  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -14,13 +12,10 @@ import {
   XAxis,
   YAxis
 } from 'recharts';
-import type { CountrySummary, DashboardItem, ResumenPdItem } from '../../types/cartera';
-import { getPdIndex } from '../../utils/carteraAggregations';
-import ChartCard from './ChartCard';
+import type { CountrySummary } from '../../types/cartera';
+import ChartCard, { type ChartSortOption } from './ChartCard';
 
 interface DashboardChartsProps {
-  pds: DashboardItem[];
-  resumenPD: ResumenPdItem[];
   countrySummary: CountrySummary[];
   /** Fila 2 del grid, misma dimensión/patrón que los gráficos de la fila 1. */
   pdMigrationChart: ReactNode;
@@ -49,47 +44,45 @@ const formatCompact = (value: number) => {
   return `$${value}`;
 };
 
-const DashboardCharts = ({ pds, resumenPD, countrySummary, pdMigrationChart, zonaSector }: DashboardChartsProps) => {
-  const [horizDir, setHorizDir] = useState<'asc' | 'desc'>('desc');
-  const [comboDir, setComboDir] = useState<'asc' | 'desc'>('asc');
-  const [areaDir, setAreaDir] = useState<'asc' | 'desc'>('asc');
-  const [pdsDir, setPdsDir] = useState<'asc' | 'desc'>('asc');
+/** Compara alfabéticamente por país (usado como eje A-Z/Z-A en ambos gráficos de país). */
+const byPaisNombre = (a: CountrySummary, b: CountrySummary) =>
+  String(a.pais).localeCompare(String(b.pais), 'es', { sensitivity: 'base' });
 
-  const sortByPd = (items: ResumenPdItem[], direction: 'asc' | 'desc') =>
-    [...items].sort((a, b) => {
-      const result = getPdIndex(a.pd) - getPdIndex(b.pd);
-      return direction === 'asc' ? result : -result;
-    });
+type CountrySortKey = 'valor' | 'nombre';
+
+const DashboardCharts = ({ countrySummary, pdMigrationChart, zonaSector }: DashboardChartsProps) => {
+  const [horizSortKey, setHorizSortKey] = useState<CountrySortKey>('valor');
+  const [horizSortDir, setHorizSortDir] = useState<'asc' | 'desc'>('desc');
+  const [comboSortKey, setComboSortKey] = useState<CountrySortKey>('nombre');
+  const [comboSortDir, setComboSortDir] = useState<'asc' | 'desc'>('asc');
 
   const horizData = useMemo(() => {
     return [...countrySummary].sort((a, b) => {
-      const result = a.saldoActualUsd - b.saldoActualUsd;
-      return horizDir === 'asc' ? result : -result;
+      const result = horizSortKey === 'nombre' ? byPaisNombre(a, b) : a.saldoActualUsd - b.saldoActualUsd;
+      return horizSortDir === 'asc' ? result : -result;
     });
-  }, [countrySummary, horizDir]);
+  }, [countrySummary, horizSortKey, horizSortDir]);
 
   const comboData = useMemo(() => {
     return [...countrySummary].sort((a, b) => {
-      const result = String(a.pais).localeCompare(String(b.pais), 'es', { sensitivity: 'base' });
-      return comboDir === 'asc' ? result : -result;
+      const result = comboSortKey === 'nombre' ? byPaisNombre(a, b) : a.saldoAsignadoUsd - b.saldoAsignadoUsd;
+      return comboSortDir === 'asc' ? result : -result;
     });
-  }, [countrySummary, comboDir]);
+  }, [countrySummary, comboSortKey, comboSortDir]);
 
-  const areaData = useMemo(() => {
-    const ordered = sortByPd(resumenPD, areaDir);
-    let running = 0;
-    return ordered.map((item) => {
-      running += item.saldoAsignadoUsd;
-      return { pd: item.pd, acumuladoUsd: running };
-    });
-  }, [resumenPD, areaDir]);
+  const horizSortOptions: ChartSortOption[] = [
+    { id: 'menor-mayor', label: 'Menor a mayor', ascending: true, active: horizSortKey === 'valor' && horizSortDir === 'asc', onClick: () => { setHorizSortKey('valor'); setHorizSortDir('asc'); } },
+    { id: 'mayor-menor', label: 'Mayor a menor', ascending: false, active: horizSortKey === 'valor' && horizSortDir === 'desc', onClick: () => { setHorizSortKey('valor'); setHorizSortDir('desc'); } },
+    { id: 'az', label: 'A-Z', ascending: true, active: horizSortKey === 'nombre' && horizSortDir === 'asc', onClick: () => { setHorizSortKey('nombre'); setHorizSortDir('asc'); } },
+    { id: 'za', label: 'Z-A', ascending: false, active: horizSortKey === 'nombre' && horizSortDir === 'desc', onClick: () => { setHorizSortKey('nombre'); setHorizSortDir('desc'); } }
+  ];
 
-  const barsPdData = useMemo(() => {
-    return [...pds].sort((a, b) => {
-      const result = getPdIndex(a.nombre) - getPdIndex(b.nombre);
-      return pdsDir === 'asc' ? result : -result;
-    });
-  }, [pds, pdsDir]);
+  const comboSortOptions: ChartSortOption[] = [
+    { id: 'menor-mayor', label: 'Menor a mayor', ascending: true, active: comboSortKey === 'valor' && comboSortDir === 'asc', onClick: () => { setComboSortKey('valor'); setComboSortDir('asc'); } },
+    { id: 'mayor-menor', label: 'Mayor a menor', ascending: false, active: comboSortKey === 'valor' && comboSortDir === 'desc', onClick: () => { setComboSortKey('valor'); setComboSortDir('desc'); } },
+    { id: 'az', label: 'A-Z', ascending: true, active: comboSortKey === 'nombre' && comboSortDir === 'asc', onClick: () => { setComboSortKey('nombre'); setComboSortDir('asc'); } },
+    { id: 'za', label: 'Z-A', ascending: false, active: comboSortKey === 'nombre' && comboSortDir === 'desc', onClick: () => { setComboSortKey('nombre'); setComboSortDir('desc'); } }
+  ];
 
   return (
     <Box
@@ -106,11 +99,7 @@ const DashboardCharts = ({ pds, resumenPD, countrySummary, pdMigrationChart, zon
         chartId="chart-horiz-pais-combo"
         fileBaseName="saldo-inicial-actual-por-pais"
         height={CHART_HEIGHT}
-        sortDirection={horizDir}
-        onSortAsc={() => setHorizDir('asc')}
-        onSortDesc={() => setHorizDir('desc')}
-        sortAscLabel="Menor a mayor"
-        sortDescLabel="Mayor a menor"
+        sortOptions={horizSortOptions}
         csvHeaders={['País', 'Saldo Inicial USD', 'Saldo Actual USD']}
         csvRows={horizData.map((item) => [item.pais, item.saldoAsignadoUsd, item.saldoActualUsd])}
       >
@@ -135,11 +124,7 @@ const DashboardCharts = ({ pds, resumenPD, countrySummary, pdMigrationChart, zon
         chartId="chart-combo-pais"
         fileBaseName="asignado-vs-recuperado"
         height={CHART_HEIGHT}
-        sortDirection={comboDir}
-        onSortAsc={() => setComboDir('asc')}
-        onSortDesc={() => setComboDir('desc')}
-        sortAscLabel="Ordenar A-Z"
-        sortDescLabel="Ordenar Z-A"
+        sortOptions={comboSortOptions}
         csvHeaders={['País', 'Asignado USD', 'Recuperado USD']}
         csvRows={comboData.map((item) => [item.pais, item.saldoAsignadoUsd, item.recuperadoUsd])}
       >
@@ -160,68 +145,6 @@ const DashboardCharts = ({ pds, resumenPD, countrySummary, pdMigrationChart, zon
 
       {pdMigrationChart}
       {zonaSector}
-
-      <ChartCard
-        title="Saldo acumulado por PD"
-        subtitle="Exposición acumulada en orden de riesgo"
-        chartId="chart-area-pd"
-        fileBaseName="saldo-acumulado-por-pd"
-        height={CHART_HEIGHT}
-        sortDirection={areaDir}
-        onSortAsc={() => setAreaDir('asc')}
-        onSortDesc={() => setAreaDir('desc')}
-        sortAscLabel="PD0 → PD7"
-        sortDescLabel="PD7 → PD0"
-        csvHeaders={['PD', 'Saldo Asignado Acumulado USD']}
-        csvRows={areaData.map((item) => [item.pd, item.acumuladoUsd])}
-      >
-        {(height) => (
-          <ResponsiveContainer width="100%" height={height}>
-            <AreaChart data={areaData} margin={{ top: 8, right: 16, left: -12, bottom: 0 }}>
-              <defs>
-                <linearGradient id="areaAcumuladoGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#0EA5E9" stopOpacity={0.5} />
-                  <stop offset="100%" stopColor="#0EA5E9" stopOpacity={0.04} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
-              <XAxis dataKey="pd" tick={axisTick} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={formatCompact} tick={axisTick} axisLine={false} tickLine={false} />
-              <Tooltip formatter={(value: number) => formatUsd(value)} contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} />
-              <Legend verticalAlign="bottom" iconType="circle" iconSize={8} wrapperStyle={legendStyle} />
-              <Area type="monotone" dataKey="acumuladoUsd" name="Acumulado USD" stroke="#0EA5E9" fill="url(#areaAcumuladoGradient)" strokeWidth={2} />
-            </AreaChart>
-          </ResponsiveContainer>
-        )}
-      </ChartCard>
-
-      <ChartCard
-        title="Riesgo por PD"
-        subtitle="Exposición asignada USD"
-        chartId="chart-pds"
-        fileBaseName="riesgo-por-pd"
-        height={CHART_HEIGHT}
-        sortDirection={pdsDir}
-        onSortAsc={() => setPdsDir('asc')}
-        onSortDesc={() => setPdsDir('desc')}
-        sortAscLabel="PD0 → PD7"
-        sortDescLabel="PD7 → PD0"
-        csvHeaders={['PD', 'Riesgo USD']}
-        csvRows={barsPdData.map((item) => [item.nombre, item.totalUsd])}
-      >
-        {(height) => (
-          <ResponsiveContainer width="100%" height={height}>
-            <BarChart data={barsPdData} margin={{ top: 8, right: 8, left: -12, bottom: 0 }} barCategoryGap="24%">
-              <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
-              <XAxis dataKey="nombre" tick={axisTick} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={formatCompact} tick={axisTick} axisLine={false} tickLine={false} />
-              <Tooltip formatter={(value: number) => formatUsd(value)} contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} />
-              <Legend verticalAlign="bottom" iconType="circle" iconSize={8} wrapperStyle={legendStyle} />
-              <Bar dataKey="totalUsd" name="Riesgo USD" fill="#E6007E" radius={[6, 6, 0, 0]} barSize={14} />
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-      </ChartCard>
     </Box>
   );
 };

@@ -12,7 +12,7 @@ import {
 } from 'recharts';
 import type { CarteraRecord, DashboardFilterParams } from '../../types/cartera';
 import { fetchCartera } from '../../services/carteraService';
-import ChartCard from './ChartCard';
+import ChartCard, { type ChartSortOption } from './ChartCard';
 
 const PD_COLORS: Record<string, string> = {
   PD0: '#22C55E', PD1: '#16A34A', PD2: '#EAB308', PD3: '#F59E0B',
@@ -52,8 +52,12 @@ const PDMigrationTooltip = ({ active, payload, label }: { active?: boolean; payl
   );
 };
 
+type PdSortKey = 'pd' | 'valor';
+
 const PDMigrationChart = ({ filters }: Props) => {
   const [cuentas, setCuentas] = useState<CarteraRecord[]>([]);
+  const [sortKey, setSortKey] = useState<PdSortKey>('pd');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   useEffect(() => {
     let active = true;
@@ -85,10 +89,18 @@ const PDMigrationChart = ({ filters }: Props) => {
     });
 
     const series = PD_ORDER.filter((pd) => seriesSet.has(pd));
-    const rows = PD_ORDER.map((pdInicial) => {
+    const unorderedRows = PD_ORDER.map((pdInicial) => {
       const row = grouped.get(pdInicial) ?? { pdInicial };
       series.forEach((pdActual) => { if (typeof row[pdActual] !== 'number') row[pdActual] = 0; });
       return row;
+    });
+
+    const rowTotal = (row: PivotRow) =>
+      Object.entries(row).reduce((sum, [key, value]) => (key === 'pdInicial' || typeof value !== 'number' ? sum : sum + value), 0);
+
+    const rows = [...unorderedRows].sort((a, b) => {
+      const result = sortKey === 'valor' ? rowTotal(a) - rowTotal(b) : PD_ORDER.indexOf(a.pdInicial) - PD_ORDER.indexOf(b.pdInicial);
+      return sortDir === 'asc' ? result : -result;
     });
 
     const flows = Array.from(flowMap.entries()).map(([key, value]) => {
@@ -105,10 +117,17 @@ const PDMigrationChart = ({ filters }: Props) => {
       totalSaldo: flows.reduce((sum, [, , value]) => sum + value, 0),
       csvRows: flows
     };
-  }, [cuentas]);
+  }, [cuentas, sortKey, sortDir]);
+
+  const sortOptions: ChartSortOption[] = [
+    { id: 'menor-mayor', label: 'Menor a mayor', ascending: true, active: sortKey === 'valor' && sortDir === 'asc', onClick: () => { setSortKey('valor'); setSortDir('asc'); } },
+    { id: 'mayor-menor', label: 'Mayor a menor', ascending: false, active: sortKey === 'valor' && sortDir === 'desc', onClick: () => { setSortKey('valor'); setSortDir('desc'); } },
+    { id: 'az', label: 'A-Z (PD0 → PD7)', ascending: true, active: sortKey === 'pd' && sortDir === 'asc', onClick: () => { setSortKey('pd'); setSortDir('asc'); } },
+    { id: 'za', label: 'Z-A (PD7 → PD0)', ascending: false, active: sortKey === 'pd' && sortDir === 'desc', onClick: () => { setSortKey('pd'); setSortDir('desc'); } }
+  ];
 
   return (
-    <ChartCard title="Movimiento de cartera por PD" subtitle="PD inicial → PD actual · saldo actual USD" chartId="chart-pd-migration" fileBaseName="movimiento-cartera-pd" height={240} csvHeaders={['PD Inicial', 'PD Actual', 'Saldo Actual USD']} csvRows={csvRows}>
+    <ChartCard title="Movimiento de cartera por PD" subtitle="PD inicial → PD actual · saldo actual USD" chartId="chart-pd-migration" fileBaseName="movimiento-cartera-pd" height={240} sortOptions={sortOptions} csvHeaders={['PD Inicial', 'PD Actual', 'Saldo Actual USD']} csvRows={csvRows}>
       {(height) => (
         <Box sx={{ width: '100%', height: '100%', position: 'relative' }}>
           <ResponsiveContainer width="100%" height={height}>
