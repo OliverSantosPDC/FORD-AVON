@@ -122,6 +122,9 @@ const RootLayout = () => {
         </Tooltip>
       </Toolbar>
       <Divider sx={{ mb: 1.25, borderColor: mode === 'light' ? '#E5E7EB' : '#17233F' }} />
+      {/* Punto de anclaje: aquí se porta (via portal) el botón "FILTROS" del Dashboard/Gestión,
+          justo antes del listado de módulos, para que quede integrado al sidebar. */}
+      <Box id="sidebar-filtros-slot" />
       <SidebarNav collapsed={sidebarCollapsed} />
       <Box sx={{ p: 1.75 }}>
         <Typography variant="caption" sx={{ color: mode === 'light' ? '#6B7280' : '#94A3B8', fontSize: 10 }}>

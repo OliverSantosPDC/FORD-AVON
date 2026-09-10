@@ -2,9 +2,14 @@ import Autocomplete from '@mui/material/Autocomplete';
 import { Box, Button, Chip, MenuItem, Popover, TextField, Typography, useTheme } from '@mui/material';
 import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { createPortal } from 'react-dom';
 import type { DashboardMultiFilterParams } from '../../types/cartera';
 import { MONEDA_OPTIONS } from '../../utils/monedaOptions';
+
+/** Id del contenedor, ubicado en el sidebar (RootLayout) justo antes del listado de módulos,
+ *  donde se porta el botón "FILTROS" para que quede integrado y anclado allí. */
+const SIDEBAR_FILTROS_SLOT_ID = 'sidebar-filtros-slot';
 
 interface DashboardFiltersProps {
   filters: DashboardMultiFilterParams;
@@ -52,37 +57,13 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
   const isDark = theme.palette.mode === 'dark';
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const open = Boolean(anchorEl);
-  const buttonRef = useRef<HTMLButtonElement | null>(null);
-  const [overChart, setOverChart] = useState(false);
 
-  // El botón es position:fixed y puede quedar superpuesto sobre los gráficos del
-  // Dashboard al hacer scroll; aumenta la transparencia únicamente mientras eso ocurre.
+  // El trigger "FILTROS" se porta dentro del sidebar (contenedor definido en RootLayout,
+  // justo antes del listado de módulos) para quedar integrado y anclado allí en vez de
+  // flotar sobre el contenido.
+  const [sidebarSlot, setSidebarSlot] = useState<HTMLElement | null>(null);
   useEffect(() => {
-    const checkOverChart = () => {
-      const el = buttonRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const points: [number, number][] = [
-        [rect.left + 4, rect.top + rect.height / 2],
-        [rect.left + rect.width / 2, rect.top + rect.height / 2],
-        [rect.right - 4, rect.top + rect.height / 2]
-      ];
-      const previousPointerEvents = el.style.pointerEvents;
-      el.style.pointerEvents = 'none';
-      const isOverChart = points.some(([x, y]) => {
-        const target = document.elementFromPoint(x, y);
-        return !!target?.closest('.recharts-wrapper, .recharts-responsive-container, svg.recharts-surface');
-      });
-      el.style.pointerEvents = previousPointerEvents;
-      setOverChart(isOverChart);
-    };
-    checkOverChart();
-    window.addEventListener('scroll', checkOverChart, { passive: true });
-    window.addEventListener('resize', checkOverChart, { passive: true });
-    return () => {
-      window.removeEventListener('scroll', checkOverChart);
-      window.removeEventListener('resize', checkOverChart);
-    };
+    setSidebarSlot(document.getElementById(SIDEBAR_FILTROS_SLOT_ID));
   }, []);
 
   const handleMultiChange = (field: keyof DashboardMultiFilterParams, values: string[]) => {
@@ -104,40 +85,41 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
   const activeCount = filterCount(filters);
   const showMoneda = moneda !== undefined && onMonedaChange;
 
+  const trigger = (
+    <Button
+      onClick={(event: ReactMouseEvent<HTMLElement>) => setAnchorEl(anchorEl ? null : event.currentTarget)}
+      sx={{
+        width: '100%',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        mx: 0.5,
+        mb: 1,
+        borderRadius: 1.75,
+        textTransform: 'none',
+        fontSize: 12.5,
+        fontWeight: 700,
+        px: 1.5,
+        py: 0.7,
+        minHeight: 38,
+        color: isDark ? '#E2E8F0' : '#1E3A8A',
+        bgcolor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(30, 58, 138, 0.045)',
+        '&:hover': { bgcolor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(30, 58, 138, 0.08)' }
+      }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, overflow: 'hidden' }}>
+        <FilterAltOutlinedIcon sx={{ fontSize: 18, flexShrink: 0 }} />
+        <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>FILTROS</Box>
+      </Box>
+      {activeCount > 0 && (
+        <Chip label={activeCount} size="small" sx={{ height: 18, fontSize: 10, flexShrink: 0, bgcolor: 'rgba(230, 0, 126, 0.14)', color: '#E6007E' }} />
+      )}
+    </Button>
+  );
+
   return (
     <>
-      <Button
-        ref={buttonRef}
-        onClick={(event: ReactMouseEvent<HTMLElement>) => setAnchorEl(anchorEl ? null : event.currentTarget)}
-        startIcon={<FilterAltOutlinedIcon sx={{ fontSize: 16 }} />}
-        sx={{
-          position: 'fixed',
-          top: 171,
-          left: 'calc(var(--sidebar-width, 240px) + 38px)',
-          zIndex: 1200,
-          borderRadius: 3,
-          textTransform: 'none',
-          fontSize: 11.5,
-          fontWeight: 800,
-          letterSpacing: 0.6,
-          px: 1.75,
-          py: 0.9,
-          minHeight: 38,
-          bgcolor: overChart ? (isDark ? 'rgba(17, 24, 39, 0.55)' : 'rgba(255, 255, 255, 0.55)') : (isDark ? '#111827' : '#FFFFFF'),
-          backdropFilter: overChart ? 'blur(6px)' : 'none',
-          color: isDark ? '#E2E8F0' : '#1E3A8A',
-          border: '1.5px solid',
-          borderColor: isDark ? '#3B4B66' : '#1E3A8A33',
-          boxShadow: isDark ? '0 14px 32px rgba(0, 0, 0, 0.45)' : '0 14px 32px rgba(15, 23, 42, 0.18)',
-          transition: 'background-color 200ms ease, box-shadow 200ms ease',
-          '&:hover': { bgcolor: isDark ? '#111827' : '#FFFFFF', borderColor: '#E6007E' }
-        }}
-      >
-        FILTROS
-        {activeCount > 0 && (
-          <Chip label={activeCount} size="small" sx={{ height: 18, fontSize: 10, ml: 0.75, bgcolor: 'rgba(230, 0, 126, 0.14)', color: '#E6007E' }} />
-        )}
-      </Button>
+      {sidebarSlot && createPortal(trigger, sidebarSlot)}
 
       <Popover
         open={open}
