@@ -21,6 +21,8 @@ import { getCarteraField, resolveCountry, type CountryInfo } from '../../utils/c
 
 interface DashboardTableProps {
   data: CarteraRecord[];
+  moneda: 'USD' | 'LOCAL';
+  monedaCode: string;
 }
 
 const headCells = [
@@ -33,7 +35,7 @@ const headCells = [
   { id: 'zona', label: 'Zona' },
   { id: 'pd', label: 'PD' },
   { id: 'campania', label: 'Campaña' },
-  { id: 'saldoActualUsd', label: 'Saldo' }
+  { id: 'saldoActualUsd', label: 'Saldo Actual' }
 ];
 
 const pdColor = (pd: string) => {
@@ -46,8 +48,9 @@ const pdColor = (pd: string) => {
 
 const formatNumber = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
-const getCellValue = (row: CarteraRecord, key: string, country: CountryInfo | null) => {
+const getCellValue = (row: CarteraRecord, key: string, country: CountryInfo | null, moneda: 'USD' | 'LOCAL') => {
   const resolve = (keys: string[]) => getCarteraField(row, keys);
+  const saldoKeys = moneda === 'USD' ? ['saldo_actual_usd', 'saldoActualUsd'] : ['saldo_actual', 'saldoActual'];
 
   switch (key) {
     case 'codigo':
@@ -67,15 +70,13 @@ const getCellValue = (row: CarteraRecord, key: string, country: CountryInfo | nu
     case 'campania':
       return String(resolve(['campania_adeuda', 'campania', 'campaña', 'campaign']) ?? '');
     case 'saldoActualUsd':
-      return typeof resolve(['saldo_actual_usd', 'saldoActualUsd', 'saldoActual', 'saldo_actual']) === 'number'
-        ? (resolve(['saldo_actual_usd', 'saldoActualUsd', 'saldoActual', 'saldo_actual']) as number)
-        : String(resolve(['saldo_actual_usd', 'saldoActualUsd', 'saldoActual', 'saldo_actual']) ?? '');
+      return typeof resolve(saldoKeys) === 'number' ? (resolve(saldoKeys) as number) : String(resolve(saldoKeys) ?? '');
     default:
       return String(row[key] ?? '');
   }
 };
 
-const DashboardTable = ({ data }: DashboardTableProps) => {
+const DashboardTable = ({ data, moneda, monedaCode }: DashboardTableProps) => {
   const [orderBy, setOrderBy] = useState('codigo');
   const [order, setOrder] = useState<'asc' | 'desc'>('asc');
   const [page, setPage] = useState(0);
@@ -99,15 +100,15 @@ const DashboardTable = ({ data }: DashboardTableProps) => {
 
   const sortedData = useMemo(() => {
     return [...filteredData].sort((a, b) => {
-      const aValue = getCellValue(a.row, orderBy, a.country);
-      const bValue = getCellValue(b.row, orderBy, b.country);
+      const aValue = getCellValue(a.row, orderBy, a.country, moneda);
+      const bValue = getCellValue(b.row, orderBy, b.country, moneda);
       const result =
         typeof aValue === 'number' && typeof bValue === 'number'
           ? aValue - bValue
           : String(aValue).localeCompare(String(bValue), 'es', { sensitivity: 'base' });
       return order === 'asc' ? result : -result;
     });
-  }, [filteredData, orderBy, order]);
+  }, [filteredData, orderBy, order, moneda]);
 
   const visibleHeadCells = headCells.filter((headCell) => !hiddenColumns.includes(headCell.id));
 
@@ -136,9 +137,9 @@ const DashboardTable = ({ data }: DashboardTableProps) => {
     headers: visibleHeadCells.map((headCell) => headCell.label),
     rows: sortedData.map(({ row, country }) =>
       visibleHeadCells.map((headCell) => {
-        const value = getCellValue(row, headCell.id, country);
+        const value = getCellValue(row, headCell.id, country, moneda);
         if (headCell.id === 'saldoActualUsd' && typeof value === 'number') {
-          return formatNumber(value);
+          return moneda === 'USD' ? formatNumber(value) : `${formatNumber(value)} ${monedaCode}`;
         }
         return value;
       })
@@ -249,7 +250,7 @@ const DashboardTable = ({ data }: DashboardTableProps) => {
                 }}
               >
                 {visibleHeadCells.map((headCell) => {
-                  const value = getCellValue(row, headCell.id, country);
+                  const value = getCellValue(row, headCell.id, country, moneda);
                   const isCurrency = headCell.id === 'saldoActualUsd';
                   const isRightAligned = headCell.id === 'saldoActualUsd';
 
@@ -295,7 +296,7 @@ const DashboardTable = ({ data }: DashboardTableProps) => {
                         textOverflow: 'ellipsis'
                       }}
                     >
-                      {isCurrency && typeof value === 'number' ? formatNumber(value) : String(value)}
+                      {isCurrency && typeof value === 'number' ? (moneda === 'USD' ? formatNumber(value) : `${formatNumber(value)} ${monedaCode}`) : String(value)}
                     </TableCell>
                   );
                 })}

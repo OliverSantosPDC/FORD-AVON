@@ -11,12 +11,12 @@ interface ResumenCampaniaTableProps {
   monedaCode: string;
 }
 
-type ColumnId = 'campania' | 'cuentas' | 'saldoActualUsd' | 'recuperadoUsd' | 'porcentajeRecuperacion';
+type ColumnId = 'campania' | 'cuentas' | 'saldoInicial' | 'recuperadoUsd' | 'porcentajeRecuperacion';
 
 const columns: { id: ColumnId; label: string; align?: 'right'; width: number }[] = [
   { id: 'campania', label: 'Campaña', width: 130 },
   { id: 'cuentas', label: 'Total Cuentas', align: 'right', width: 92 },
-  { id: 'saldoActualUsd', label: 'Saldo Inicial', align: 'right', width: 118 },
+  { id: 'saldoInicial', label: 'Saldo Inicial', align: 'right', width: 118 },
   { id: 'recuperadoUsd', label: 'Recuperado', align: 'right', width: 100 },
   { id: 'porcentajeRecuperacion', label: '%', align: 'right', width: 56 }
 ];
@@ -31,7 +31,7 @@ const recuperadoLocalDe = (row: CampaniaSummary) => row.saldoAsignadoLocal - row
 
 const ResumenCampaniaTable = ({ data, moneda, monedaCode }: ResumenCampaniaTableProps) => {
   const [order, setOrder] = useState<'asc' | 'desc'>('desc');
-  const [orderBy, setOrderBy] = useState<ColumnId>('saldoActualUsd');
+  const [orderBy, setOrderBy] = useState<ColumnId>('saldoInicial');
   const [search, setSearch] = useState('');
 
   const aggregated = data;
@@ -45,7 +45,7 @@ const ResumenCampaniaTable = ({ data, moneda, monedaCode }: ResumenCampaniaTable
     switch (columnId) {
       case 'campania': return row.campania;
       case 'cuentas': return row.cuentas;
-      case 'saldoActualUsd': return moneda === 'USD' ? row.saldoActualUsd : row.saldoActualLocal;
+      case 'saldoInicial': return moneda === 'USD' ? row.saldoAsignadoUsd : row.saldoAsignadoLocal;
       case 'recuperadoUsd': return moneda === 'USD' ? row.recuperadoUsd : recuperadoLocalDe(row);
       case 'porcentajeRecuperacion': return row.porcentajeRecuperacion;
       default: return '';
@@ -75,8 +75,8 @@ const ResumenCampaniaTable = ({ data, moneda, monedaCode }: ResumenCampaniaTable
         return row.campania;
       case 'cuentas':
         return row.cuentas;
-      case 'saldoActualUsd':
-        return formatCurrency(moneda === 'USD' ? row.saldoActualUsd : row.saldoActualLocal, moneda, monedaCode);
+      case 'saldoInicial':
+        return formatCurrency(moneda === 'USD' ? row.saldoAsignadoUsd : row.saldoAsignadoLocal, moneda, monedaCode);
       case 'recuperadoUsd':
         return formatCurrency(moneda === 'USD' ? row.recuperadoUsd : recuperadoLocalDe(row), moneda, monedaCode);
       case 'porcentajeRecuperacion':
@@ -153,7 +153,7 @@ const ResumenCampaniaTable = ({ data, moneda, monedaCode }: ResumenCampaniaTable
           '&::-webkit-scrollbar-thumb': { background: '#C7CDD8', borderRadius: 99 }
         }}
       >
-        <Table stickyHeader size="small" sx={{ minWidth: columns.reduce((sum, column) => sum + column.width, 0) }}>
+        <Table stickyHeader size="small" sx={{ width: '100%', tableLayout: 'fixed' }}>
           <TableHead>
             <TableRow>
               {visibleColumns.map((column) => (
@@ -161,7 +161,7 @@ const ResumenCampaniaTable = ({ data, moneda, monedaCode }: ResumenCampaniaTable
                   key={column.id}
                   align={column.align}
                   sortDirection={orderBy === column.id ? order : false}
-                  sx={{ width: column.width, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, py: 0.75, whiteSpace: 'nowrap' }}
+                  sx={{ width: column.width, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, py: 0.75, whiteSpace: 'normal', wordBreak: 'break-word' }}
                 >
                   <TableSortLabel active={orderBy === column.id} direction={orderBy === column.id ? order : 'asc'} onClick={() => handleSort(column.id)}>
                     {column.label}
@@ -174,7 +174,7 @@ const ResumenCampaniaTable = ({ data, moneda, monedaCode }: ResumenCampaniaTable
             {sortedData.map((row, index) => (
               <TableRow key={index} hover sx={{ transition: 'background-color 200ms ease-in-out' }}>
                 {visibleColumns.map((column) => (
-                  <TableCell key={column.id} align={column.align} sx={{ width: column.width, fontSize: 11.5, py: 0.6, whiteSpace: 'nowrap' }}>
+                  <TableCell key={column.id} align={column.align} sx={{ width: column.width, fontSize: 11.5, py: 0.6, whiteSpace: 'normal', wordBreak: 'break-word' }}>
                     {getRowValue(row, column.id)}
                   </TableCell>
                 ))}

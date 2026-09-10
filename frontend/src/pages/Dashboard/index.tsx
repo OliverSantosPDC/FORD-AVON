@@ -1,7 +1,8 @@
-import { Box, Button, MenuItem, TextField, Typography } from '@mui/material';
+import { Box, Button, Typography } from '@mui/material';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import { useEffect, useMemo, useState } from 'react';
 import DashboardFilters from '../../components/Dashboard/DashboardFilters';
+import ConversionRates from '../../components/Dashboard/ConversionRates';
 import KpiCards from '../../components/Dashboard/KpiCards';
 import DashboardCharts from '../../components/Dashboard/DashboardCharts';
 import PDMigrationChart from '../../components/Dashboard/PDMigrationChart';
@@ -15,7 +16,8 @@ import ResumenCampaniaTable from '../../components/Dashboard/ResumenCampaniaTabl
 import { useDashboard } from '../../hooks/useDashboard';
 import { useAuth } from '../../context/AuthContext';
 import { getCalidadResumen } from '../../services/controlService';
-import { MONEDA_POR_PAIS } from '../../services/gestionService';
+import { resolveCountry } from '../../utils/carteraAggregations';
+import { MONEDA_OPTIONS } from '../../utils/monedaOptions';
 import type { DashboardFilterOptions, DashboardFilterParams, DashboardMultiFilterParams, DashboardKpi } from '../../types/cartera';
 
 const TABLE_TILE = 300;
@@ -25,7 +27,7 @@ const sanitizeSelectedValues = (values: string[], availableOptions: string[]) =>
 
 const DashboardPage = () => {
   const [filters, setFilters] = useState<DashboardMultiFilterParams>({ pais: [], gestor: [], gerente: [], zona: [], pd: [], campania: [] });
-  const [moneda, setMoneda] = useState<'USD' | 'LOCAL'>('USD');
+  const [monedaFiltro, setMonedaFiltro] = useState<string>('USD');
   const [onePageOpen, setOnePageOpen] = useState(false);
   const dashboardFilters: DashboardFilterParams = useMemo(() => ({ pais: filters.pais, gestor: filters.gestor, gerente: filters.gerente, zona: filters.zona, pd: filters.pd, campania: filters.campania }), [filters]);
   const { data: dashboard, loading, error } = useDashboard(dashboardFilters);
@@ -66,17 +68,21 @@ const DashboardPage = () => {
   if (!hasFiltersApplied && (dashboard.kpis?.totalCuentas ?? 0) === 0) return <Box sx={{ p: 4, textAlign: 'center' }}><Typography sx={{ fontSize: 16, fontWeight: 600 }}>No hay datos disponibles para tu alcance actual.</Typography><Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.5 }}>No tienes cuentas asignadas dentro de tu alcance de acceso.</Typography></Box>;
 
   const singlePais = filters.pais.length === 1;
-  const monedaCode = singlePais ? (MONEDA_POR_PAIS[filters.pais[0].toUpperCase()] ?? 'USD') : 'USD';
-  const monedaSel: 'USD' | 'LOCAL' = singlePais && moneda === 'LOCAL' ? 'LOCAL' : 'USD';
+  const paisCanonico = singlePais ? resolveCountry(filters.pais[0])?.name ?? null : null;
+  const monedaOption = MONEDA_OPTIONS.find((option) => option.code === monedaFiltro) ?? MONEDA_OPTIONS[0];
+  const monedaSel: 'USD' | 'LOCAL' = monedaOption.pais !== undefined && monedaOption.pais === paisCanonico ? 'LOCAL' : 'USD';
+  const monedaCode = monedaOption.code;
   const monedaLabel = monedaSel === 'LOCAL' ? monedaCode : 'USD';
   const localTotals = dashboard.resumenPD.reduce((a, p) => ({ asignado: a.asignado + p.saldoAsignadoLocal, actual: a.actual + p.saldoActualLocal, recuperado: a.recuperado + p.recuperadoLocal }), { asignado: 0, actual: 0, recuperado: 0 });
   const kpisDisplay: DashboardKpi = monedaSel === 'LOCAL' ? { saldoAsignado: localTotals.asignado, saldoActual: localTotals.actual, recuperado: localTotals.recuperado, porcentajeRecuperacion: dashboard.kpis.porcentajeRecuperacion, totalCuentas: dashboard.kpis.totalCuentas } : dashboard.kpis;
 
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: 2, alignItems: 'stretch', width: '100%' }}>
-      <Box sx={{ gridColumn: '1 / -1' }}><DashboardFilters filters={filters} onChange={handleChangeFilters} onClear={handleClearFilters} options={availableOptions} /></Box>
+      <Box sx={{ gridColumn: '1 / -1' }}>
+        <DashboardFilters filters={filters} onChange={handleChangeFilters} onClear={handleClearFilters} options={availableOptions} moneda={monedaFiltro} onMonedaChange={setMonedaFiltro} />
+      </Box>
+      <Box sx={{ gridColumn: '1 / -1' }}><ConversionRates /></Box>
       <Box sx={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 1.5 }}>
-        {singlePais && <TextField select size="small" label="Moneda" value={moneda} onChange={(e) => setMoneda(e.target.value as 'USD' | 'LOCAL')} sx={{ minWidth: 170 }}><MenuItem value="USD">USD</MenuItem><MenuItem value="LOCAL">Moneda Local ({monedaCode})</MenuItem></TextField>}
         <Button variant="outlined" startIcon={<DescriptionOutlinedIcon />} onClick={() => setOnePageOpen(true)} sx={{ textTransform: 'none' }}>Generar OnePage</Button>
       </Box>
       <Box sx={{ gridColumn: '1 / -1' }}><KpiCards kpis={kpisDisplay} moneda={monedaLabel} /></Box>
@@ -95,7 +101,7 @@ const DashboardPage = () => {
       <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><ResumenCampaniaTable data={dashboard.resumenCampania} moneda={monedaSel} monedaCode={monedaCode} /></Box>
       <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><TopGestoresTable data={dashboard.topGestoresDetalle} moneda={monedaSel} monedaCode={monedaCode} /></Box>
       <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><TopZonasTable data={dashboard.topZonasDetalle} moneda={monedaSel} monedaCode={monedaCode} /></Box>
-      <Box sx={{ gridColumn: '1 / -1', height: DETAIL_TILE }}><DashboardTable data={dashboard.cuentas} /></Box>
+      <Box sx={{ gridColumn: '1 / -1', height: DETAIL_TILE }}><DashboardTable data={dashboard.cuentas} moneda={monedaSel} monedaCode={monedaCode} /></Box>
       <DashboardOnePage open={onePageOpen} onClose={() => setOnePageOpen(false)} filters={filters} kpis={kpisDisplay} moneda={monedaLabel} calidad={calNota} puedeCalidad={canCalidadVer} zonaSector={dashboard.zonaSectorSummary} resumenPD={dashboard.resumenPD} />
     </Box>
   );

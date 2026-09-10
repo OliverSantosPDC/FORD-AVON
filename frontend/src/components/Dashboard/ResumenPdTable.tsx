@@ -14,14 +14,14 @@ interface ResumenPdTableProps {
 type ColumnId =
   | 'pd'
   | 'cuentas'
-  | 'saldoActualUsd'
+  | 'saldoInicial'
   | 'recuperadoUsd'
   | 'porcentajeRecuperacionUsd';
 
 const columns: { id: ColumnId; label: string; align?: 'right'; width: number }[] = [
   { id: 'pd', label: 'PD', width: 44 },
   { id: 'cuentas', label: 'Total Cuentas', align: 'right', width: 92 },
-  { id: 'saldoActualUsd', label: 'Saldo Inicial', align: 'right', width: 118 },
+  { id: 'saldoInicial', label: 'Saldo Inicial', align: 'right', width: 118 },
   { id: 'recuperadoUsd', label: 'Recuperado', align: 'right', width: 100 },
   { id: 'porcentajeRecuperacionUsd', label: '%', align: 'right', width: 56 }
 ];
@@ -39,7 +39,7 @@ const ResumenPdTable = ({ data, moneda, monedaCode }: ResumenPdTableProps) => {
   const getSortValue = (row: ResumenPdItem, columnId: ColumnId): number => {
     switch (columnId) {
       case 'cuentas': return row.cuentas;
-      case 'saldoActualUsd': return moneda === 'USD' ? row.saldoActualUsd : row.saldoActualLocal;
+      case 'saldoInicial': return moneda === 'USD' ? row.saldoAsignadoUsd : row.saldoAsignadoLocal;
       case 'recuperadoUsd': return moneda === 'USD' ? row.recuperadoUsd : row.recuperadoLocal;
       case 'porcentajeRecuperacionUsd': return row.porcentajeRecuperacionUsd;
       default: return 0;
@@ -70,8 +70,8 @@ const ResumenPdTable = ({ data, moneda, monedaCode }: ResumenPdTableProps) => {
         return row.pd;
       case 'cuentas':
         return row.cuentas;
-      case 'saldoActualUsd':
-        return formatCurrency(moneda === 'USD' ? row.saldoActualUsd : row.saldoActualLocal, moneda, monedaCode);
+      case 'saldoInicial':
+        return formatCurrency(moneda === 'USD' ? row.saldoAsignadoUsd : row.saldoAsignadoLocal, moneda, monedaCode);
       case 'recuperadoUsd':
         return formatCurrency(moneda === 'USD' ? row.recuperadoUsd : row.recuperadoLocal, moneda, monedaCode);
       case 'porcentajeRecuperacionUsd':
@@ -138,7 +138,7 @@ const ResumenPdTable = ({ data, moneda, monedaCode }: ResumenPdTableProps) => {
           '&::-webkit-scrollbar-thumb': { background: '#C7CDD8', borderRadius: 99 }
         }}
       >
-        <Table stickyHeader size="small" sx={{ minWidth: columns.reduce((sum, column) => sum + column.width, 0) }}>
+        <Table stickyHeader size="small" sx={{ width: '100%', tableLayout: 'fixed' }}>
           <TableHead>
             <TableRow>
               {visibleColumns.map((column) => (
@@ -146,7 +146,7 @@ const ResumenPdTable = ({ data, moneda, monedaCode }: ResumenPdTableProps) => {
                   key={column.id}
                   align={column.align}
                   sortDirection={orderBy === column.id ? order : false}
-                  sx={{ width: column.width, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, py: 0.75, whiteSpace: 'nowrap' }}
+                  sx={{ width: column.width, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, py: 0.75, whiteSpace: 'normal', wordBreak: 'break-word' }}
                 >
                   <TableSortLabel active={orderBy === column.id} direction={orderBy === column.id ? order : 'asc'} onClick={() => handleSort(column.id)}>
                     {column.label}
@@ -164,13 +164,13 @@ const ResumenPdTable = ({ data, moneda, monedaCode }: ResumenPdTableProps) => {
                     if (column.id === 'pd') {
                       // El PD conserva el color de texto según su nivel de riesgo.
                       return (
-                        <TableCell key={column.id} align={column.align} sx={{ width: column.width, fontSize: 11.5, py: 0.6, whiteSpace: 'nowrap', color: estado.color, fontWeight: 700 }}>
+                        <TableCell key={column.id} align={column.align} sx={{ width: column.width, fontSize: 11.5, py: 0.6, whiteSpace: 'normal', wordBreak: 'break-word', color: estado.color, fontWeight: 700 }}>
                           {row.pd}
                         </TableCell>
                       );
                     }
                     return (
-                      <TableCell key={column.id} align={column.align} sx={{ width: column.width, fontSize: 11.5, py: 0.6, whiteSpace: 'nowrap' }}>
+                      <TableCell key={column.id} align={column.align} sx={{ width: column.width, fontSize: 11.5, py: 0.6, whiteSpace: 'normal', wordBreak: 'break-word' }}>
                         {getRowValue(row, column.id)}
                       </TableCell>
                     );

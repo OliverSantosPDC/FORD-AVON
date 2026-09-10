@@ -1,8 +1,9 @@
 import Autocomplete from '@mui/material/Autocomplete';
-import { Box, Button, Chip, Paper, TextField, Typography, useTheme } from '@mui/material';
+import { Box, Button, Chip, MenuItem, Paper, TextField, Typography, useTheme } from '@mui/material';
 import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import type { DashboardMultiFilterParams } from '../../types/cartera';
+import { MONEDA_OPTIONS } from '../../utils/monedaOptions';
 
 interface DashboardFiltersProps {
   filters: DashboardMultiFilterParams;
@@ -16,12 +17,15 @@ interface DashboardFiltersProps {
     pd: string[];
     campania: string[];
   };
+  /** Código de la moneda seleccionada (ver MONEDA_OPTIONS). Cuando se pasa, el filtro de moneda se muestra siempre junto al resto. */
+  moneda?: string;
+  onMonedaChange?: (code: string) => void;
 }
 
 const filterCount = (filters: DashboardMultiFilterParams) =>
   Object.values(filters).reduce((sum, list) => sum + list.length, 0);
 
-const DashboardFilters = ({ filters, onChange, onClear, options }: DashboardFiltersProps) => {
+const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMonedaChange }: DashboardFiltersProps) => {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
 
@@ -114,6 +118,35 @@ const DashboardFilters = ({ filters, onChange, onClear, options }: DashboardFilt
             />
           ))}
         </Box>
+
+        {moneda !== undefined && onMonedaChange && (
+          <TextField
+            select
+            size="small"
+            label="Moneda"
+            value={moneda}
+            onChange={(event) => onMonedaChange(event.target.value)}
+            sx={{
+              minWidth: 150,
+              flexShrink: 0,
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 2,
+                minHeight: 34,
+                bgcolor: isDark ? '#111827' : '#F8FAFC',
+                border: '1px solid',
+                borderColor: isDark ? '#334155' : '#E5E7EB'
+              },
+              '& .MuiInputBase-input': { fontSize: 12 },
+              '& .MuiInputLabel-root': { fontSize: 12 }
+            }}
+          >
+            {MONEDA_OPTIONS.map((option) => (
+              <MenuItem key={option.code} value={option.code} sx={{ fontSize: 12.5 }}>
+                {option.label}
+              </MenuItem>
+            ))}
+          </TextField>
+        )}
 
         <Button
           size="small"

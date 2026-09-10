@@ -25,12 +25,12 @@ interface TopZonasTableProps {
   monedaCode: string;
 }
 
-type ColumnId = 'zona' | 'pais' | 'saldoActualUsd' | 'recuperadoUsd' | 'porcentajeRecuperacion';
+type ColumnId = 'zona' | 'pais' | 'saldoInicial' | 'recuperadoUsd' | 'porcentajeRecuperacion';
 
 const columns: { id: ColumnId; label: string; align?: 'right'; width: number }[] = [
   { id: 'zona', label: 'Zona', width: 120 },
   { id: 'pais', label: 'País', width: 78 },
-  { id: 'saldoActualUsd', label: 'Saldo', align: 'right', width: 128 },
+  { id: 'saldoInicial', label: 'Saldo Inicial', align: 'right', width: 128 },
   { id: 'recuperadoUsd', label: 'Recuperado', align: 'right', width: 100 },
   { id: 'porcentajeRecuperacion', label: '%', align: 'right', width: 58 }
 ];
@@ -40,7 +40,7 @@ const formatCurrency = (value: number) => value.toLocaleString(undefined, { maxi
 const TopZonasTable = ({ data, moneda, monedaCode }: TopZonasTableProps) => {
   const [expanded, setExpanded] = useState(false);
   const [order, setOrder] = useState<'asc' | 'desc'>('desc');
-  const [orderBy, setOrderBy] = useState<ColumnId>('saldoActualUsd');
+  const [orderBy, setOrderBy] = useState<ColumnId>('saldoInicial');
   const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
 
   // El Top Zonas llega ya agregado desde el backend (universo completo, sin filtros).
@@ -50,7 +50,7 @@ const TopZonasTable = ({ data, moneda, monedaCode }: TopZonasTableProps) => {
     switch (columnId) {
       case 'zona': return row.key;
       case 'pais': return row.pais;
-      case 'saldoActualUsd': return moneda === 'USD' ? row.saldoActualUsd : row.saldoActualLocal;
+      case 'saldoInicial': return moneda === 'USD' ? row.saldoAsignadoUsd : row.saldoAsignadoLocal;
       case 'recuperadoUsd': return moneda === 'USD' ? row.recuperadoUsd : row.recuperadoLocal;
       case 'porcentajeRecuperacion': return row.porcentajeRecuperacion;
       default: return '';
@@ -85,8 +85,8 @@ const TopZonasTable = ({ data, moneda, monedaCode }: TopZonasTableProps) => {
         return row.key;
       case 'pais':
         return row.pais;
-      case 'saldoActualUsd':
-        return moneda === 'USD' ? `${formatCurrency(row.saldoActualUsd)} (${row.paisAbbr})` : `${formatCurrency(row.saldoActualLocal)} ${monedaCode}`;
+      case 'saldoInicial':
+        return moneda === 'USD' ? `${formatCurrency(row.saldoAsignadoUsd)} (${row.paisAbbr})` : `${formatCurrency(row.saldoAsignadoLocal)} ${monedaCode}`;
       case 'recuperadoUsd':
         return moneda === 'USD' ? formatCurrency(row.recuperadoUsd) : formatCurrency(row.recuperadoLocal);
       case 'porcentajeRecuperacion':
@@ -156,7 +156,7 @@ const TopZonasTable = ({ data, moneda, monedaCode }: TopZonasTableProps) => {
           '&::-webkit-scrollbar-thumb': { background: '#C7CDD8', borderRadius: 99 }
         }}
       >
-        <Table stickyHeader size="small" sx={{ minWidth: columns.reduce((sum, column) => sum + column.width, 0) }}>
+        <Table stickyHeader size="small" sx={{ width: '100%', tableLayout: 'fixed' }}>
           <TableHead>
             <TableRow>
               {visibleColumns.map((column) => (
@@ -164,7 +164,7 @@ const TopZonasTable = ({ data, moneda, monedaCode }: TopZonasTableProps) => {
                   key={column.id}
                   align={column.align}
                   sortDirection={orderBy === column.id ? order : false}
-                  sx={{ width: column.width, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, py: 0.75, whiteSpace: 'nowrap' }}
+                  sx={{ width: column.width, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, py: 0.75, whiteSpace: 'normal', wordBreak: 'break-word' }}
                 >
                   <TableSortLabel active={orderBy === column.id} direction={orderBy === column.id ? order : 'asc'} onClick={() => handleSort(column.id)}>
                     {column.label}
@@ -177,7 +177,7 @@ const TopZonasTable = ({ data, moneda, monedaCode }: TopZonasTableProps) => {
             {visibleData.map((row, index) => (
               <TableRow key={index} hover sx={{ transition: 'background-color 200ms ease-in-out' }}>
                 {visibleColumns.map((column) => (
-                  <TableCell key={column.id} align={column.align} sx={{ width: column.width, whiteSpace: 'nowrap', fontSize: 11.5, py: 0.6 }}>
+                  <TableCell key={column.id} align={column.align} sx={{ width: column.width, whiteSpace: 'normal', wordBreak: 'break-word', fontSize: 11.5, py: 0.6 }}>
                     {getRowValue(row, column.id)}
                   </TableCell>
                 ))}
