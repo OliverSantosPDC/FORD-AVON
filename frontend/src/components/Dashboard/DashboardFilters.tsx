@@ -20,12 +20,23 @@ interface DashboardFiltersProps {
   /** Código de la moneda seleccionada (ver MONEDA_OPTIONS). Cuando se pasa, el filtro de moneda se muestra siempre junto al resto. */
   moneda?: string;
   onMonedaChange?: (code: string) => void;
+  /** true mientras la barra está anclada (sticky) sobre contenido del Dashboard: aplica un fondo translúcido. */
+  floating?: boolean;
 }
+
+const tagChipSx = {
+  height: 16,
+  fontSize: 9,
+  maxWidth: '100%',
+  minWidth: 0,
+  flexShrink: 1,
+  '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', px: 0.625, lineHeight: '16px' }
+} as const;
 
 const filterCount = (filters: DashboardMultiFilterParams) =>
   Object.values(filters).reduce((sum, list) => sum + list.length, 0);
 
-const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMonedaChange }: DashboardFiltersProps) => {
+const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMonedaChange, floating }: DashboardFiltersProps) => {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
 
@@ -53,10 +64,14 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
         px: 2,
         py: 1.5,
         borderRadius: 2.5,
-        bgcolor: 'background.paper',
+        bgcolor: floating ? (isDark ? 'rgba(17, 24, 39, 0.82)' : 'rgba(255, 255, 255, 0.82)') : 'background.paper',
+        backdropFilter: floating ? 'blur(10px)' : 'none',
         border: '1px solid',
         borderColor: 'divider',
-        boxShadow: isDark ? '0 10px 26px rgba(0, 0, 0, 0.3)' : '0 10px 26px rgba(15, 23, 42, 0.06)'
+        boxShadow: floating
+          ? (isDark ? '0 12px 30px rgba(0, 0, 0, 0.4)' : '0 12px 30px rgba(15, 23, 42, 0.12)')
+          : (isDark ? '0 10px 26px rgba(0, 0, 0, 0.3)' : '0 10px 26px rgba(15, 23, 42, 0.06)'),
+        transition: 'background-color 200ms ease, box-shadow 200ms ease'
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
@@ -96,17 +111,14 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
               disableCloseOnSelect
               filterSelectedOptions
               noOptionsText="Sin opciones"
-              ChipProps={{
-                size: 'small',
-                sx: {
-                  height: 16,
-                  fontSize: 9,
-                  maxWidth: '100%',
-                  minWidth: 0,
-                  flexShrink: 1,
-                  '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', px: 0.625, lineHeight: '16px' }
-                }
-              }}
+              renderTags={(tagValue, getTagProps) =>
+                tagValue.length > 1
+                  ? [<Chip key="count" size="small" label={`${tagValue.length} seleccionados`} sx={tagChipSx} />]
+                  : tagValue.map((option, index) => {
+                      const { key, ...tagProps } = getTagProps({ index });
+                      return <Chip key={key} size="small" label={option} sx={tagChipSx} {...tagProps} />;
+                    })
+              }
               componentsProps={{
                 paper: {
                   sx: {

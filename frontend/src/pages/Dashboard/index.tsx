@@ -1,6 +1,6 @@
 import { Box, Button, Typography } from '@mui/material';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import DashboardFilters from '../../components/Dashboard/DashboardFilters';
 import ConversionRates from '../../components/Dashboard/ConversionRates';
 import KpiCards from '../../components/Dashboard/KpiCards';
@@ -28,6 +28,21 @@ const DashboardPage = () => {
   const [filters, setFilters] = useState<DashboardMultiFilterParams>({ pais: [], gestor: [], gerente: [], zona: [], pd: [], campania: [] });
   const [monedaFiltro, setMonedaFiltro] = useState<string>('USD');
   const [onePageOpen, setOnePageOpen] = useState(false);
+  const filtersSentinelRef = useRef<HTMLDivElement | null>(null);
+  const [filtersStuck, setFiltersStuck] = useState(false);
+
+  // Detecta cuando la barra de filtros (position: sticky) queda anclada bajo el header,
+  // para aplicarle el efecto translúcido sólo mientras flota sobre el contenido.
+  useEffect(() => {
+    const el = filtersSentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(([entry]) => setFiltersStuck(!entry.isIntersecting), {
+      threshold: 0,
+      rootMargin: '-57px 0px 0px 0px'
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   const dashboardFilters: DashboardFilterParams = useMemo(() => ({ pais: filters.pais, gestor: filters.gestor, gerente: filters.gerente, zona: filters.zona, pd: filters.pd, campania: filters.campania }), [filters]);
   const { data: dashboard, loading, error } = useDashboard(dashboardFilters);
   const { hasPermission } = useAuth();
@@ -75,8 +90,11 @@ const DashboardPage = () => {
 
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: 2, alignItems: 'stretch', width: '100%' }}>
-      <Box sx={{ gridColumn: '1 / -1' }}>
-        <DashboardFilters filters={filters} onChange={handleChangeFilters} onClear={handleClearFilters} options={availableOptions} moneda={monedaFiltro} onMonedaChange={setMonedaFiltro} />
+      <Box sx={{ gridColumn: '1 / -1', position: 'relative' }}>
+        <Box ref={filtersSentinelRef} sx={{ position: 'absolute', top: 0, left: 0, width: 1, height: 1, visibility: 'hidden' }} />
+        <Box sx={{ position: 'sticky', top: 57, zIndex: 10 }}>
+          <DashboardFilters filters={filters} onChange={handleChangeFilters} onClear={handleClearFilters} options={availableOptions} moneda={monedaFiltro} onMonedaChange={setMonedaFiltro} floating={filtersStuck} />
+        </Box>
       </Box>
       <Box sx={{ gridColumn: '1 / -1' }}><ConversionRates /></Box>
       <Box sx={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 1.5 }}>
