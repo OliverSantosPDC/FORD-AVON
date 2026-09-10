@@ -29,7 +29,8 @@ const normalizePd = (value: unknown) => {
 
 interface Props { filters: DashboardFilterParams; moneda: 'USD' | 'LOCAL'; monedaCode: string; }
 interface PivotRow { pdActual: string; [key: string]: string | number; }
-interface TooltipEntry { dataKey?: string | number; value?: string | number; }
+interface PdActualDetalle { pdActual: string; saldo: number; cuentas: number; }
+interface SeriesSummary { pdInicial: string; totalSaldo: number; totalCuentas: number; detalle: PdActualDetalle[]; }
 
 const formatUsd = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 0 });
 const formatCompact = (value: number) => {
@@ -38,17 +39,32 @@ const formatCompact = (value: number) => {
   return `${value}`;
 };
 
-const PDMigrationTooltip = ({ active, payload, label, monedaLabel }: { active?: boolean; payload?: TooltipEntry[]; label?: string | number; monedaLabel: string }) => {
-  if (!active || !payload?.length) return null;
-  const entry = payload.find((item) => Number(item.value ?? 0) > 0) ?? payload[0];
-  const inicial = String(entry?.dataKey ?? '').toUpperCase();
-  const value = Number(entry?.value ?? 0);
+const PDMigrationTooltip = ({
+  active,
+  hoveredPdInicial,
+  seriesSummary,
+  monedaLabel
+}: {
+  active?: boolean;
+  hoveredPdInicial: string | null;
+  seriesSummary: Map<string, SeriesSummary>;
+  monedaLabel: string;
+}) => {
+  if (!active || !hoveredPdInicial) return null;
+  const summary = seriesSummary.get(hoveredPdInicial);
+  if (!summary) return null;
 
   return (
-    <Box sx={{ borderRadius: 1.5, border: '1px solid #E2E8F0', boxShadow: '0 16px 40px rgba(15, 23, 42, 0.14)', backgroundColor: '#FFFFFF', px: 1.5, py: 1 }}>
-      <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#0F172A', mb: 0.5 }}>PD Actual: {label}</Typography>
-      <Typography sx={{ fontSize: 12, color: '#475569' }}>PD Inicial: {inicial}</Typography>
-      <Typography sx={{ fontSize: 12, color: '#475569' }}>Saldo inicial: {formatUsd(value)} {monedaLabel}</Typography>
+    <Box sx={{ borderRadius: 1.5, border: '1px solid #E2E8F0', boxShadow: '0 16px 40px rgba(15, 23, 42, 0.14)', backgroundColor: '#FFFFFF', px: 1.5, py: 1, minWidth: 200 }}>
+      <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#0F172A', mb: 0.25 }}>PD Inicial: {summary.pdInicial}</Typography>
+      <Typography sx={{ fontSize: 12, color: '#475569' }}>Saldo Inicial Total: {formatUsd(summary.totalSaldo)} {monedaLabel}</Typography>
+      <Typography sx={{ fontSize: 12, color: '#475569', mb: 0.5 }}>Total Cuentas: {summary.totalCuentas.toLocaleString()}</Typography>
+      <Typography sx={{ fontSize: 11, fontWeight: 700, color: '#0F172A', mb: 0.25 }}>PD Actual y Saldo Inicial:</Typography>
+      {summary.detalle.map((d) => (
+        <Typography key={d.pdActual} sx={{ fontSize: 11, color: '#475569' }}>
+          {d.pdActual}: {formatUsd(d.saldo)} {monedaLabel} · Cuentas: {d.cuentas.toLocaleString()}
+        </Typography>
+      ))}
     </Box>
   );
 };
@@ -59,6 +75,7 @@ const PDMigrationChart = ({ filters, moneda, monedaCode }: Props) => {
   const [cuentas, setCuentas] = useState<CarteraRecord[]>([]);
   const [sortKey, setSortKey] = useState<PdSortKey>('pd');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [hoveredPdInicial, setHoveredPdInicial] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -66,8 +83,9 @@ const PDMigrationChart = ({ filters, moneda, monedaCode }: Props) => {
     return () => { active = false; };
   }, [filters]);
 
-  const { chartData, activeSeries, totalSaldo, csvRows } = useMemo(() => {
+  const { chartData, activeSeries, totalSaldo, csvRows, seriesSummary } = useMemo(() => {
     const flowMap = new Map<string, number>();
+    const countMap = new Map<string, number>();
     cuentas.forEach((row) => {
       const inicial = normalizePd(row.pd_inicial);
       const actual = normalizePd(row.pd_actual);
@@ -75,6 +93,24 @@ const PDMigrationChart = ({ filters, moneda, monedaCode }: Props) => {
       if (!inicial || !actual || !Number.isFinite(saldo) || saldo <= 0) return;
       const key = `${inicial}|${actual}`;
       flowMap.set(key, (flowMap.get(key) ?? 0) + saldo);
+      countMap.set(key, (countMap.get(key) ?? 0) + 1);
+    });
+
+    const summaryMap = new Map<string, SeriesSummary>();
+    PD_ORDER.forEach((pdInicial) => {
+      const detalle: PdActualDetalle[] = [];
+      let totalSaldo = 0;
+      let totalCuentas = 0;
+      PD_ORDER.forEach((pdActual) => {
+        const key = `${pdInicial}|${pdActual}`;
+        const saldo = flowMap.get(key) ?? 0;
+        const cnt = countMap.get(key) ?? 0;
+        if (saldo <= 0 && cnt <= 0) return;
+        detalle.push({ pdActual, saldo, cuentas: cnt });
+        totalSaldo += saldo;
+        totalCuentas += cnt;
+      });
+      summaryMap.set(pdInicial, { pdInicial, totalSaldo, totalCuentas, detalle });
     });
 
     const seriesSet = new Set<string>();
@@ -116,7 +152,8 @@ const PDMigrationChart = ({ filters, moneda, monedaCode }: Props) => {
       chartData: rows,
       activeSeries: series,
       totalSaldo: flows.reduce((sum, [, , value]) => sum + value, 0),
-      csvRows: flows
+      csvRows: flows,
+      seriesSummary: summaryMap
     };
   }, [cuentas, sortKey, sortDir, moneda]);
 
@@ -138,10 +175,23 @@ const PDMigrationChart = ({ filters, moneda, monedaCode }: Props) => {
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
               <XAxis dataKey="pdActual" tick={{ fill: '#475569', fontSize: 10.5 }} axisLine={false} tickLine={false} />
               <YAxis tickFormatter={formatCompact} tick={{ fill: '#475569', fontSize: 10.5 }} axisLine={false} tickLine={false} />
-              <Tooltip cursor={{ fill: 'rgba(15, 23, 42, 0.04)' }} content={<PDMigrationTooltip monedaLabel={monedaLabel} />} />
+              <Tooltip
+                cursor={{ fill: 'rgba(15, 23, 42, 0.04)' }}
+                content={<PDMigrationTooltip hoveredPdInicial={hoveredPdInicial} seriesSummary={seriesSummary} monedaLabel={monedaLabel} />}
+              />
               <Legend verticalAlign="bottom" iconType="circle" iconSize={8} wrapperStyle={{ paddingTop: 4, fontSize: 10.5, fontWeight: 600 }} />
               {activeSeries.map((pdInicial) => (
-                <Bar key={pdInicial} dataKey={pdInicial} name={pdInicial} fill={PD_COLORS[pdInicial]} radius={[4, 4, 0, 0]} barSize={14} isAnimationActive={false} />
+                <Bar
+                  key={pdInicial}
+                  dataKey={pdInicial}
+                  name={pdInicial}
+                  fill={PD_COLORS[pdInicial]}
+                  radius={[4, 4, 0, 0]}
+                  barSize={14}
+                  isAnimationActive={false}
+                  onMouseEnter={() => setHoveredPdInicial(pdInicial)}
+                  onMouseLeave={() => setHoveredPdInicial(null)}
+                />
               ))}
             </BarChart>
           </ResponsiveContainer>
