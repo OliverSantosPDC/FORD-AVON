@@ -20,10 +20,7 @@ interface SectorAgg { sector: string; usd: number; local: number; cuentas: numbe
 interface ZonaAgg { paisKey: string; paisNombre: string; zona: string; usd: number; local: number; cuentas: number; sectores: SectorAgg[]; }
 interface PaisGroup { paisKey: string; paisNombre: string; zonas: ZonaAgg[]; }
 
-const fmt = (value: number, moneda: 'USD' | 'LOCAL', code: string) =>
-  moneda === 'USD'
-    ? value.toLocaleString(undefined, { maximumFractionDigits: 0 })
-    : `${value.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${simboloMoneda(code)}`;
+const fmt = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 0 });
 
 type ZonaSortKey = 'valor' | 'nombre';
 
@@ -110,10 +107,15 @@ const DashboardZonaSector = ({ filters, moneda, monedaCode }: Props) => {
 
   const toggle = (k: string) => { const n = new Set(open); n.has(k) ? n.delete(k) : n.add(k); setOpen(n); };
 
+  const simbolo = simboloMoneda(monedaCode);
+
   return (
     <Paper sx={{ p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, flexWrap: 'wrap', gap: 1 }}>
-        <Typography sx={{ fontSize: 12.5, fontWeight: 700 }}>SALDOS ACTUAL POR ZONA Y SECTOR</Typography>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography sx={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.25 }}>SALDOS ACTUAL POR ZONA Y SECTOR</Typography>
+          <Typography sx={{ fontSize: 10.5, color: 'text.secondary', lineHeight: 1.2 }}>Moneda: {simbolo}</Typography>
+        </Box>
         <Tooltip title="Ordenar">
           <IconButton
             size="small"
@@ -163,12 +165,12 @@ const DashboardZonaSector = ({ filters, moneda, monedaCode }: Props) => {
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer' }} onClick={() => toggle(zonaKey)}>
                         <IconButton size="small">{isOpen ? <KeyboardArrowDownIcon fontSize="small" /> : <KeyboardArrowRightIcon fontSize="small" />}</IconButton>
                         <Box sx={{ width: { xs: 90, sm: 140 }, fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{z.zona}</Box>
-                        <Tooltip title={`${grupo.paisNombre} · ${z.zona} · ${z.cuentas.toLocaleString()} cuentas · ${fmt(val(z), moneda, monedaCode)}`} arrow>
+                        <Tooltip title={`${grupo.paisNombre} · ${z.zona} · ${z.cuentas.toLocaleString()} cuentas · ${fmt(val(z))}`} arrow>
                           <Box sx={{ flex: 1, bgcolor: 'action.hover', borderRadius: 1, height: 16, minWidth: 60 }}>
                             <Box sx={{ width: `${Math.max(2, (val(z) / maxZona) * 100)}%`, bgcolor: '#1E3A8A', height: '100%', borderRadius: 1 }} />
                           </Box>
                         </Tooltip>
-                        <Box sx={{ width: { xs: 96, sm: 150 }, textAlign: 'right', fontSize: 11, whiteSpace: 'nowrap' }}>{fmt(val(z), moneda, monedaCode)} · {z.cuentas}</Box>
+                        <Box sx={{ width: { xs: 96, sm: 150 }, textAlign: 'right', fontSize: 11, whiteSpace: 'nowrap' }}>{fmt(val(z))} · {z.cuentas}</Box>
                       </Box>
                       <Collapse in={isOpen} unmountOnExit>
                         <Stack spacing={0.5} sx={{ pl: { xs: 5, sm: 6 }, py: 0.5 }}>
@@ -177,12 +179,12 @@ const DashboardZonaSector = ({ filters, moneda, monedaCode }: Props) => {
                             return (
                               <Box key={s.sector} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                 <Box sx={{ width: { xs: 90, sm: 140 }, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.sector}</Box>
-                                <Tooltip title={`${s.sector} · ${s.cuentas.toLocaleString()} cuentas · ${fmt(sVal, moneda, monedaCode)}`} arrow>
+                                <Tooltip title={`${s.sector} · ${s.cuentas.toLocaleString()} cuentas · ${fmt(sVal)}`} arrow>
                                   <Box sx={{ flex: 1, bgcolor: 'action.hover', borderRadius: 1, height: 12, minWidth: 50 }}>
                                     <Box sx={{ width: `${Math.max(2, (sVal / sMax) * 100)}%`, bgcolor: '#0EA5E9', height: '100%', borderRadius: 1 }} />
                                   </Box>
                                 </Tooltip>
-                                <Box sx={{ width: { xs: 96, sm: 150 }, textAlign: 'right', fontSize: 11, whiteSpace: 'nowrap' }}>{fmt(sVal, moneda, monedaCode)} · {s.cuentas}</Box>
+                                <Box sx={{ width: { xs: 96, sm: 150 }, textAlign: 'right', fontSize: 11, whiteSpace: 'nowrap' }}>{fmt(sVal)} · {s.cuentas}</Box>
                               </Box>
                             );
                           })}
