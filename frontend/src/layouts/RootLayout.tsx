@@ -132,7 +132,7 @@ const RootLayout = () => {
   );
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', '--sidebar-width': `${drawerWidth}px` }}>
       <CssBaseline />
       <AppBar
         position="static"

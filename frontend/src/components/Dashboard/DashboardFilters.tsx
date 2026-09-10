@@ -90,7 +90,7 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
         sx={{
           position: 'fixed',
           top: 76,
-          left: 160,
+          left: 'calc(var(--sidebar-width, 240px) + 38px)',
           zIndex: 1200,
           borderRadius: 3,
           textTransform: 'none',
