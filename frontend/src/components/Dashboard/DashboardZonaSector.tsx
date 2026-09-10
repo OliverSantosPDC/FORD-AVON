@@ -25,7 +25,7 @@ const DashboardZonaSector = ({ data, moneda, monedaCode }: Props) => {
   const toggle = (k: string) => { const n = new Set(open); n.has(k) ? n.delete(k) : n.add(k); setOpen(n); };
 
   return (
-    <Paper sx={{ p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider', height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <Paper sx={{ p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, flexWrap: 'wrap', gap: 1 }}>
         <Typography sx={{ fontWeight: 700 }}>Saldos por Zona y Sector</Typography>
         <Chip size="small" variant="outlined" label={moneda === 'USD' ? 'USD' : monedaCode} />
@@ -35,7 +35,7 @@ const DashboardZonaSector = ({ data, moneda, monedaCode }: Props) => {
           No hay saldos para los filtros seleccionados.
         </Typography>
       ) : (
-        <Stack spacing={0.75} sx={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        <Stack spacing={0.75} sx={{ maxHeight: 240, overflowY: 'auto' }}>
           {data.map((z) => {
             const sMax = Math.max(1, ...z.sectores.map((s) => valS(s)));
             const isOpen = open.has(z.zona);
