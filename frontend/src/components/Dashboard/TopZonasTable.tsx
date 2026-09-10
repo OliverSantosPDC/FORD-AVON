@@ -17,6 +17,7 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import type { GroupSummary } from '../../types/cartera';
 import TableActionsMenu from '../common/TableActionsMenu';
 import { copyRowsToClipboard, exportRowsToCsv, exportRowsToExcel } from '../../utils/tableExport';
+import { simboloMoneda } from '../../utils/monedaOptions';
 
 interface TopZonasTableProps {
   // Datos ya agregados por el backend (Top 20 zonas, sin filtros).
@@ -86,7 +87,7 @@ const TopZonasTable = ({ data, moneda, monedaCode }: TopZonasTableProps) => {
       case 'pais':
         return row.paisAbbr;
       case 'saldoInicial':
-        return moneda === 'USD' ? formatCurrency(row.saldoAsignadoUsd) : `${formatCurrency(row.saldoAsignadoLocal)} ${monedaCode}`;
+        return formatCurrency(moneda === 'USD' ? row.saldoAsignadoUsd : row.saldoAsignadoLocal);
       case 'recuperadoUsd':
         return moneda === 'USD' ? formatCurrency(row.recuperadoUsd) : formatCurrency(row.recuperadoLocal);
       case 'porcentajeRecuperacion':
@@ -116,6 +117,8 @@ const TopZonasTable = ({ data, moneda, monedaCode }: TopZonasTableProps) => {
     void copyRowsToClipboard(headers, rows);
   };
 
+  const simbolo = simboloMoneda(monedaCode);
+
   return (
     <Paper
       sx={{
@@ -133,9 +136,14 @@ const TopZonasTable = ({ data, moneda, monedaCode }: TopZonasTableProps) => {
       }}
     >
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1, gap: 1, minHeight: 30 }}>
-        <Typography sx={{ fontSize: 12.5, fontWeight: 700 }}>
-          Top Zonas
-        </Typography>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography sx={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.25 }}>
+            Top Zonas
+          </Typography>
+          <Typography sx={{ fontSize: 10.5, color: 'text.secondary', lineHeight: 1.2 }}>
+            Moneda: {simbolo}
+          </Typography>
+        </Box>
         <TableActionsMenu
           columns={columns.map((column) => ({ id: column.id, label: column.label }))}
           hiddenColumns={hiddenColumns}

@@ -4,6 +4,7 @@ import type { ResumenPdItem } from '../../types/cartera';
 import TableActionsMenu from '../common/TableActionsMenu';
 import { copyRowsToClipboard, exportRowsToCsv, exportRowsToExcel } from '../../utils/tableExport';
 import { getPdEstado, getPdIndex } from '../../utils/carteraAggregations';
+import { simboloMoneda } from '../../utils/monedaOptions';
 
 interface ResumenPdTableProps {
   data: ResumenPdItem[];
@@ -26,10 +27,7 @@ const columns: { id: ColumnId; label: string; align: 'center'; width: number }[]
   { id: 'porcentajeRecuperacionUsd', label: '%', align: 'center', width: 56 }
 ];
 
-const formatCurrency = (value: number, moneda: 'USD' | 'LOCAL', code: string) =>
-  moneda === 'USD'
-    ? value.toLocaleString(undefined, { maximumFractionDigits: 2 })
-    : `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${code}`;
+const formatCurrency = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 const formatPercent = (value: number) => `${value.toFixed(2)}%`;
 
 const ResumenPdTable = ({ data, moneda, monedaCode }: ResumenPdTableProps) => {
@@ -71,9 +69,9 @@ const ResumenPdTable = ({ data, moneda, monedaCode }: ResumenPdTableProps) => {
       case 'cuentas':
         return row.cuentas;
       case 'saldoInicial':
-        return formatCurrency(moneda === 'USD' ? row.saldoAsignadoUsd : row.saldoAsignadoLocal, moneda, monedaCode);
+        return formatCurrency(moneda === 'USD' ? row.saldoAsignadoUsd : row.saldoAsignadoLocal);
       case 'recuperadoUsd':
-        return formatCurrency(moneda === 'USD' ? row.recuperadoUsd : row.recuperadoLocal, moneda, monedaCode);
+        return formatCurrency(moneda === 'USD' ? row.recuperadoUsd : row.recuperadoLocal);
       case 'porcentajeRecuperacionUsd':
         return formatPercent(row.porcentajeRecuperacionUsd);
       default:
@@ -101,6 +99,8 @@ const ResumenPdTable = ({ data, moneda, monedaCode }: ResumenPdTableProps) => {
     void copyRowsToClipboard(headers, rows);
   };
 
+  const simbolo = simboloMoneda(monedaCode);
+
   return (
     <Paper
       sx={{
@@ -118,9 +118,14 @@ const ResumenPdTable = ({ data, moneda, monedaCode }: ResumenPdTableProps) => {
       }}
     >
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1, gap: 1, minHeight: 30 }}>
-        <Typography sx={{ fontSize: 12.5, fontWeight: 700 }}>
-          Resumen por PD
-        </Typography>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography sx={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.25 }}>
+            Resumen por PD
+          </Typography>
+          <Typography sx={{ fontSize: 10.5, color: 'text.secondary', lineHeight: 1.2 }}>
+            Moneda: {simbolo}
+          </Typography>
+        </Box>
         <TableActionsMenu
           onCopy={handleCopy}
           onExportCsv={handleExportCsv}

@@ -3,6 +3,7 @@ import { Box, Paper, Table, TableBody, TableCell, TableContainer, TableHead, Tab
 import type { CampaniaSummary } from '../../types/cartera';
 import TableActionsMenu from '../common/TableActionsMenu';
 import { copyRowsToClipboard, exportRowsToCsv, exportRowsToExcel } from '../../utils/tableExport';
+import { simboloMoneda } from '../../utils/monedaOptions';
 
 interface ResumenCampaniaTableProps {
   // Resumen por campaña ya agregado por el backend.
@@ -21,10 +22,7 @@ const columns: { id: ColumnId; label: string; align: 'center'; width: number; wr
   { id: 'porcentajeRecuperacion', label: '%', align: 'center', width: 56 }
 ];
 
-const formatCurrency = (value: number, moneda: 'USD' | 'LOCAL', code: string) =>
-  moneda === 'USD'
-    ? value.toLocaleString(undefined, { maximumFractionDigits: 2 })
-    : `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${code}`;
+const formatCurrency = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
 // recuperadoLocal no existe en CampaniaSummary: se deriva con la misma fórmula usada en todo el proyecto (asignado - actual).
 const recuperadoLocalDe = (row: CampaniaSummary) => row.saldoAsignadoLocal - row.saldoActualLocal;
@@ -76,9 +74,9 @@ const ResumenCampaniaTable = ({ data, moneda, monedaCode }: ResumenCampaniaTable
       case 'cuentas':
         return row.cuentas;
       case 'saldoInicial':
-        return formatCurrency(moneda === 'USD' ? row.saldoAsignadoUsd : row.saldoAsignadoLocal, moneda, monedaCode);
+        return formatCurrency(moneda === 'USD' ? row.saldoAsignadoUsd : row.saldoAsignadoLocal);
       case 'recuperadoUsd':
-        return formatCurrency(moneda === 'USD' ? row.recuperadoUsd : recuperadoLocalDe(row), moneda, monedaCode);
+        return formatCurrency(moneda === 'USD' ? row.recuperadoUsd : recuperadoLocalDe(row));
       case 'porcentajeRecuperacion':
         return `${row.porcentajeRecuperacion.toFixed(2)}%`;
       default:
@@ -106,6 +104,8 @@ const ResumenCampaniaTable = ({ data, moneda, monedaCode }: ResumenCampaniaTable
     void copyRowsToClipboard(headers, rows);
   };
 
+  const simbolo = simboloMoneda(monedaCode);
+
   return (
     <Paper
       sx={{
@@ -124,9 +124,14 @@ const ResumenCampaniaTable = ({ data, moneda, monedaCode }: ResumenCampaniaTable
       }}
     >
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 1, minHeight: 30 }}>
-        <Typography sx={{ fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap' }}>
-          Resumen por Campaña
-        </Typography>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography sx={{ fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap', lineHeight: 1.25 }}>
+            Resumen por Campaña
+          </Typography>
+          <Typography sx={{ fontSize: 10.5, color: 'text.secondary', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+            Moneda: {simbolo}
+          </Typography>
+        </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <TextField
             placeholder="Buscar"
