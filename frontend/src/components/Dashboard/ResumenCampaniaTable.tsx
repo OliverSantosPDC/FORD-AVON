@@ -19,7 +19,7 @@ const columns: { id: ColumnId; label: string; align?: 'right'; width: number }[]
   { id: 'porcentajeRecuperacion', label: '%', align: 'right', width: 70 }
 ];
 
-const formatCurrency = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+const formatCurrency = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
 const ResumenCampaniaTable = ({ data }: ResumenCampaniaTableProps) => {
   const [order, setOrder] = useState<'asc' | 'desc'>('desc');

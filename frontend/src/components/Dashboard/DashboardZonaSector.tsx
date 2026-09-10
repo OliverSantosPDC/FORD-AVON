@@ -21,7 +21,7 @@ interface PaisGroup { paisKey: string; paisNombre: string; zonas: ZonaAgg[]; }
 
 const fmt = (value: number, moneda: 'USD' | 'LOCAL', code: string) =>
   moneda === 'USD'
-    ? `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+    ? value.toLocaleString(undefined, { maximumFractionDigits: 0 })
     : `${value.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${code}`;
 
 type ZonaSortKey = 'valor' | 'nombre';
@@ -112,7 +112,7 @@ const DashboardZonaSector = ({ filters, moneda, monedaCode }: Props) => {
   return (
     <Paper sx={{ p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, flexWrap: 'wrap', gap: 1 }}>
-        <Typography sx={{ fontWeight: 700 }}>SALDOS ACTUAL POR ZONA Y SECTOR</Typography>
+        <Typography sx={{ fontSize: 12.5, fontWeight: 700 }}>SALDOS ACTUAL POR ZONA Y SECTOR</Typography>
         <Tooltip title="Ordenar">
           <IconButton
             size="small"

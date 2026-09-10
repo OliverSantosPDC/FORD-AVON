@@ -37,11 +37,11 @@ const tooltipLabelStyle = { color: '#0F172A', fontWeight: 700, marginBottom: 2, 
 const legendStyle = { paddingTop: 4, fontSize: 11, fontWeight: 600 };
 const axisTick = { fill: '#475569', fontSize: 10.5 };
 
-const formatUsd = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+const formatUsd = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 0 });
 const formatCompact = (value: number) => {
-  if (Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
-  if (Math.abs(value) >= 1_000) return `$${(value / 1_000).toFixed(0)}K`;
-  return `$${value}`;
+  if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(0)}K`;
+  return `${value}`;
 };
 
 /** Compara alfabéticamente por país (usado como eje A-Z/Z-A en ambos gráficos de país). */
@@ -119,7 +119,7 @@ const DashboardCharts = ({ countrySummary, pdMigrationChart, zonaSector }: Dashb
       </ChartCard>
 
       <ChartCard
-        title="ASIGNADO VS RECUPERADO"
+        title="INICIAL VS RECUPERADO"
         subtitle="Comparativo por país"
         chartId="chart-combo-pais"
         fileBaseName="asignado-vs-recuperado"
@@ -136,7 +136,7 @@ const DashboardCharts = ({ countrySummary, pdMigrationChart, zonaSector }: Dashb
               <YAxis tickFormatter={formatCompact} tick={axisTick} axisLine={false} tickLine={false} />
               <Tooltip formatter={(value: number) => formatUsd(value)} contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} />
               <Legend verticalAlign="bottom" iconType="circle" iconSize={8} wrapperStyle={legendStyle} />
-              <Bar dataKey="saldoAsignadoUsd" name="Asignado" fill="#1E3A8A" radius={[6, 6, 0, 0]} barSize={18} />
+              <Bar dataKey="saldoAsignadoUsd" name="Inicial" fill="#1E3A8A" radius={[6, 6, 0, 0]} barSize={18} />
               <Line type="monotone" dataKey="recuperadoUsd" name="Recuperado" stroke="#E6007E" strokeWidth={2.5} dot={{ r: 3, fill: '#E6007E' }} activeDot={{ r: 5 }} />
             </ComposedChart>
           </ResponsiveContainer>

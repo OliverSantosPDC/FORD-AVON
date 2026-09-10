@@ -30,11 +30,11 @@ interface Props { filters: DashboardFilterParams; }
 interface PivotRow { pdInicial: string; [key: string]: string | number; }
 interface TooltipEntry { dataKey?: string | number; value?: string | number; }
 
-const formatUsd = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+const formatUsd = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 0 });
 const formatCompact = (value: number) => {
-  if (Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
-  if (Math.abs(value) >= 1_000) return `$${(value / 1_000).toFixed(0)}K`;
-  return `$${value}`;
+  if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(0)}K`;
+  return `${value}`;
 };
 
 const PDMigrationTooltip = ({ active, payload, label }: { active?: boolean; payload?: TooltipEntry[]; label?: string | number }) => {

@@ -24,7 +24,7 @@ const columns: { id: ColumnId; label: string; align?: 'right'; width: number }[]
   { id: 'porcentajeRecuperacionUsd', label: '%', align: 'right', width: 70 }
 ];
 
-const formatCurrency = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+const formatCurrency = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 const formatPercent = (value: number) => `${value.toFixed(2)}%`;
 
 const ResumenPdTable = ({ data }: ResumenPdTableProps) => {

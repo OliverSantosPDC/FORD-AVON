@@ -44,7 +44,7 @@ const pdColor = (pd: string) => {
   return '#EF4444';
 };
 
-const formatNumber = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+const formatNumber = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
 const getCellValue = (row: CarteraRecord, key: string, country: CountryInfo | null) => {
   const resolve = (keys: string[]) => getCarteraField(row, keys);
