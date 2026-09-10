@@ -7,21 +7,29 @@ import { copyRowsToClipboard, exportRowsToCsv, exportRowsToExcel } from '../../u
 interface ResumenCampaniaTableProps {
   // Resumen por campaña ya agregado por el backend.
   data: CampaniaSummary[];
+  moneda: 'USD' | 'LOCAL';
+  monedaCode: string;
 }
 
 type ColumnId = 'campania' | 'cuentas' | 'saldoActualUsd' | 'recuperadoUsd' | 'porcentajeRecuperacion';
 
 const columns: { id: ColumnId; label: string; align?: 'right'; width: number }[] = [
-  { id: 'campania', label: 'Campaña', width: 160 },
-  { id: 'cuentas', label: 'Total Cuentas', align: 'right', width: 110 },
-  { id: 'saldoActualUsd', label: 'Saldo Inicial', align: 'right', width: 140 },
+  { id: 'campania', label: 'Campaña', width: 130 },
+  { id: 'cuentas', label: 'Total Cuentas', align: 'right', width: 92 },
+  { id: 'saldoActualUsd', label: 'Saldo Inicial', align: 'right', width: 118 },
   { id: 'recuperadoUsd', label: 'Recuperado', align: 'right', width: 100 },
-  { id: 'porcentajeRecuperacion', label: '%', align: 'right', width: 70 }
+  { id: 'porcentajeRecuperacion', label: '%', align: 'right', width: 56 }
 ];
 
-const formatCurrency = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+const formatCurrency = (value: number, moneda: 'USD' | 'LOCAL', code: string) =>
+  moneda === 'USD'
+    ? value.toLocaleString(undefined, { maximumFractionDigits: 2 })
+    : `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${code}`;
 
-const ResumenCampaniaTable = ({ data }: ResumenCampaniaTableProps) => {
+// recuperadoLocal no existe en CampaniaSummary: se deriva con la misma fórmula usada en todo el proyecto (asignado - actual).
+const recuperadoLocalDe = (row: CampaniaSummary) => row.saldoAsignadoLocal - row.saldoActualLocal;
+
+const ResumenCampaniaTable = ({ data, moneda, monedaCode }: ResumenCampaniaTableProps) => {
   const [order, setOrder] = useState<'asc' | 'desc'>('desc');
   const [orderBy, setOrderBy] = useState<ColumnId>('saldoActualUsd');
   const [search, setSearch] = useState('');
@@ -33,14 +41,25 @@ const ResumenCampaniaTable = ({ data }: ResumenCampaniaTableProps) => {
     return aggregated.filter((row) => row.campania.toLowerCase().includes(normalized));
   }, [aggregated, search]);
 
+  const getSortValue = (row: CampaniaSummary, columnId: ColumnId): string | number => {
+    switch (columnId) {
+      case 'campania': return row.campania;
+      case 'cuentas': return row.cuentas;
+      case 'saldoActualUsd': return moneda === 'USD' ? row.saldoActualUsd : row.saldoActualLocal;
+      case 'recuperadoUsd': return moneda === 'USD' ? row.recuperadoUsd : recuperadoLocalDe(row);
+      case 'porcentajeRecuperacion': return row.porcentajeRecuperacion;
+      default: return '';
+    }
+  };
+
   const sortedData = useMemo(() => {
     return [...filtered].sort((a, b) => {
-      const aValue = orderBy === 'campania' ? a.campania : a[orderBy as keyof CampaniaSummary];
-      const bValue = orderBy === 'campania' ? b.campania : b[orderBy as keyof CampaniaSummary];
+      const aValue = getSortValue(a, orderBy);
+      const bValue = getSortValue(b, orderBy);
       const result = typeof aValue === 'number' && typeof bValue === 'number' ? aValue - bValue : String(aValue).localeCompare(String(bValue), 'es', { sensitivity: 'base' });
       return order === 'asc' ? result : -result;
     });
-  }, [filtered, order, orderBy]);
+  }, [filtered, order, orderBy, moneda]);
 
   const visibleColumns = columns;
 
@@ -57,9 +76,9 @@ const ResumenCampaniaTable = ({ data }: ResumenCampaniaTableProps) => {
       case 'cuentas':
         return row.cuentas;
       case 'saldoActualUsd':
-        return formatCurrency(row.saldoActualUsd);
+        return formatCurrency(moneda === 'USD' ? row.saldoActualUsd : row.saldoActualLocal, moneda, monedaCode);
       case 'recuperadoUsd':
-        return formatCurrency(row.recuperadoUsd);
+        return formatCurrency(moneda === 'USD' ? row.recuperadoUsd : recuperadoLocalDe(row), moneda, monedaCode);
       case 'porcentajeRecuperacion':
         return `${row.porcentajeRecuperacion.toFixed(2)}%`;
       default:

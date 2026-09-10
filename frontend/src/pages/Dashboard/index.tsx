@@ -83,16 +83,18 @@ const DashboardPage = () => {
       <Box sx={{ gridColumn: '1 / -1' }}>
         <Box sx={{ display: 'grid', gap: 2, mt: 1 }}>
           <DashboardCharts
-            countrySummary={dashboard.countrySummary}
-            pdMigrationChart={<PDMigrationChart filters={dashboardFilters} />}
+            filters={dashboardFilters}
+            moneda={monedaSel}
+            monedaCode={monedaCode}
+            pdMigrationChart={<PDMigrationChart filters={dashboardFilters} moneda={monedaSel} monedaCode={monedaCode} />}
             zonaSector={<DashboardZonaSector filters={dashboardFilters} moneda={monedaSel} monedaCode={monedaCode} />}
           />
         </Box>
       </Box>
-      <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><ResumenPdTable data={dashboard.resumenPD} /></Box>
-      <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><ResumenCampaniaTable data={dashboard.resumenCampania} /></Box>
-      <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><TopGestoresTable data={dashboard.topGestoresDetalle} /></Box>
-      <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><TopZonasTable data={dashboard.topZonasDetalle} /></Box>
+      <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><ResumenPdTable data={dashboard.resumenPD} moneda={monedaSel} monedaCode={monedaCode} /></Box>
+      <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><ResumenCampaniaTable data={dashboard.resumenCampania} moneda={monedaSel} monedaCode={monedaCode} /></Box>
+      <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><TopGestoresTable data={dashboard.topGestoresDetalle} moneda={monedaSel} monedaCode={monedaCode} /></Box>
+      <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><TopZonasTable data={dashboard.topZonasDetalle} moneda={monedaSel} monedaCode={monedaCode} /></Box>
       <Box sx={{ gridColumn: '1 / -1', height: DETAIL_TILE }}><DashboardTable data={dashboard.cuentas} /></Box>
       <DashboardOnePage open={onePageOpen} onClose={() => setOnePageOpen(false)} filters={filters} kpis={kpisDisplay} moneda={monedaLabel} calidad={calNota} puedeCalidad={canCalidadVer} zonaSector={dashboard.zonaSectorSummary} resumenPD={dashboard.resumenPD} />
     </Box>

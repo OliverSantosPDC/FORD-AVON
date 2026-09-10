@@ -26,7 +26,7 @@ const normalizePd = (value: unknown) => {
   return match ? `PD${match[1]}` : null;
 };
 
-interface Props { filters: DashboardFilterParams; }
+interface Props { filters: DashboardFilterParams; moneda: 'USD' | 'LOCAL'; monedaCode: string; }
 interface PivotRow { pdInicial: string; [key: string]: string | number; }
 interface TooltipEntry { dataKey?: string | number; value?: string | number; }
 
@@ -37,7 +37,7 @@ const formatCompact = (value: number) => {
   return `${value}`;
 };
 
-const PDMigrationTooltip = ({ active, payload, label }: { active?: boolean; payload?: TooltipEntry[]; label?: string | number }) => {
+const PDMigrationTooltip = ({ active, payload, label, monedaLabel }: { active?: boolean; payload?: TooltipEntry[]; label?: string | number; monedaLabel: string }) => {
   if (!active || !payload?.length) return null;
   const entry = payload.find((item) => Number(item.value ?? 0) > 0) ?? payload[0];
   const actual = String(entry?.dataKey ?? '').toUpperCase();
@@ -47,14 +47,14 @@ const PDMigrationTooltip = ({ active, payload, label }: { active?: boolean; payl
     <Box sx={{ borderRadius: 1.5, border: '1px solid #E2E8F0', boxShadow: '0 16px 40px rgba(15, 23, 42, 0.14)', backgroundColor: '#FFFFFF', px: 1.5, py: 1 }}>
       <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#0F172A', mb: 0.5 }}>PD Inicial: {label}</Typography>
       <Typography sx={{ fontSize: 12, color: '#475569' }}>PD Actual: {actual}</Typography>
-      <Typography sx={{ fontSize: 12, color: '#475569' }}>Saldo actual: {formatUsd(value)}</Typography>
+      <Typography sx={{ fontSize: 12, color: '#475569' }}>Saldo actual: {formatUsd(value)} {monedaLabel}</Typography>
     </Box>
   );
 };
 
 type PdSortKey = 'pd' | 'valor';
 
-const PDMigrationChart = ({ filters }: Props) => {
+const PDMigrationChart = ({ filters, moneda, monedaCode }: Props) => {
   const [cuentas, setCuentas] = useState<CarteraRecord[]>([]);
   const [sortKey, setSortKey] = useState<PdSortKey>('pd');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -70,7 +70,7 @@ const PDMigrationChart = ({ filters }: Props) => {
     cuentas.forEach((row) => {
       const inicial = normalizePd(row.pd_inicial);
       const actual = normalizePd(row.pd_actual);
-      const saldo = Number(row.saldo_actual_usd ?? 0);
+      const saldo = Number((moneda === 'USD' ? row.saldo_actual_usd : row.saldo_actual) ?? 0);
       if (!inicial || !actual || !Number.isFinite(saldo) || saldo <= 0) return;
       const key = `${inicial}|${actual}`;
       flowMap.set(key, (flowMap.get(key) ?? 0) + saldo);
@@ -117,7 +117,9 @@ const PDMigrationChart = ({ filters }: Props) => {
       totalSaldo: flows.reduce((sum, [, , value]) => sum + value, 0),
       csvRows: flows
     };
-  }, [cuentas, sortKey, sortDir]);
+  }, [cuentas, sortKey, sortDir, moneda]);
+
+  const monedaLabel = moneda === 'USD' ? 'USD' : monedaCode;
 
   const sortOptions: ChartSortOption[] = [
     { id: 'menor-mayor', label: 'Menor a mayor', ascending: true, active: sortKey === 'valor' && sortDir === 'asc', onClick: () => { setSortKey('valor'); setSortDir('asc'); } },
@@ -127,7 +129,7 @@ const PDMigrationChart = ({ filters }: Props) => {
   ];
 
   return (
-    <ChartCard title="MOVIMIENTO DE CARTERA POR PD" subtitle="PD inicial → PD actual · saldo actual" chartId="chart-pd-migration" fileBaseName="movimiento-cartera-pd" height={240} sortOptions={sortOptions} csvHeaders={['PD Inicial', 'PD Actual', 'Saldo Actual USD']} csvRows={csvRows}>
+    <ChartCard title="MOVIMIENTO DE CARTERA POR PD" subtitle="PD inicial → PD actual · saldo actual" chartId="chart-pd-migration" fileBaseName="movimiento-cartera-pd" height={240} sortOptions={sortOptions} csvHeaders={['PD Inicial', 'PD Actual', `Saldo Actual ${monedaLabel}`]} csvRows={csvRows}>
       {(height) => (
         <Box sx={{ width: '100%', height: '100%', position: 'relative' }}>
           <ResponsiveContainer width="100%" height={height}>
@@ -135,7 +137,7 @@ const PDMigrationChart = ({ filters }: Props) => {
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
               <XAxis dataKey="pdInicial" tick={{ fill: '#475569', fontSize: 10.5 }} axisLine={false} tickLine={false} />
               <YAxis tickFormatter={formatCompact} tick={{ fill: '#475569', fontSize: 10.5 }} axisLine={false} tickLine={false} />
-              <Tooltip cursor={{ fill: 'rgba(15, 23, 42, 0.04)' }} content={<PDMigrationTooltip />} />
+              <Tooltip cursor={{ fill: 'rgba(15, 23, 42, 0.04)' }} content={<PDMigrationTooltip monedaLabel={monedaLabel} />} />
               <Legend verticalAlign="bottom" iconType="circle" iconSize={8} wrapperStyle={{ paddingTop: 4, fontSize: 10.5, fontWeight: 600 }} />
               {activeSeries.map((pdActual) => (
                 <Bar key={pdActual} dataKey={pdActual} name={pdActual} fill={PD_COLORS[pdActual]} radius={[4, 4, 0, 0]} barSize={14} isAnimationActive={false} />
@@ -147,7 +149,7 @@ const PDMigrationChart = ({ filters }: Props) => {
               <Typography sx={{ color: '#64748B', fontSize: 13 }}>No hay movimientos de cartera para los filtros seleccionados.</Typography>
             </Box>
           )}
-          <Typography sx={{ textAlign: 'right', color: '#64748B', fontSize: 10.5, mt: -1 }}>Saldo trazado: {formatUsd(totalSaldo)}</Typography>
+          <Typography sx={{ textAlign: 'right', color: '#64748B', fontSize: 10.5, mt: -1 }}>Saldo trazado: {formatUsd(totalSaldo)} {monedaLabel}</Typography>
         </Box>
       )}
     </ChartCard>

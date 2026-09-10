@@ -7,6 +7,8 @@ import { getPdEstado, getPdIndex } from '../../utils/carteraAggregations';
 
 interface ResumenPdTableProps {
   data: ResumenPdItem[];
+  moneda: 'USD' | 'LOCAL';
+  monedaCode: string;
 }
 
 type ColumnId =
@@ -17,29 +19,42 @@ type ColumnId =
   | 'porcentajeRecuperacionUsd';
 
 const columns: { id: ColumnId; label: string; align?: 'right'; width: number }[] = [
-  { id: 'pd', label: 'PD', width: 50 },
-  { id: 'cuentas', label: 'Total Cuentas', align: 'right', width: 110 },
-  { id: 'saldoActualUsd', label: 'Saldo Inicial', align: 'right', width: 140 },
-  { id: 'recuperadoUsd', label: 'Recuperado', align: 'right', width: 110 },
-  { id: 'porcentajeRecuperacionUsd', label: '%', align: 'right', width: 70 }
+  { id: 'pd', label: 'PD', width: 44 },
+  { id: 'cuentas', label: 'Total Cuentas', align: 'right', width: 92 },
+  { id: 'saldoActualUsd', label: 'Saldo Inicial', align: 'right', width: 118 },
+  { id: 'recuperadoUsd', label: 'Recuperado', align: 'right', width: 100 },
+  { id: 'porcentajeRecuperacionUsd', label: '%', align: 'right', width: 56 }
 ];
 
-const formatCurrency = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+const formatCurrency = (value: number, moneda: 'USD' | 'LOCAL', code: string) =>
+  moneda === 'USD'
+    ? value.toLocaleString(undefined, { maximumFractionDigits: 2 })
+    : `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${code}`;
 const formatPercent = (value: number) => `${value.toFixed(2)}%`;
 
-const ResumenPdTable = ({ data }: ResumenPdTableProps) => {
+const ResumenPdTable = ({ data, moneda, monedaCode }: ResumenPdTableProps) => {
   const [order, setOrder] = useState<'asc' | 'desc'>('asc');
   const [orderBy, setOrderBy] = useState<ColumnId>('pd');
+
+  const getSortValue = (row: ResumenPdItem, columnId: ColumnId): number => {
+    switch (columnId) {
+      case 'cuentas': return row.cuentas;
+      case 'saldoActualUsd': return moneda === 'USD' ? row.saldoActualUsd : row.saldoActualLocal;
+      case 'recuperadoUsd': return moneda === 'USD' ? row.recuperadoUsd : row.recuperadoLocal;
+      case 'porcentajeRecuperacionUsd': return row.porcentajeRecuperacionUsd;
+      default: return 0;
+    }
+  };
 
   const sortedData = useMemo(() => {
     return [...data].sort((a, b) => {
       const result =
         orderBy === 'pd'
           ? getPdIndex(String(a.pd)) - getPdIndex(String(b.pd))
-          : a[orderBy] - b[orderBy];
+          : getSortValue(a, orderBy) - getSortValue(b, orderBy);
       return order === 'asc' ? result : -result;
     });
-  }, [data, order, orderBy]);
+  }, [data, order, orderBy, moneda]);
 
   const visibleColumns = columns;
 
@@ -56,9 +71,9 @@ const ResumenPdTable = ({ data }: ResumenPdTableProps) => {
       case 'cuentas':
         return row.cuentas;
       case 'saldoActualUsd':
-        return formatCurrency(row.saldoActualUsd);
+        return formatCurrency(moneda === 'USD' ? row.saldoActualUsd : row.saldoActualLocal, moneda, monedaCode);
       case 'recuperadoUsd':
-        return formatCurrency(row.recuperadoUsd);
+        return formatCurrency(moneda === 'USD' ? row.recuperadoUsd : row.recuperadoLocal, moneda, monedaCode);
       case 'porcentajeRecuperacionUsd':
         return formatPercent(row.porcentajeRecuperacionUsd);
       default:
