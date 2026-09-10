@@ -1,25 +1,21 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Box, Paper, Typography } from '@mui/material';
-import { getTasasConversionActivas } from '../../services/configuracionService';
+import { useTasasConversion } from '../../hooks/useTasasConversion';
 import { MONEDA_OPTIONS } from '../../utils/monedaOptions';
 
 /**
  * Tasas de conversión oficiales, administradas desde Configuración > Tasas de Conversión
  * (fuente única usada por el Dashboard, en vez de un valor calculado o hardcodeado).
+ * Usa el mismo hook (`useTasasConversion`) que el resto del Dashboard, para no duplicar
+ * la lógica de lectura de tasas.
  */
 const ConversionRates = () => {
-  const [tasas, setTasas] = useState<Array<{ codigo: string; tasa: number }>>([]);
+  const { tasas } = useTasasConversion();
 
-  useEffect(() => {
-    let active = true;
-    getTasasConversionActivas().then((data) => { if (active) setTasas(data); }).catch(() => { if (active) setTasas([]); });
-    return () => { active = false; };
-  }, []);
-
-  const rates = useMemo(() => {
-    const porCodigo = new Map(tasas.map((t) => [t.codigo, t.tasa]));
-    return MONEDA_OPTIONS.map((option) => ({ ...option, rate: porCodigo.get(option.code) ?? null }));
-  }, [tasas]);
+  const rates = useMemo(
+    () => MONEDA_OPTIONS.map((option) => ({ ...option, rate: tasas[option.code] ?? null })),
+    [tasas]
+  );
 
   return (
     <Paper sx={{ px: 2, py: 1, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
