@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Box } from '@mui/material';
 import {
   Area,
@@ -23,6 +23,9 @@ interface DashboardChartsProps {
   pds: DashboardItem[];
   resumenPD: ResumenPdItem[];
   countrySummary: CountrySummary[];
+  /** Fila 2 del grid, misma dimensión/patrón que los gráficos de la fila 1. */
+  pdMigrationChart: ReactNode;
+  zonaSector: ReactNode;
 }
 
 const CHART_HEIGHT = 240;
@@ -47,7 +50,7 @@ const formatCompact = (value: number) => {
   return `$${value}`;
 };
 
-const DashboardCharts = ({ pds, resumenPD, countrySummary }: DashboardChartsProps) => {
+const DashboardCharts = ({ pds, resumenPD, countrySummary, pdMigrationChart, zonaSector }: DashboardChartsProps) => {
   const [horizDir, setHorizDir] = useState<'asc' | 'desc'>('desc');
   const [horizInicialDir, setHorizInicialDir] = useState<'asc' | 'desc'>('desc');
   const [lineDir, setLineDir] = useState<'asc' | 'desc'>('asc');
@@ -164,6 +167,9 @@ const DashboardCharts = ({ pds, resumenPD, countrySummary }: DashboardChartsProp
           </ResponsiveContainer>
         )}
       </ChartCard>
+
+      {pdMigrationChart}
+      {zonaSector}
 
       <ChartCard
         title="Saldo inicial por país"
