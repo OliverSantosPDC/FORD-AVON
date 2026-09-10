@@ -12,12 +12,12 @@ create table if not exists public.config_tasas_conversion (
 );
 alter table public.config_tasas_conversion enable row level security;
 
--- Monedas administradas. Dólares y Balboas mantienen tasa fija de 1 (aplicado en backend).
+-- Monedas administradas. Tasas oficiales iniciales del sistema (Dólares y Balboas en 1).
 insert into public.config_tasas_conversion (codigo, nombre, tasa) values
   ('USD', 'Dólares', 1),
-  ('GTQ', 'Quetzales', 1),
-  ('HNL', 'Lempiras', 1),
-  ('NIO', 'Córdobas', 1),
+  ('GTQ', 'Quetzales', 7.64677),
+  ('HNL', 'Lempiras', 26.61535),
+  ('NIO', 'Córdobas', 36.6243),
   ('PAB', 'Balboas', 1),
-  ('DOP', 'Pesos RD', 1)
+  ('DOP', 'Pesos RD', 60.2552)
 on conflict (codigo) do nothing;

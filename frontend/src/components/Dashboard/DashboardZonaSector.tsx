@@ -14,6 +14,7 @@ interface Props {
   filters: DashboardFilterParams;
   moneda: 'USD' | 'LOCAL';
   monedaCode: string;
+  tasa: number;
 }
 
 interface SectorAgg { sector: string; usd: number; local: number; cuentas: number; }
@@ -31,7 +32,7 @@ type ZonaSortKey = 'valor' | 'nombre';
  * el alcance/scope y los filtros del dashboard sin depender del resumen
  * pre-agregado del backend (que agrupa solo por zona, sin país, y lo limita a 20).
  */
-const DashboardZonaSector = ({ filters, moneda, monedaCode }: Props) => {
+const DashboardZonaSector = ({ filters, moneda, monedaCode, tasa }: Props) => {
   const [cuentas, setCuentas] = useState<CarteraRecord[]>([]);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [sortKey, setSortKey] = useState<ZonaSortKey>('valor');
@@ -58,7 +59,7 @@ const DashboardZonaSector = ({ filters, moneda, monedaCode }: Props) => {
       const sectorRaw = getCarteraField(row, ['sector']);
       const sector = sectorRaw ? String(sectorRaw) : 'Sin sector';
       const usd = Number(getCarteraField(row, ['saldo_actual_usd']) ?? 0);
-      const local = Number(getCarteraField(row, ['saldo_actual']) ?? 0);
+      const local = (Number.isFinite(usd) ? usd : 0) * tasa;
 
       const zonaKey = `${paisKey}|||${zona}`;
       const z = zonas.get(zonaKey) ?? { paisKey, paisNombre, zona, usd: 0, local: 0, cuentas: 0, sectores: [] as SectorAgg[] };
@@ -84,7 +85,7 @@ const DashboardZonaSector = ({ filters, moneda, monedaCode }: Props) => {
     });
 
     return Array.from(porPais.values()).sort((a, b) => a.paisNombre.localeCompare(b.paisNombre, 'es', { sensitivity: 'base' }));
-  }, [cuentas]);
+  }, [cuentas, tasa]);
 
   const paisesOrdenados = useMemo(() => {
     return paises.map((grupo) => ({

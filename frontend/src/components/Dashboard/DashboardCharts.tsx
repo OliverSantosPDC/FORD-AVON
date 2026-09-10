@@ -22,6 +22,8 @@ interface DashboardChartsProps {
   filters: DashboardFilterParams;
   moneda: 'USD' | 'LOCAL';
   monedaCode: string;
+  /** Tasa oficial (Configuración > Tasas de Conversión) para convertir USD a monedaCode. */
+  tasa: number;
   /** Fila 2 del grid, misma dimensión/patrón que los gráficos de la fila 1. */
   pdMigrationChart: ReactNode;
   zonaSector: ReactNode;
@@ -70,7 +72,7 @@ const byPaisNombre = (a: PaisRow, b: PaisRow) =>
 
 type CountrySortKey = 'valor' | 'nombre';
 
-const DashboardCharts = ({ filters, moneda, monedaCode, pdMigrationChart, zonaSector }: DashboardChartsProps) => {
+const DashboardCharts = ({ filters, moneda, monedaCode, tasa, pdMigrationChart, zonaSector }: DashboardChartsProps) => {
   const [cuentas, setCuentas] = useState<CarteraRecord[]>([]);
   const [horizSortKey, setHorizSortKey] = useState<CountrySortKey>('valor');
   const [horizSortDir, setHorizSortDir] = useState<'asc' | 'desc'>('desc');
@@ -94,17 +96,15 @@ const DashboardCharts = ({ filters, moneda, monedaCode, pdMigrationChart, zonaSe
       if (!country) return;
       const asignadoUsd = Number(getCarteraField(row, carteraFieldKeys.saldoAsignadoUsd) ?? 0);
       const actualUsd = Number(getCarteraField(row, carteraFieldKeys.saldoActualUsd) ?? 0);
-      const asignadoLocal = Number(getCarteraField(row, carteraFieldKeys.saldoAsignadoLocal) ?? 0);
-      const actualLocal = Number(getCarteraField(row, carteraFieldKeys.saldoActualLocal) ?? 0);
       const existing = map.get(country.name) ?? { pais: country.name, asignadoUsd: 0, actualUsd: 0, asignadoLocal: 0, actualLocal: 0 };
       existing.asignadoUsd += Number.isFinite(asignadoUsd) ? asignadoUsd : 0;
       existing.actualUsd += Number.isFinite(actualUsd) ? actualUsd : 0;
-      existing.asignadoLocal += Number.isFinite(asignadoLocal) ? asignadoLocal : 0;
-      existing.actualLocal += Number.isFinite(actualLocal) ? actualLocal : 0;
       map.set(country.name, existing);
     });
+    // Local = Usd * tasa oficial configurada (Configuración > Tasas de Conversión).
+    map.forEach((value) => { value.asignadoLocal = value.asignadoUsd * tasa; value.actualLocal = value.actualUsd * tasa; });
     return Array.from(map.values());
-  }, [cuentas]);
+  }, [cuentas, tasa]);
 
   // Resuelve los totales a la moneda actualmente seleccionada (misma fuente que KpiCards).
   const paisRows = useMemo<PaisRow[]>(() => paisSummary.map((p) => ({

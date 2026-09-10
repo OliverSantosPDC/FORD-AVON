@@ -27,7 +27,7 @@ const normalizePd = (value: unknown) => {
   return match ? `PD${match[1]}` : null;
 };
 
-interface Props { filters: DashboardFilterParams; moneda: 'USD' | 'LOCAL'; monedaCode: string; }
+interface Props { filters: DashboardFilterParams; moneda: 'USD' | 'LOCAL'; monedaCode: string; tasa: number; }
 interface PivotRow { pdActual: string; [key: string]: string | number; }
 interface PdActualDetalle { pdActual: string; saldo: number; cuentas: number; }
 interface SeriesSummary { pdInicial: string; totalSaldo: number; totalCuentas: number; detalle: PdActualDetalle[]; }
@@ -71,7 +71,7 @@ const PDMigrationTooltip = ({
 
 type PdSortKey = 'pd' | 'valor';
 
-const PDMigrationChart = ({ filters, moneda, monedaCode }: Props) => {
+const PDMigrationChart = ({ filters, moneda, monedaCode, tasa }: Props) => {
   const [cuentas, setCuentas] = useState<CarteraRecord[]>([]);
   const [sortKey, setSortKey] = useState<PdSortKey>('pd');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -88,7 +88,8 @@ const PDMigrationChart = ({ filters, moneda, monedaCode }: Props) => {
     cuentas.forEach((row) => {
       const inicial = normalizePd(row.pd_inicial);
       const actual = normalizePd(row.pd_actual);
-      const saldo = Number((moneda === 'USD' ? row.saldo_inicial_usd : row.saldo_inicial) ?? 0);
+      const saldoUsd = Number(row.saldo_inicial_usd ?? 0);
+      const saldo = moneda === 'USD' ? saldoUsd : saldoUsd * tasa;
       if (!inicial || !actual || !Number.isFinite(saldo) || saldo <= 0) return;
       const key = `${inicial}|${actual}`;
       flowMap.set(key, (flowMap.get(key) ?? 0) + saldo);
@@ -154,7 +155,7 @@ const PDMigrationChart = ({ filters, moneda, monedaCode }: Props) => {
       csvRows: flows,
       seriesSummary: summaryMap
     };
-  }, [cuentas, sortKey, sortDir, moneda]);
+  }, [cuentas, sortKey, sortDir, moneda, tasa]);
 
   const monedaLabel = simboloMoneda(monedaCode);
 

@@ -11,6 +11,7 @@ interface ResumenPdTableProps {
   filters: DashboardFilterParams;
   moneda: 'USD' | 'LOCAL';
   monedaCode: string;
+  tasa: number;
 }
 
 interface PdRow {
@@ -54,7 +55,7 @@ const formatPercent = (value: number) => `${value.toFixed(2)}%`;
 // Resumen agrupado por PD INICIAL (pd_inicial), calculado en el cliente a partir de la
 // cartera completa (mismo patrón/fuente que "Movimiento de Cartera por PD"), ya que el
 // resumen agregado por el backend agrupa por pd_actual.
-const ResumenPdTable = ({ filters, moneda, monedaCode }: ResumenPdTableProps) => {
+const ResumenPdTable = ({ filters, moneda, monedaCode, tasa }: ResumenPdTableProps) => {
   const [cuentasRaw, setCuentasRaw] = useState<CarteraRecord[]>([]);
   const [order, setOrder] = useState<'asc' | 'desc'>('asc');
   const [orderBy, setOrderBy] = useState<ColumnId>('pd');
@@ -72,16 +73,14 @@ const ResumenPdTable = ({ filters, moneda, monedaCode }: ResumenPdTableProps) =>
       if (!pdInicial) return;
       const asignadoUsd = Number(row.saldo_inicial_usd ?? 0);
       const actualUsd = Number(row.saldo_actual_usd ?? 0);
-      const asignadoLocal = Number(row.saldo_inicial ?? 0);
-      const actualLocal = Number(row.saldo_actual ?? 0);
       const existing = totals.get(pdInicial) ?? { asignadoUsd: 0, actualUsd: 0, asignadoLocal: 0, actualLocal: 0, cuentas: 0 };
       existing.asignadoUsd += Number.isFinite(asignadoUsd) ? asignadoUsd : 0;
       existing.actualUsd += Number.isFinite(actualUsd) ? actualUsd : 0;
-      existing.asignadoLocal += Number.isFinite(asignadoLocal) ? asignadoLocal : 0;
-      existing.actualLocal += Number.isFinite(actualLocal) ? actualLocal : 0;
       existing.cuentas += 1;
       totals.set(pdInicial, existing);
     });
+    // Local = Usd * tasa oficial configurada (Configuración > Tasas de Conversión).
+    totals.forEach((values) => { values.asignadoLocal = values.asignadoUsd * tasa; values.actualLocal = values.actualUsd * tasa; });
 
     return PD_ORDER.filter((pd) => totals.has(pd)).map((pd) => {
       const values = totals.get(pd)!;
@@ -100,7 +99,7 @@ const ResumenPdTable = ({ filters, moneda, monedaCode }: ResumenPdTableProps) =>
         recuperadoLocal
       };
     });
-  }, [cuentasRaw]);
+  }, [cuentasRaw, tasa]);
 
   const getSortValue = (row: PdRow, columnId: ColumnId): number => {
     switch (columnId) {
