@@ -86,7 +86,7 @@ const DashboardPage = () => {
           <DashboardCharts
             countrySummary={dashboard.countrySummary}
             pdMigrationChart={<PDMigrationChart filters={dashboardFilters} />}
-            zonaSector={<DashboardZonaSector data={dashboard.zonaSectorSummary} moneda={monedaSel} monedaCode={monedaCode} />}
+            zonaSector={<DashboardZonaSector filters={dashboardFilters} moneda={monedaSel} monedaCode={monedaCode} />}
           />
         </Box>
       </Box>
