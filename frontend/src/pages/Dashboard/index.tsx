@@ -94,7 +94,7 @@ const DashboardPage = () => {
           />
         </Box>
       </Box>
-      <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><ResumenPdTable data={dashboard.resumenPD} moneda={monedaSel} monedaCode={monedaCode} /></Box>
+      <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><ResumenPdTable filters={dashboardFilters} moneda={monedaSel} monedaCode={monedaCode} /></Box>
       <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><ResumenCampaniaTable data={dashboard.resumenCampania} moneda={monedaSel} monedaCode={monedaCode} /></Box>
       <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><TopGestoresTable data={dashboard.topGestoresDetalle} moneda={monedaSel} monedaCode={monedaCode} /></Box>
       <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><TopZonasTable data={dashboard.topZonasDetalle} moneda={monedaSel} monedaCode={monedaCode} /></Box>

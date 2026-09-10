@@ -1,16 +1,37 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Box, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TableSortLabel, Typography } from '@mui/material';
-import type { ResumenPdItem } from '../../types/cartera';
+import type { CarteraRecord, DashboardFilterParams } from '../../types/cartera';
+import { fetchCartera } from '../../services/carteraService';
 import TableActionsMenu from '../common/TableActionsMenu';
 import { copyRowsToClipboard, exportRowsToCsv, exportRowsToExcel } from '../../utils/tableExport';
 import { getPdEstado, getPdIndex } from '../../utils/carteraAggregations';
 import { simboloMoneda } from '../../utils/monedaOptions';
 
 interface ResumenPdTableProps {
-  data: ResumenPdItem[];
+  filters: DashboardFilterParams;
   moneda: 'USD' | 'LOCAL';
   monedaCode: string;
 }
+
+interface PdRow {
+  pd: string;
+  cuentas: number;
+  saldoAsignadoUsd: number;
+  saldoActualUsd: number;
+  recuperadoUsd: number;
+  porcentajeRecuperacionUsd: number;
+  saldoAsignadoLocal: number;
+  saldoActualLocal: number;
+  recuperadoLocal: number;
+}
+
+const PD_ORDER = ['PD0', 'PD1', 'PD2', 'PD3', 'PD4', 'PD5', 'PD6', 'PD7'];
+
+const normalizePd = (value: unknown) => {
+  const raw = String(value ?? '').trim().toUpperCase();
+  const match = raw.match(/(?:PD|A)([0-7])/);
+  return match ? `PD${match[1]}` : null;
+};
 
 type ColumnId =
   | 'pd'
@@ -30,11 +51,58 @@ const columns: { id: ColumnId; label: string; align: 'center'; width: number }[]
 const formatCurrency = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 const formatPercent = (value: number) => `${value.toFixed(2)}%`;
 
-const ResumenPdTable = ({ data, moneda, monedaCode }: ResumenPdTableProps) => {
+// Resumen agrupado por PD INICIAL (pd_inicial), calculado en el cliente a partir de la
+// cartera completa (mismo patrón/fuente que "Movimiento de Cartera por PD"), ya que el
+// resumen agregado por el backend agrupa por pd_actual.
+const ResumenPdTable = ({ filters, moneda, monedaCode }: ResumenPdTableProps) => {
+  const [cuentasRaw, setCuentasRaw] = useState<CarteraRecord[]>([]);
   const [order, setOrder] = useState<'asc' | 'desc'>('asc');
   const [orderBy, setOrderBy] = useState<ColumnId>('pd');
 
-  const getSortValue = (row: ResumenPdItem, columnId: ColumnId): number => {
+  useEffect(() => {
+    let active = true;
+    fetchCartera(filters).then((data) => { if (active) setCuentasRaw(data); }).catch(() => { if (active) setCuentasRaw([]); });
+    return () => { active = false; };
+  }, [filters]);
+
+  const data = useMemo<PdRow[]>(() => {
+    const totals = new Map<string, { asignadoUsd: number; actualUsd: number; asignadoLocal: number; actualLocal: number; cuentas: number }>();
+    cuentasRaw.forEach((row) => {
+      const pdInicial = normalizePd(row.pd_inicial);
+      if (!pdInicial) return;
+      const asignadoUsd = Number(row.saldo_inicial_usd ?? 0);
+      const actualUsd = Number(row.saldo_actual_usd ?? 0);
+      const asignadoLocal = Number(row.saldo_inicial ?? 0);
+      const actualLocal = Number(row.saldo_actual ?? 0);
+      const existing = totals.get(pdInicial) ?? { asignadoUsd: 0, actualUsd: 0, asignadoLocal: 0, actualLocal: 0, cuentas: 0 };
+      existing.asignadoUsd += Number.isFinite(asignadoUsd) ? asignadoUsd : 0;
+      existing.actualUsd += Number.isFinite(actualUsd) ? actualUsd : 0;
+      existing.asignadoLocal += Number.isFinite(asignadoLocal) ? asignadoLocal : 0;
+      existing.actualLocal += Number.isFinite(actualLocal) ? actualLocal : 0;
+      existing.cuentas += 1;
+      totals.set(pdInicial, existing);
+    });
+
+    return PD_ORDER.filter((pd) => totals.has(pd)).map((pd) => {
+      const values = totals.get(pd)!;
+      const recuperadoUsd = values.asignadoUsd - values.actualUsd;
+      const porcentajeRecuperacionUsd = values.asignadoUsd === 0 ? 0 : Number(((recuperadoUsd / values.asignadoUsd) * 100).toFixed(2));
+      const recuperadoLocal = values.asignadoLocal - values.actualLocal;
+      return {
+        pd,
+        cuentas: values.cuentas,
+        saldoAsignadoUsd: values.asignadoUsd,
+        saldoActualUsd: values.actualUsd,
+        recuperadoUsd,
+        porcentajeRecuperacionUsd,
+        saldoAsignadoLocal: values.asignadoLocal,
+        saldoActualLocal: values.actualLocal,
+        recuperadoLocal
+      };
+    });
+  }, [cuentasRaw]);
+
+  const getSortValue = (row: PdRow, columnId: ColumnId): number => {
     switch (columnId) {
       case 'cuentas': return row.cuentas;
       case 'saldoInicial': return moneda === 'USD' ? row.saldoAsignadoUsd : row.saldoAsignadoLocal;
@@ -62,7 +130,7 @@ const ResumenPdTable = ({ data, moneda, monedaCode }: ResumenPdTableProps) => {
     setOrderBy(columnId);
   };
 
-  const getRowValue = (row: ResumenPdItem, columnId: ColumnId) => {
+  const getRowValue = (row: PdRow, columnId: ColumnId) => {
     switch (columnId) {
       case 'pd':
         return row.pd;
