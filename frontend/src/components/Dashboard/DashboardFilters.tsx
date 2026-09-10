@@ -2,7 +2,7 @@ import Autocomplete from '@mui/material/Autocomplete';
 import { Box, Button, Chip, MenuItem, Popover, TextField, Typography, useTheme } from '@mui/material';
 import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
-import { useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import type { DashboardMultiFilterParams } from '../../types/cartera';
 import { MONEDA_OPTIONS } from '../../utils/monedaOptions';
 
@@ -52,15 +52,37 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
   const isDark = theme.palette.mode === 'dark';
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const open = Boolean(anchorEl);
-  const [scrolled, setScrolled] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const [overChart, setOverChart] = useState(false);
 
-  // El botón es position:fixed y siempre puede quedar sobre contenido del Dashboard;
-  // aplica más transparencia únicamente mientras la página está desplazada.
+  // El botón es position:fixed y puede quedar superpuesto sobre los gráficos del
+  // Dashboard al hacer scroll; aumenta la transparencia únicamente mientras eso ocurre.
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 24);
-    onScroll();
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
+    const checkOverChart = () => {
+      const el = buttonRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const points: [number, number][] = [
+        [rect.left + 4, rect.top + rect.height / 2],
+        [rect.left + rect.width / 2, rect.top + rect.height / 2],
+        [rect.right - 4, rect.top + rect.height / 2]
+      ];
+      const previousPointerEvents = el.style.pointerEvents;
+      el.style.pointerEvents = 'none';
+      const isOverChart = points.some(([x, y]) => {
+        const target = document.elementFromPoint(x, y);
+        return !!target?.closest('.recharts-wrapper, .recharts-responsive-container, svg.recharts-surface');
+      });
+      el.style.pointerEvents = previousPointerEvents;
+      setOverChart(isOverChart);
+    };
+    checkOverChart();
+    window.addEventListener('scroll', checkOverChart, { passive: true });
+    window.addEventListener('resize', checkOverChart, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', checkOverChart);
+      window.removeEventListener('resize', checkOverChart);
+    };
   }, []);
 
   const handleMultiChange = (field: keyof DashboardMultiFilterParams, values: string[]) => {
@@ -85,6 +107,7 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
   return (
     <>
       <Button
+        ref={buttonRef}
         onClick={(event: ReactMouseEvent<HTMLElement>) => setAnchorEl(anchorEl ? null : event.currentTarget)}
         startIcon={<FilterAltOutlinedIcon sx={{ fontSize: 16 }} />}
         sx={{
@@ -100,8 +123,8 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
           px: 1.75,
           py: 0.9,
           minHeight: 38,
-          bgcolor: scrolled ? (isDark ? 'rgba(17, 24, 39, 0.72)' : 'rgba(255, 255, 255, 0.78)') : (isDark ? '#111827' : '#FFFFFF'),
-          backdropFilter: scrolled ? 'blur(8px)' : 'none',
+          bgcolor: overChart ? (isDark ? 'rgba(17, 24, 39, 0.55)' : 'rgba(255, 255, 255, 0.55)') : (isDark ? '#111827' : '#FFFFFF'),
+          backdropFilter: overChart ? 'blur(6px)' : 'none',
           color: isDark ? '#E2E8F0' : '#1E3A8A',
           border: '1.5px solid',
           borderColor: isDark ? '#3B4B66' : '#1E3A8A33',
