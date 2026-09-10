@@ -78,7 +78,7 @@ const DashboardPage = () => {
       <Box sx={{ gridColumn: '1 / -1' }}>
         <DashboardFilters filters={filters} onChange={handleChangeFilters} onClear={handleClearFilters} options={availableOptions} moneda={monedaFiltro} onMonedaChange={setMonedaFiltro} />
       </Box>
-      <Box sx={{ gridColumn: '1 / -1' }}><ConversionRates /></Box>
+      <Box sx={{ gridColumn: '1 / -1', mt: '19px' }}><ConversionRates /></Box>
       <Box sx={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 1.5 }}>
         <Button variant="outlined" startIcon={<DescriptionOutlinedIcon />} onClick={() => setOnePageOpen(true)} sx={{ textTransform: 'none' }}>Generar OnePage</Button>
       </Box>
