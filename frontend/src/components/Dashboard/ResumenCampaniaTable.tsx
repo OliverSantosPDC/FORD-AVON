@@ -25,7 +25,6 @@ const ResumenCampaniaTable = ({ data }: ResumenCampaniaTableProps) => {
   const [order, setOrder] = useState<'asc' | 'desc'>('desc');
   const [orderBy, setOrderBy] = useState<ColumnId>('saldoActualUsd');
   const [search, setSearch] = useState('');
-  const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
 
   const aggregated = data;
 
@@ -43,16 +42,12 @@ const ResumenCampaniaTable = ({ data }: ResumenCampaniaTableProps) => {
     });
   }, [filtered, order, orderBy]);
 
-  const visibleColumns = columns.filter((column) => !hiddenColumns.includes(column.id));
+  const visibleColumns = columns;
 
   const handleSort = (columnId: ColumnId) => {
     const isAsc = orderBy === columnId && order === 'asc';
     setOrder(isAsc ? 'desc' : 'asc');
     setOrderBy(columnId);
-  };
-
-  const toggleColumn = (id: string) => {
-    setHiddenColumns((prev) => (prev.includes(id) ? prev.filter((columnId) => columnId !== id) : [...prev, id]));
   };
 
   const getRowValue = (row: CampaniaSummary, columnId: ColumnId): string | number => {
@@ -122,9 +117,6 @@ const ResumenCampaniaTable = ({ data }: ResumenCampaniaTableProps) => {
             sx={{ width: 150, '& .MuiOutlinedInput-root': { borderRadius: 2, height: 28, fontSize: 11.5 } }}
           />
           <TableActionsMenu
-            columns={columns.map((column) => ({ id: column.id, label: column.label }))}
-            hiddenColumns={hiddenColumns}
-            onToggleColumn={toggleColumn}
             onCopy={handleCopy}
             onExportCsv={handleExportCsv}
             onExportExcel={handleExportExcel}
@@ -142,7 +134,7 @@ const ResumenCampaniaTable = ({ data }: ResumenCampaniaTableProps) => {
           '&::-webkit-scrollbar-thumb': { background: '#C7CDD8', borderRadius: 99 }
         }}
       >
-        <Table stickyHeader size="small" sx={{ minWidth: 760 }}>
+        <Table stickyHeader size="small" sx={{ minWidth: 620 }}>
           <TableHead>
             <TableRow>
               {visibleColumns.map((column) => (

@@ -80,7 +80,6 @@ const DashboardPage = () => {
         <Button variant="outlined" startIcon={<DescriptionOutlinedIcon />} onClick={() => setOnePageOpen(true)} sx={{ textTransform: 'none' }}>Generar OnePage</Button>
       </Box>
       <Box sx={{ gridColumn: '1 / -1' }}><KpiCards kpis={kpisDisplay} moneda={monedaLabel} /></Box>
-      {canCalidadVer && <Box sx={{ gridColumn: '1 / -1' }}><Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1.5, px: 2, py: 1, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}><Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase' }}>Calidad de llamada global</Typography>{calNota && calNota.evaluaciones > 0 ? <><Typography sx={{ fontSize: 20, fontWeight: 800 }}>{calNota.nota}</Typography><Typography sx={{ fontSize: 12, fontWeight: 700, color: calNota.nota >= 75 ? 'success.main' : calNota.nota >= 60 ? 'warning.main' : 'error.main' }}>{calNota.nota >= 90 ? 'Excelente' : calNota.nota >= 75 ? 'Bueno' : calNota.nota >= 60 ? 'Aceptable' : 'Requiere mejora'}</Typography><Typography sx={{ fontSize: 12, color: 'text.secondary' }}>/ 100 · {calNota.evaluaciones} evaluaciones · fuente: Control Operativo</Typography></> : <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>Sin evaluaciones disponibles</Typography>}</Box></Box>}
       <Box sx={{ gridColumn: '1 / -1' }}>
         <Box sx={{ display: 'grid', gap: 2, mt: 1 }}>
           <DashboardCharts
@@ -90,10 +89,10 @@ const DashboardPage = () => {
           />
         </Box>
       </Box>
-      <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><TopGestoresTable data={dashboard.topGestoresDetalle} /></Box>
-      <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><TopZonasTable data={dashboard.topZonasDetalle} /></Box>
       <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><ResumenPdTable data={dashboard.resumenPD} /></Box>
       <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><ResumenCampaniaTable data={dashboard.resumenCampania} /></Box>
+      <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><TopGestoresTable data={dashboard.topGestoresDetalle} /></Box>
+      <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><TopZonasTable data={dashboard.topZonasDetalle} /></Box>
       <Box sx={{ gridColumn: '1 / -1', height: DETAIL_TILE }}><DashboardTable data={dashboard.cuentas} /></Box>
       <DashboardOnePage open={onePageOpen} onClose={() => setOnePageOpen(false)} filters={filters} kpis={kpisDisplay} moneda={monedaLabel} calidad={calNota} puedeCalidad={canCalidadVer} zonaSector={dashboard.zonaSectorSummary} resumenPD={dashboard.resumenPD} />
     </Box>

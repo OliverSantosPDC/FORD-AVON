@@ -32,7 +32,6 @@ const formatPercent = (value: number) => `${value.toFixed(2)}%`;
 const ResumenPdTable = ({ data }: ResumenPdTableProps) => {
   const [order, setOrder] = useState<'asc' | 'desc'>('asc');
   const [orderBy, setOrderBy] = useState<ColumnId>('pd');
-  const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
 
   const sortedData = useMemo(() => {
     return [...data].sort((a, b) => {
@@ -44,16 +43,12 @@ const ResumenPdTable = ({ data }: ResumenPdTableProps) => {
     });
   }, [data, order, orderBy]);
 
-  const visibleColumns = columns.filter((column) => !hiddenColumns.includes(column.id));
+  const visibleColumns = columns;
 
   const handleSort = (columnId: ColumnId) => {
     const isAsc = orderBy === columnId && order === 'asc';
     setOrder(isAsc ? 'desc' : 'asc');
     setOrderBy(columnId);
-  };
-
-  const toggleColumn = (id: string) => {
-    setHiddenColumns((prev) => (prev.includes(id) ? prev.filter((columnId) => columnId !== id) : [...prev, id]));
   };
 
   const getRowValue = (row: ResumenPdItem, columnId: ColumnId) => {
@@ -116,9 +111,6 @@ const ResumenPdTable = ({ data }: ResumenPdTableProps) => {
           Resumen por PD
         </Typography>
         <TableActionsMenu
-          columns={columns.map((column) => ({ id: column.id, label: column.label }))}
-          hiddenColumns={hiddenColumns}
-          onToggleColumn={toggleColumn}
           onCopy={handleCopy}
           onExportCsv={handleExportCsv}
           onExportExcel={handleExportExcel}
@@ -135,7 +127,7 @@ const ResumenPdTable = ({ data }: ResumenPdTableProps) => {
           '&::-webkit-scrollbar-thumb': { background: '#C7CDD8', borderRadius: 99 }
         }}
       >
-        <Table stickyHeader size="small" sx={{ minWidth: 760 }}>
+        <Table stickyHeader size="small" sx={{ minWidth: 620 }}>
           <TableHead>
             <TableRow>
               {visibleColumns.map((column) => (
