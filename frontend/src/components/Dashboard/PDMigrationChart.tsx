@@ -41,17 +41,17 @@ const formatCompact = (value: number) => {
 
 const PDMigrationTooltip = ({
   active,
-  hoveredPdInicial,
+  label,
   seriesSummary,
   monedaLabel
 }: {
   active?: boolean;
-  hoveredPdInicial: string | null;
+  label?: string | number;
   seriesSummary: Map<string, SeriesSummary>;
   monedaLabel: string;
 }) => {
-  if (!active || !hoveredPdInicial) return null;
-  const summary = seriesSummary.get(hoveredPdInicial);
+  if (!active || label === undefined) return null;
+  const summary = seriesSummary.get(String(label));
   if (!summary) return null;
 
   return (
@@ -75,7 +75,6 @@ const PDMigrationChart = ({ filters, moneda, monedaCode }: Props) => {
   const [cuentas, setCuentas] = useState<CarteraRecord[]>([]);
   const [sortKey, setSortKey] = useState<PdSortKey>('pd');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const [hoveredPdInicial, setHoveredPdInicial] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -177,21 +176,11 @@ const PDMigrationChart = ({ filters, moneda, monedaCode }: Props) => {
               <YAxis tickFormatter={formatCompact} tick={{ fill: '#475569', fontSize: 10.5 }} axisLine={false} tickLine={false} />
               <Tooltip
                 cursor={{ fill: 'rgba(15, 23, 42, 0.04)' }}
-                content={<PDMigrationTooltip hoveredPdInicial={hoveredPdInicial} seriesSummary={seriesSummary} monedaLabel={monedaLabel} />}
+                content={<PDMigrationTooltip seriesSummary={seriesSummary} monedaLabel={monedaLabel} />}
               />
               <Legend verticalAlign="bottom" iconType="circle" iconSize={8} wrapperStyle={{ paddingTop: 4, fontSize: 10.5, fontWeight: 600 }} />
               {activeSeries.map((pdInicial) => (
-                <Bar
-                  key={pdInicial}
-                  dataKey={pdInicial}
-                  name={pdInicial}
-                  fill={PD_COLORS[pdInicial]}
-                  radius={[4, 4, 0, 0]}
-                  barSize={14}
-                  isAnimationActive={false}
-                  onMouseEnter={() => setHoveredPdInicial(pdInicial)}
-                  onMouseLeave={() => setHoveredPdInicial(null)}
-                />
+                <Bar key={pdInicial} dataKey={pdInicial} name={pdInicial} fill={PD_COLORS[pdInicial]} radius={[4, 4, 0, 0]} barSize={14} isAnimationActive={false} />
               ))}
             </BarChart>
           </ResponsiveContainer>
