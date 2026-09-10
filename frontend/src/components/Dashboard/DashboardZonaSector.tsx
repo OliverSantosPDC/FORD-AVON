@@ -112,7 +112,7 @@ const DashboardZonaSector = ({ filters, moneda, monedaCode }: Props) => {
   return (
     <Paper sx={{ p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, flexWrap: 'wrap', gap: 1 }}>
-        <Typography sx={{ fontWeight: 700 }}>Saldos por Zona y Sector</Typography>
+        <Typography sx={{ fontWeight: 700 }}>Saldos Actual por Zona y Sector</Typography>
         <Tooltip title="Ordenar">
           <IconButton
             size="small"
@@ -150,7 +150,7 @@ const DashboardZonaSector = ({ filters, moneda, monedaCode }: Props) => {
           {paisesOrdenados.map((grupo) => (
             <Box key={grupo.paisKey}>
               <Typography sx={{ fontSize: 11, fontWeight: 800, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5, mb: 0.5 }}>
-                {grupo.paisNombre} ({grupo.paisKey})
+                {grupo.paisNombre}
               </Typography>
               <Stack spacing={0.75}>
                 {grupo.zonas.map((z) => {

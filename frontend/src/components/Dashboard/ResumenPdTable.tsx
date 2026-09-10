@@ -14,16 +14,14 @@ type ColumnId =
   | 'cuentas'
   | 'saldoActualUsd'
   | 'recuperadoUsd'
-  | 'porcentajeRecuperacionUsd'
-  | 'porcentajeRecuperacionLocal';
+  | 'porcentajeRecuperacionUsd';
 
-const columns: { id: ColumnId; label: string; align?: 'right' }[] = [
-  { id: 'pd', label: 'PD' },
-  { id: 'cuentas', label: 'Cuentas', align: 'right' },
-  { id: 'saldoActualUsd', label: 'Saldo USD', align: 'right' },
-  { id: 'recuperadoUsd', label: 'Recuperado USD', align: 'right' },
-  { id: 'porcentajeRecuperacionUsd', label: '%', align: 'right' },
-  { id: 'porcentajeRecuperacionLocal', label: '% Local', align: 'right' }
+const columns: { id: ColumnId; label: string; align?: 'right'; width: number }[] = [
+  { id: 'pd', label: 'PD', width: 50 },
+  { id: 'cuentas', label: 'TOTAL CUENTAS', align: 'right', width: 110 },
+  { id: 'saldoActualUsd', label: 'El Saldo Asignado', align: 'right', width: 140 },
+  { id: 'recuperadoUsd', label: 'Recuperado', align: 'right', width: 110 },
+  { id: 'porcentajeRecuperacionUsd', label: '%', align: 'right', width: 70 }
 ];
 
 const formatCurrency = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
@@ -63,8 +61,6 @@ const ResumenPdTable = ({ data }: ResumenPdTableProps) => {
         return formatCurrency(row.recuperadoUsd);
       case 'porcentajeRecuperacionUsd':
         return formatPercent(row.porcentajeRecuperacionUsd);
-      case 'porcentajeRecuperacionLocal':
-        return formatPercent(row.porcentajeRecuperacionLocal);
       default:
         return '';
     }
@@ -127,7 +123,7 @@ const ResumenPdTable = ({ data }: ResumenPdTableProps) => {
           '&::-webkit-scrollbar-thumb': { background: '#C7CDD8', borderRadius: 99 }
         }}
       >
-        <Table stickyHeader size="small" sx={{ minWidth: 620 }}>
+        <Table stickyHeader size="small" sx={{ minWidth: columns.reduce((sum, column) => sum + column.width, 0) }}>
           <TableHead>
             <TableRow>
               {visibleColumns.map((column) => (
@@ -135,7 +131,7 @@ const ResumenPdTable = ({ data }: ResumenPdTableProps) => {
                   key={column.id}
                   align={column.align}
                   sortDirection={orderBy === column.id ? order : false}
-                  sx={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, py: 0.75, whiteSpace: 'nowrap' }}
+                  sx={{ width: column.width, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, py: 0.75, whiteSpace: 'nowrap' }}
                 >
                   <TableSortLabel active={orderBy === column.id} direction={orderBy === column.id ? order : 'asc'} onClick={() => handleSort(column.id)}>
                     {column.label}
@@ -153,13 +149,13 @@ const ResumenPdTable = ({ data }: ResumenPdTableProps) => {
                     if (column.id === 'pd') {
                       // El PD conserva el color de texto según su nivel de riesgo.
                       return (
-                        <TableCell key={column.id} align={column.align} sx={{ fontSize: 11.5, py: 0.6, whiteSpace: 'nowrap', color: estado.color, fontWeight: 700 }}>
+                        <TableCell key={column.id} align={column.align} sx={{ width: column.width, fontSize: 11.5, py: 0.6, whiteSpace: 'nowrap', color: estado.color, fontWeight: 700 }}>
                           {row.pd}
                         </TableCell>
                       );
                     }
                     return (
-                      <TableCell key={column.id} align={column.align} sx={{ fontSize: 11.5, py: 0.6, whiteSpace: 'nowrap' }}>
+                      <TableCell key={column.id} align={column.align} sx={{ width: column.width, fontSize: 11.5, py: 0.6, whiteSpace: 'nowrap' }}>
                         {getRowValue(row, column.id)}
                       </TableCell>
                     );

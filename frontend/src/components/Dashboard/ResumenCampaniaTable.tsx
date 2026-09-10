@@ -11,12 +11,12 @@ interface ResumenCampaniaTableProps {
 
 type ColumnId = 'campania' | 'cuentas' | 'saldoActualUsd' | 'recuperadoUsd' | 'porcentajeRecuperacion';
 
-const columns: { id: ColumnId; label: string; align?: 'right' }[] = [
-  { id: 'campania', label: 'Campaña' },
-  { id: 'cuentas', label: 'Total Cuentas', align: 'right' },
-  { id: 'saldoActualUsd', label: 'Saldo USD', align: 'right' },
-  { id: 'recuperadoUsd', label: 'Recuperado', align: 'right' },
-  { id: 'porcentajeRecuperacion', label: '%', align: 'right' }
+const columns: { id: ColumnId; label: string; align?: 'right'; width: number }[] = [
+  { id: 'campania', label: 'Campaña', width: 160 },
+  { id: 'cuentas', label: 'Total Cuentas', align: 'right', width: 110 },
+  { id: 'saldoActualUsd', label: 'El Saldo Asignado', align: 'right', width: 140 },
+  { id: 'recuperadoUsd', label: 'Recuperado', align: 'right', width: 100 },
+  { id: 'porcentajeRecuperacion', label: '%', align: 'right', width: 70 }
 ];
 
 const formatCurrency = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
@@ -134,7 +134,7 @@ const ResumenCampaniaTable = ({ data }: ResumenCampaniaTableProps) => {
           '&::-webkit-scrollbar-thumb': { background: '#C7CDD8', borderRadius: 99 }
         }}
       >
-        <Table stickyHeader size="small" sx={{ minWidth: 620 }}>
+        <Table stickyHeader size="small" sx={{ minWidth: columns.reduce((sum, column) => sum + column.width, 0) }}>
           <TableHead>
             <TableRow>
               {visibleColumns.map((column) => (
@@ -142,7 +142,7 @@ const ResumenCampaniaTable = ({ data }: ResumenCampaniaTableProps) => {
                   key={column.id}
                   align={column.align}
                   sortDirection={orderBy === column.id ? order : false}
-                  sx={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, py: 0.75, whiteSpace: 'nowrap' }}
+                  sx={{ width: column.width, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, py: 0.75, whiteSpace: 'nowrap' }}
                 >
                   <TableSortLabel active={orderBy === column.id} direction={orderBy === column.id ? order : 'asc'} onClick={() => handleSort(column.id)}>
                     {column.label}
@@ -155,7 +155,7 @@ const ResumenCampaniaTable = ({ data }: ResumenCampaniaTableProps) => {
             {sortedData.map((row, index) => (
               <TableRow key={index} hover sx={{ transition: 'background-color 200ms ease-in-out' }}>
                 {visibleColumns.map((column) => (
-                  <TableCell key={column.id} align={column.align} sx={{ fontSize: 11.5, py: 0.6, whiteSpace: 'nowrap' }}>
+                  <TableCell key={column.id} align={column.align} sx={{ width: column.width, fontSize: 11.5, py: 0.6, whiteSpace: 'nowrap' }}>
                     {getRowValue(row, column.id)}
                   </TableCell>
                 ))}
