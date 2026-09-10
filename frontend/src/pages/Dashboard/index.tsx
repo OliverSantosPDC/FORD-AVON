@@ -83,7 +83,7 @@ const DashboardPage = () => {
       {canCalidadVer && <Box sx={{ gridColumn: '1 / -1' }}><Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1.5, px: 2, py: 1, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}><Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase' }}>Calidad de llamada global</Typography>{calNota && calNota.evaluaciones > 0 ? <><Typography sx={{ fontSize: 20, fontWeight: 800 }}>{calNota.nota}</Typography><Typography sx={{ fontSize: 12, fontWeight: 700, color: calNota.nota >= 75 ? 'success.main' : calNota.nota >= 60 ? 'warning.main' : 'error.main' }}>{calNota.nota >= 90 ? 'Excelente' : calNota.nota >= 75 ? 'Bueno' : calNota.nota >= 60 ? 'Aceptable' : 'Requiere mejora'}</Typography><Typography sx={{ fontSize: 12, color: 'text.secondary' }}>/ 100 · {calNota.evaluaciones} evaluaciones · fuente: Control Operativo</Typography></> : <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>Sin evaluaciones disponibles</Typography>}</Box></Box>}
       <Box sx={{ gridColumn: '1 / -1' }}>
         <Box sx={{ display: 'grid', gap: 2 }}>
-          <PDMigrationChart cuentas={dashboard.cuentas} />
+          <PDMigrationChart filters={dashboardFilters} />
           <Box sx={{ '& > .MuiBox-root > .MuiPaper-root:first-of-type': { display: 'none' } }}>
             <DashboardCharts pds={dashboard.pds} resumenPD={dashboard.resumenPD} countrySummary={dashboard.countrySummary} />
           </Box>
