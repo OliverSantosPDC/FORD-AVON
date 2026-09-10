@@ -80,7 +80,9 @@ export const actualizarVariable = async (id: string, b: Record<string, unknown>)
 export const listTasasConversion = async () => {
   const { data, error } = await c().from('config_tasas_conversion').select('*').order('codigo');
   if (error) throw new ConfigError(error.message);
-  return data ?? [];
+  // Postgres devuelve "numeric" como string vía PostgREST; se normaliza a number aquí
+  // (fuente única) para que ningún consumidor (admin o Dashboard) reciba un tipo distinto.
+  return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({ ...row, tasa: Number(row.tasa) }));
 };
 export const actualizarTasaConversion = async (id: string, b: Record<string, unknown>, actor: string | null) => {
   const tasa = Number(b.tasa);

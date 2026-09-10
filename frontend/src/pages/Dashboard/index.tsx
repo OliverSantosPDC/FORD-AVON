@@ -36,18 +36,25 @@ const DashboardPage = () => {
   const [calNota, setCalNota] = useState<{ nota: number; evaluaciones: number } | null>(null);
 
   // Tasas de conversión oficiales (Configuración > Tasas de Conversión): fuente única
-  // para convertir USD a la moneda local seleccionada en todo el Dashboard.
+  // para convertir USD a la moneda local seleccionada en todo el Dashboard. Se vuelve a
+  // consultar (nunca se asume un valor en memoria) al seleccionar moneda, al recuperar el
+  // foco de la pestaña y al montar la página, para que un cambio guardado en Configuración
+  // se refleje sin depender de una recarga completa del navegador.
   const [tasas, setTasas] = useState<Record<string, number>>({});
   useEffect(() => {
     let active = true;
-    getTasasConversionActivas().then((data) => {
-      if (!active) return;
-      const map: Record<string, number> = {};
-      data.forEach((t) => { map[t.codigo] = t.tasa; });
-      setTasas(map);
-    }).catch(() => { if (active) setTasas({}); });
-    return () => { active = false; };
-  }, []);
+    const recargarTasas = () => {
+      getTasasConversionActivas().then((data) => {
+        if (!active) return;
+        const map: Record<string, number> = {};
+        data.forEach((t) => { map[t.codigo] = Number(t.tasa); });
+        setTasas(map);
+      }).catch(() => { if (active) setTasas({}); });
+    };
+    recargarTasas();
+    window.addEventListener('focus', recargarTasas);
+    return () => { active = false; window.removeEventListener('focus', recargarTasas); };
+  }, [monedaFiltro]);
 
   useEffect(() => {
     if (!canCalidadVer) { setCalNota(null); return; }
