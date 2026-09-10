@@ -74,6 +74,7 @@ const ConfiguracionPage = () => {
   const [plantillas, setPlantillas] = useState<Plantilla[]>([]);
   // Tasas de conversión
   const [tasas, setTasas] = useState<TasaConversion[]>([]);
+  const [tasaDrafts, setTasaDrafts] = useState<Record<string, string>>({});
   // Variables
   const [varSearch, setVarSearch] = useState('');
   // Menú (orden)
@@ -463,33 +464,52 @@ const ConfiguracionPage = () => {
               <Table stickyHeader size="small">
                 <TableHead><TableRow>{['Moneda', 'Código', 'Símbolo', 'Tasa (por 1 USD)', 'Actualizado'].map((h) => <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>)}</TableRow></TableHead>
                 <TableBody>
-                  {tasas.map((t) => (
-                    <TableRow key={t.id} hover>
-                      <TableCell sx={{ fontWeight: 600 }}>{t.nombre}</TableCell>
-                      <TableCell>{t.codigo}</TableCell>
-                      <TableCell>{simboloMoneda(t.codigo)}</TableCell>
-                      <TableCell>
-                        {canEdit ? (
-                          <TextField
-                            variant="outlined"
-                            size="small"
-                            type="number"
-                            defaultValue={t.tasa}
-                            inputProps={{ step: '0.0001', min: '0' }}
-                            sx={{ width: 140 }}
-                            onBlur={async (e) => {
-                              const valor = Number(e.target.value);
-                              if (!Number.isFinite(valor) || valor <= 0) { setToast('La tasa debe ser un número mayor que 0.'); e.target.value = String(t.tasa); return; }
-                              if (valor === t.tasa) return;
-                              try { await actualizarTasaConversion(t.id, valor); setTasas(await getTasasConversion()); setToast('Tasa actualizada.'); }
-                              catch (err) { setToast(err instanceof Error ? err.message : 'No se pudo guardar.'); }
-                            }}
-                          />
-                        ) : t.tasa.toFixed(4)}
-                      </TableCell>
-                      <TableCell sx={{ fontSize: 12 }}>{t.updated_at ? String(t.updated_at).slice(0, 16).replace('T', ' ') : '—'}</TableCell>
-                    </TableRow>
-                  ))}
+                  {tasas.map((t) => {
+                    const draft = tasaDrafts[t.id] ?? String(t.tasa);
+                    const draftNum = Number(draft);
+                    const isValid = draft.trim() !== '' && Number.isFinite(draftNum) && draftNum > 0;
+                    const isDirty = draft !== String(t.tasa);
+                    return (
+                      <TableRow key={t.id} hover>
+                        <TableCell sx={{ fontWeight: 600 }}>{t.nombre}</TableCell>
+                        <TableCell>{t.codigo}</TableCell>
+                        <TableCell>{simboloMoneda(t.codigo)}</TableCell>
+                        <TableCell>
+                          {canEdit ? (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <TextField
+                                variant="outlined"
+                                size="small"
+                                type="number"
+                                value={draft}
+                                error={!isValid}
+                                inputProps={{ step: '0.0001', min: '0' }}
+                                sx={{ width: 140 }}
+                                onChange={(e) => setTasaDrafts((prev) => ({ ...prev, [t.id]: e.target.value }))}
+                              />
+                              <Button
+                                size="small"
+                                variant="contained"
+                                disabled={!isDirty || !isValid}
+                                onClick={async () => {
+                                  try {
+                                    await actualizarTasaConversion(t.id, draftNum);
+                                    setTasas(await getTasasConversion());
+                                    setTasaDrafts((prev) => { const next = { ...prev }; delete next[t.id]; return next; });
+                                    setToast('Tasa actualizada.');
+                                  } catch (err) { setToast(err instanceof Error ? err.message : 'No se pudo guardar.'); }
+                                }}
+                                sx={{ textTransform: 'none' }}
+                              >
+                                Guardar
+                              </Button>
+                            </Box>
+                          ) : t.tasa.toFixed(4)}
+                        </TableCell>
+                        <TableCell sx={{ fontSize: 12 }}>{t.updated_at ? String(t.updated_at).slice(0, 16).replace('T', ' ') : '—'}</TableCell>
+                      </TableRow>
+                    );
+                  })}
                   {tasas.length === 0 && <TableRow><TableCell colSpan={5} align="center" sx={{ py: 3, color: 'text.secondary' }}>Sin registros.</TableCell></TableRow>}
                 </TableBody>
               </Table>
