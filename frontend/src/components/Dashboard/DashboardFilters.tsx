@@ -89,7 +89,7 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
         startIcon={<FilterAltOutlinedIcon sx={{ fontSize: 16 }} />}
         sx={{
           position: 'fixed',
-          top: 57,
+          top: 171,
           left: 'calc(var(--sidebar-width, 240px) + 38px)',
           zIndex: 1200,
           borderRadius: 3,
