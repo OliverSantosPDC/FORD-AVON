@@ -33,6 +33,18 @@ const tagChipSx = {
   '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', px: 0.625, lineHeight: '16px' }
 } as const;
 
+// Chip compacto y centrado que muestra únicamente la cantidad seleccionada (2+ elementos).
+const countChipSx = {
+  height: 18,
+  width: 18,
+  minWidth: 18,
+  fontSize: 10,
+  fontWeight: 700,
+  flexShrink: 0,
+  justifyContent: 'center',
+  '& .MuiChip-label': { px: 0, lineHeight: '18px', textAlign: 'center', width: '100%' }
+} as const;
+
 const filterCount = (filters: DashboardMultiFilterParams) =>
   Object.values(filters).reduce((sum, list) => sum + list.length, 0);
 
@@ -113,7 +125,7 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
               noOptionsText="Sin opciones"
               renderTags={(tagValue, getTagProps) =>
                 tagValue.length > 1
-                  ? [<Chip key="count" size="small" label={`${tagValue.length} seleccionados`} sx={tagChipSx} />]
+                  ? [<Chip key="count" size="small" label={tagValue.length} sx={countChipSx} />]
                   : tagValue.map((option, index) => {
                       const { key, ...tagProps } = getTagProps({ index });
                       return <Chip key={key} size="small" label={option} sx={tagChipSx} {...tagProps} />;
@@ -125,17 +137,19 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
                     mt: 0.5,
                     '& .MuiAutocomplete-listbox': {
                       py: 0.5,
-                      maxHeight: 260,
-                      fontSize: 12
+                      maxHeight: 340,
+                      fontSize: 11.5
                     },
                     '& .MuiAutocomplete-option': {
-                      fontSize: 12,
-                      minHeight: 26,
-                      py: 0.5,
+                      fontSize: 11.5,
+                      minHeight: 24,
+                      py: 0.4,
                       px: 1.25,
-                      lineHeight: 1.3
+                      lineHeight: 1.25,
+                      whiteSpace: 'normal',
+                      wordBreak: 'break-word'
                     },
-                    '& .MuiAutocomplete-noOptions': { fontSize: 12, py: 1 }
+                    '& .MuiAutocomplete-noOptions': { fontSize: 11.5, py: 1 }
                   }
                 }
               }}
@@ -189,7 +203,8 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
               MenuProps: {
                 PaperProps: {
                   sx: {
-                    '& .MuiMenuItem-root': { fontSize: 12, minHeight: 30, py: 0.5, px: 1.5 }
+                    maxHeight: 340,
+                    '& .MuiMenuItem-root': { fontSize: 11.5, minHeight: 28, py: 0.4, px: 1.5 }
                   }
                 }
               }
@@ -218,7 +233,7 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
             }}
           >
             {MONEDA_OPTIONS.map((option) => (
-              <MenuItem key={option.code} value={option.code} sx={{ fontSize: 12 }}>
+              <MenuItem key={option.code} value={option.code} sx={{ fontSize: 11.5 }}>
                 {option.label}
               </MenuItem>
             ))}
