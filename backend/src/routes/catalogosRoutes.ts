@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/auth';
-import { listCatalogoActivo, ConfigError } from '../services/ConfigService';
+import { listCatalogoActivo, listTasasConversion, ConfigError } from '../services/ConfigService';
 
 /**
  * Catálogos activos para consumo transversal (Gestión, Control Operativo).
@@ -9,6 +9,16 @@ import { listCatalogoActivo, ConfigError } from '../services/ConfigService';
  * pueda ver las tipificaciones/canales activos definidos por el administrador.
  */
 const router = Router();
+
+/** Tasas de conversión oficiales: fuente única para el Dashboard (mismo criterio de acceso que los catálogos).
+ *  Debe declararse antes de '/catalogos/:catalogo' para no ser interceptada por ese parámetro. */
+router.get('/catalogos/tasas-conversion', requireAuth, async (_req: Request, res: Response) => {
+  try {
+    return res.json(await listTasasConversion());
+  } catch (e) {
+    return res.status(400).json({ error: e instanceof ConfigError ? e.message : 'No se pudo cargar las tasas de conversión.' });
+  }
+});
 
 router.get('/catalogos/:catalogo', requireAuth, async (req: Request, res: Response) => {
   try {

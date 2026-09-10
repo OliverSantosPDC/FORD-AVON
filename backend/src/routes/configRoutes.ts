@@ -22,6 +22,9 @@ router.get('/configuracion/variables', requireAuth, requirePermission(VER), (req
 router.post('/configuracion/variables', requireAuth, requirePermission(EDIT), (req, res) => c.crearVariable(req, res));
 router.patch('/configuracion/variables/:id', requireAuth, requirePermission(EDIT), (req, res) => c.actualizarVariable(req, res));
 
+router.get('/configuracion/tasas-conversion', requireAuth, requirePermission(VER), (req, res) => c.tasasConversion(req, res));
+router.patch('/configuracion/tasas-conversion/:id', requireAuth, requirePermission(EDIT), (req, res) => c.actualizarTasaConversion(req, res));
+
 router.get('/configuracion/roles', requireAuth, requirePermission(VER), (req, res) => c.rolesPermisos(req, res));
 router.put('/configuracion/roles/:roleId/permisos', requireAuth, requirePermission(EDIT), (req, res) => c.guardarRolPermisos(req, res));
 

@@ -18,9 +18,12 @@ import UsuariosPage from '../Usuarios';
 import {
   getGeneral, putGeneral, getCatalogos, crearCatalogo, actualizarCatalogo,
   getVariables, crearVariable, actualizarVariable, getRoles, putRolPermisos, getPlantillas, subirPlantilla, descargarPlantilla, subirAsset,
-  getAuditoria,
-  type Catalogo, type Variable, type Plantilla, type RolesData, type AuditoriaRow
+  getAuditoria, getTasasConversion, actualizarTasaConversion,
+  type Catalogo, type Variable, type Plantilla, type RolesData, type AuditoriaRow, type TasaConversion
 } from '../../services/configuracionService';
+
+/** Monedas que mantienen una tasa fija de 1 (misma regla que el backend). */
+const MONEDAS_TASA_FIJA = new Set(['USD', 'PAB']);
 
 const CATALOGOS_FIJOS = [
   'tipificaciones', 'tipos_contacto', 'canales', 'estados_promesa', 'estados_carta',
@@ -44,13 +47,13 @@ const ConfiguracionPage = () => {
     const raw = searchParams.get('tab');
     if (raw === null) return;
     const n = Number(raw);
-    const maxTab = canUsuarios ? 7 : 6;
+    const maxTab = canUsuarios ? 8 : 7;
     if (Number.isInteger(n) && n >= 0 && n <= maxTab) setTab(n);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, canUsuarios]);
   // Pestaña "Usuarios" (integra el módulo existente dentro de Configuración) al final,
-  // para no desplazar los índices de los paneles existentes. Índice fijo = 7 cuando aplica.
-  const TAB_USUARIOS = 7;
+  // para no desplazar los índices de los paneles existentes. Índice fijo = 8 cuando aplica.
+  const TAB_USUARIOS = 8;
   const [toast, setToast] = useState<string | null>(null);
 
   // General
@@ -71,6 +74,8 @@ const ConfiguracionPage = () => {
   const [nuevaVar, setNuevaVar] = useState({ nombre: '', valor: '', tipo: 'texto', descripcion: '' });
   // Plantillas
   const [plantillas, setPlantillas] = useState<Plantilla[]>([]);
+  // Tasas de conversión
+  const [tasas, setTasas] = useState<TasaConversion[]>([]);
   // Variables
   const [varSearch, setVarSearch] = useState('');
   // Menú (orden)
@@ -87,8 +92,8 @@ const ConfiguracionPage = () => {
   useEffect(() => {
     (async () => {
       try {
-        const [g, c, r, v, p] = await Promise.all([getGeneral(), getCatalogos(), getRoles(), getVariables(), getPlantillas()]);
-        setGeneral2(g); setCatalogos(c); setRolesData(r); setVariables(v); setPlantillas(p);
+        const [g, c, r, v, p, tc] = await Promise.all([getGeneral(), getCatalogos(), getRoles(), getVariables(), getPlantillas(), getTasasConversion()]);
+        setGeneral2(g); setCatalogos(c); setRolesData(r); setVariables(v); setPlantillas(p); setTasas(tc);
         if (r.roles[0]) setRoleSel(r.roles[0].id);
         const guardado = (g.orden_modulos ?? '').split(',').map((x) => x.trim()).filter(Boolean);
         const keys = MODULES.map((m) => m.key);
@@ -164,7 +169,7 @@ const ConfiguracionPage = () => {
   return (
     <Box sx={{ p: { xs: 1, md: 2 } }}>
       <Tabs value={tab} onChange={(_e, v) => setTab(v)} variant="scrollable" sx={{ mb: 2 }}>
-        {['General', 'Catálogos', 'Roles y permisos', 'Apariencia', 'Plantillas', 'Variables', 'Auditoría', ...(canUsuarios ? ['Usuarios'] : [])].map((t) => <Tab key={t} label={t} sx={{ textTransform: 'none' }} />)}
+        {['General', 'Catálogos', 'Roles y permisos', 'Apariencia', 'Plantillas', 'Variables', 'Auditoría', 'Tasas de Conversión', ...(canUsuarios ? ['Usuarios'] : [])].map((t) => <Tab key={t} label={t} sx={{ textTransform: 'none' }} />)}
       </Tabs>
 
       {/* GENERAL */}
@@ -442,6 +447,55 @@ const ConfiguracionPage = () => {
               </Table>
             </TableContainer>
             <TablePagination component="div" count={audTotal} page={audPage} onPageChange={(_e, p) => setAudPage(p)} rowsPerPage={audRpp} onRowsPerPageChange={(e) => { setAudRpp(parseInt(e.target.value, 10)); setAudPage(0); }} rowsPerPageOptions={[25, 50, 100]} labelRowsPerPage="Filas" />
+          </Stack>
+        </Paper>
+      )}
+
+      {/* TASAS DE CONVERSIÓN */}
+      {tab === 7 && (
+        <Paper sx={{ p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
+          <Stack spacing={2}>
+            <Box>
+              <Typography sx={{ fontWeight: 700 }}>Tasas de Conversión</Typography>
+              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                Unidades de moneda local equivalentes a 1 USD. Fuente oficial usada por el Dashboard. Dólares y Balboas mantienen tasa fija de 1.
+              </Typography>
+            </Box>
+            <TableContainer sx={{ maxHeight: '60vh' }}>
+              <Table stickyHeader size="small">
+                <TableHead><TableRow>{['Moneda', 'Código', 'Tasa (por 1 USD)', 'Actualizado'].map((h) => <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>)}</TableRow></TableHead>
+                <TableBody>
+                  {tasas.map((t) => {
+                    const fija = MONEDAS_TASA_FIJA.has(t.codigo);
+                    return (
+                      <TableRow key={t.id} hover>
+                        <TableCell sx={{ fontWeight: 600 }}>{t.nombre}</TableCell>
+                        <TableCell>{t.codigo}</TableCell>
+                        <TableCell>
+                          {canEdit && !fija ? (
+                            <TextField
+                              variant="standard"
+                              type="number"
+                              defaultValue={t.tasa}
+                              inputProps={{ step: '0.0001', min: '0' }}
+                              onBlur={async (e) => {
+                                const valor = Number(e.target.value);
+                                if (!Number.isFinite(valor) || valor <= 0) { setToast('La tasa debe ser un número mayor que 0.'); e.target.value = String(t.tasa); return; }
+                                if (valor === t.tasa) return;
+                                try { await actualizarTasaConversion(t.id, valor); setTasas(await getTasasConversion()); setToast('Tasa actualizada.'); }
+                                catch (err) { setToast(err instanceof Error ? err.message : 'No se pudo guardar.'); }
+                              }}
+                            />
+                          ) : t.tasa.toFixed(4)}
+                        </TableCell>
+                        <TableCell sx={{ fontSize: 12 }}>{t.updated_at ? String(t.updated_at).slice(0, 16).replace('T', ' ') : '—'}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {tasas.length === 0 && <TableRow><TableCell colSpan={4} align="center" sx={{ py: 3, color: 'text.secondary' }}>Sin registros.</TableCell></TableRow>}
+                </TableBody>
+              </Table>
+            </TableContainer>
           </Stack>
         </Paper>
       )}

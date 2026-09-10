@@ -2,7 +2,8 @@ import { Request, Response } from 'express';
 import {
   getGeneral, setGeneral, listCatalogos, crearCatalogo, actualizarCatalogo, eliminarCatalogo,
   listVariables, crearVariable, actualizarVariable, getRolesPermisos, setRolPermisos,
-  listPlantillas, subirPlantilla, subirAsset, urlPlantilla, listAuditoria, ConfigError
+  listPlantillas, subirPlantilla, subirAsset, urlPlantilla, listAuditoria,
+  listTasasConversion, actualizarTasaConversion, ConfigError
 } from '../services/ConfigService';
 import { registrarAuditoria } from '../services/AuditoriaService';
 
@@ -25,6 +26,15 @@ export class ConfigController {
   async variables(_req: Request, res: Response) { try { return res.json(await listVariables()); } catch (e) { return this.fail(res, e); } }
   async crearVariable(req: Request, res: Response) { try { const r = await crearVariable(req.body ?? {}); await this.audit(req, 'CONFIG_VARIABLE_CREAR', r.id); return res.status(201).json(r); } catch (e) { return this.fail(res, e); } }
   async actualizarVariable(req: Request, res: Response) { try { await actualizarVariable(req.params.id, req.body ?? {}); await this.audit(req, 'CONFIG_VARIABLE_EDITAR', req.params.id); return res.json({ ok: true }); } catch (e) { return this.fail(res, e); } }
+
+  async tasasConversion(_req: Request, res: Response) { try { return res.json(await listTasasConversion()); } catch (e) { return this.fail(res, e); } }
+  async actualizarTasaConversion(req: Request, res: Response) {
+    try {
+      await actualizarTasaConversion(req.params.id, req.body ?? {}, req.auth?.userId ?? null);
+      await this.audit(req, 'CONFIG_TASA_CONVERSION_EDITAR', req.params.id);
+      return res.json({ ok: true });
+    } catch (e) { return this.fail(res, e); }
+  }
 
   async rolesPermisos(_req: Request, res: Response) { try { return res.json(await getRolesPermisos()); } catch (e) { return this.fail(res, e); } }
   async guardarRolPermisos(req: Request, res: Response) {
