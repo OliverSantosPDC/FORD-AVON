@@ -23,6 +23,7 @@ const DASHBOARD_COLUMNS = [
   'saldo_actual',
   'saldo_inicial_usd',
   'saldo_actual_usd',
+  'pd_inicial',
   'pd_actual',
   'gestor',
   'gerente_zona'
@@ -31,11 +32,8 @@ const DASHBOARD_COLUMNS = [
 export class SupabaseCarteraAdapter implements CarteraDataSource {
   private readonly table: string;
   private readonly pageSize = 1000; // Supabase limita cada respuesta a 1000 filas.
-  // La cartera sólo cambia al importar (y ahí se invalida la caché), así que un
-  // TTL más largo hace instantáneas las cargas repetidas del dashboard.
   private readonly cacheTtlMs = 5 * 60_000;
 
-  // Caché en memoria compartida entre peticiones (el adaptador es singleton).
   private cache: { rows: Record<string, unknown>[]; expires: number } | null = null;
 
   constructor(table: string = SUPABASE_CARTERA_TABLE) {
@@ -49,17 +47,13 @@ export class SupabaseCarteraAdapter implements CarteraDataSource {
     }
 
     const client = getSupabaseClient();
-
-    // 1) Conteo para saber cuántas páginas se necesitan.
     const { count, error: countError } = await client.from(this.table).select('*', { count: 'exact', head: true });
     if (countError) {
-      throw new Error(`Error al contar filas en "${this.table}": ${countError.message}`);
+      throw new Error(`Error al contar filas en \"${this.table}\": ${countError.message}`);
     }
 
     const total = count ?? 0;
     const pages = Math.ceil(total / this.pageSize);
-
-    // 2) Todas las páginas EN PARALELO, con proyección de columnas.
     const requests = [];
     for (let page = 0; page < pages; page += 1) {
       const from = page * this.pageSize;
@@ -68,11 +62,10 @@ export class SupabaseCarteraAdapter implements CarteraDataSource {
     }
 
     const results = await Promise.all(requests);
-
     const all: Record<string, unknown>[] = [];
     for (const { data, error } of results) {
       if (error) {
-        throw new Error(`Error al leer la tabla "${this.table}" en Supabase: ${error.message}`);
+        throw new Error(`Error al leer la tabla \"${this.table}\" en Supabase: ${error.message}`);
       }
       if (data) all.push(...(data as unknown as Record<string, unknown>[]));
     }
@@ -81,20 +74,16 @@ export class SupabaseCarteraAdapter implements CarteraDataSource {
     return all;
   }
 
-  /** Invalida la caché en memoria para forzar una relectura en la próxima petición. */
   clearCache(): void {
     this.cache = null;
   }
 
-  /** Devuelve el número de filas almacenadas en la tabla (para verificación). */
   async count(): Promise<number> {
     const client = getSupabaseClient();
     const { count, error } = await client.from(this.table).select('*', { count: 'exact', head: true });
-
     if (error) {
-      throw new Error(`Error al contar filas en "${this.table}": ${error.message}`);
+      throw new Error(`Error al contar filas en \"${this.table}\": ${error.message}`);
     }
-
     return count ?? 0;
   }
 }
