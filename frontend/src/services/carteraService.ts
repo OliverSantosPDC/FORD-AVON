@@ -41,10 +41,6 @@ export const fetchDashboard = async (
   filters?: DashboardFilterParams
 ): Promise<DashboardResponse> => {
   const queryString = buildQueryString(filters);
-
-  // apiFetch añade automáticamente Authorization: Bearer <access_token>.
-  // no-store: tras una carga de cartera, la recarga debe leer datos nuevos
-  // y nunca servir una respuesta cacheada por el navegador.
   const response = await apiFetch(`/api/dashboard${queryString}`, { cache: 'no-store' });
 
   if (!response.ok) {
@@ -64,8 +60,9 @@ export const fetchInteligencia = async (): Promise<InteligenciaResponse> => {
   return response.json();
 };
 
-export const fetchCartera = async (): Promise<CarteraRecord[]> => {
-  const response = await apiFetch(`/api/cartera`);
+export const fetchCartera = async (filters?: DashboardFilterParams): Promise<CarteraRecord[]> => {
+  const queryString = buildQueryString(filters);
+  const response = await apiFetch(`/api/cartera${queryString}`, { cache: 'no-store' });
 
   if (!response.ok) {
     throw new Error(messageForStatus(response.status, 'No se pudo obtener la información de cartera.'));
