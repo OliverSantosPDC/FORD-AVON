@@ -27,12 +27,12 @@ interface TopZonasTableProps {
 
 type ColumnId = 'zona' | 'pais' | 'saldoInicial' | 'recuperadoUsd' | 'porcentajeRecuperacion';
 
-const columns: { id: ColumnId; label: string; align?: 'right'; width: number; wrap?: boolean }[] = [
-  { id: 'zona', label: 'Zona', width: 150, wrap: true },
-  { id: 'pais', label: 'País', width: 46 },
-  { id: 'saldoInicial', label: 'Saldo Inicial', align: 'right', width: 126 },
-  { id: 'recuperadoUsd', label: 'Recuperado', align: 'right', width: 98 },
-  { id: 'porcentajeRecuperacion', label: '%', align: 'right', width: 54 }
+const columns: { id: ColumnId; label: string; align: 'center'; width: number; wrap?: boolean }[] = [
+  { id: 'zona', label: 'Zona', align: 'center', width: 150, wrap: true },
+  { id: 'pais', label: 'País', align: 'center', width: 46 },
+  { id: 'saldoInicial', label: 'Saldo Inicial', align: 'center', width: 126 },
+  { id: 'recuperadoUsd', label: 'Recuperado', align: 'center', width: 98 },
+  { id: 'porcentajeRecuperacion', label: '%', align: 'center', width: 54 }
 ];
 
 const formatCurrency = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -164,7 +164,7 @@ const TopZonasTable = ({ data, moneda, monedaCode }: TopZonasTableProps) => {
                   key={column.id}
                   align={column.align}
                   sortDirection={orderBy === column.id ? order : false}
-                  sx={{ width: column.width, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, py: 0.5, whiteSpace: 'nowrap', lineHeight: 1.2 }}
+                  sx={{ width: column.width, px: 1, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, py: 0.4, whiteSpace: 'nowrap', lineHeight: 1.15 }}
                 >
                   <TableSortLabel active={orderBy === column.id} direction={orderBy === column.id ? order : 'asc'} onClick={() => handleSort(column.id)}>
                     {column.label}
@@ -177,7 +177,7 @@ const TopZonasTable = ({ data, moneda, monedaCode }: TopZonasTableProps) => {
             {visibleData.map((row, index) => (
               <TableRow key={index} hover sx={{ transition: 'background-color 200ms ease-in-out' }}>
                 {visibleColumns.map((column) => (
-                  <TableCell key={column.id} align={column.align} sx={{ width: column.width, whiteSpace: column.wrap ? 'normal' : 'nowrap', fontSize: 11, py: 0.4, lineHeight: 1.3 }}>
+                  <TableCell key={column.id} align={column.align} sx={{ width: column.width, px: 1, whiteSpace: column.wrap ? 'normal' : 'nowrap', fontSize: 10.5, py: 0.3, lineHeight: 1.2 }}>
                     {getRowValue(row, column.id)}
                   </TableCell>
                 ))}

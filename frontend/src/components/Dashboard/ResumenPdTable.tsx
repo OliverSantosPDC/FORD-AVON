@@ -18,12 +18,12 @@ type ColumnId =
   | 'recuperadoUsd'
   | 'porcentajeRecuperacionUsd';
 
-const columns: { id: ColumnId; label: string; align?: 'right'; width: number }[] = [
-  { id: 'pd', label: 'PD', width: 44 },
-  { id: 'cuentas', label: 'Total Cuentas', align: 'right', width: 92 },
-  { id: 'saldoInicial', label: 'Saldo Inicial', align: 'right', width: 118 },
-  { id: 'recuperadoUsd', label: 'Recuperado', align: 'right', width: 100 },
-  { id: 'porcentajeRecuperacionUsd', label: '%', align: 'right', width: 56 }
+const columns: { id: ColumnId; label: string; align: 'center'; width: number }[] = [
+  { id: 'pd', label: 'PD', align: 'center', width: 44 },
+  { id: 'cuentas', label: 'Total Cuentas', align: 'center', width: 92 },
+  { id: 'saldoInicial', label: 'Saldo Inicial', align: 'center', width: 118 },
+  { id: 'recuperadoUsd', label: 'Recuperado', align: 'center', width: 100 },
+  { id: 'porcentajeRecuperacionUsd', label: '%', align: 'center', width: 56 }
 ];
 
 const formatCurrency = (value: number, moneda: 'USD' | 'LOCAL', code: string) =>
@@ -146,7 +146,7 @@ const ResumenPdTable = ({ data, moneda, monedaCode }: ResumenPdTableProps) => {
                   key={column.id}
                   align={column.align}
                   sortDirection={orderBy === column.id ? order : false}
-                  sx={{ width: column.width, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, py: 0.5, whiteSpace: 'nowrap', lineHeight: 1.2 }}
+                  sx={{ width: column.width, px: 1, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, py: 0.4, whiteSpace: 'nowrap', lineHeight: 1.15 }}
                 >
                   <TableSortLabel active={orderBy === column.id} direction={orderBy === column.id ? order : 'asc'} onClick={() => handleSort(column.id)}>
                     {column.label}
@@ -164,13 +164,13 @@ const ResumenPdTable = ({ data, moneda, monedaCode }: ResumenPdTableProps) => {
                     if (column.id === 'pd') {
                       // El PD conserva el color de texto según su nivel de riesgo.
                       return (
-                        <TableCell key={column.id} align={column.align} sx={{ width: column.width, fontSize: 11, py: 0.4, whiteSpace: 'nowrap', lineHeight: 1.3, color: estado.color, fontWeight: 700 }}>
+                        <TableCell key={column.id} align={column.align} sx={{ width: column.width, px: 1, fontSize: 10.5, py: 0.3, whiteSpace: 'nowrap', lineHeight: 1.2, color: estado.color, fontWeight: 700 }}>
                           {row.pd}
                         </TableCell>
                       );
                     }
                     return (
-                      <TableCell key={column.id} align={column.align} sx={{ width: column.width, fontSize: 11, py: 0.4, whiteSpace: 'nowrap', lineHeight: 1.3 }}>
+                      <TableCell key={column.id} align={column.align} sx={{ width: column.width, px: 1, fontSize: 10.5, py: 0.3, whiteSpace: 'nowrap', lineHeight: 1.2 }}>
                         {getRowValue(row, column.id)}
                       </TableCell>
                     );

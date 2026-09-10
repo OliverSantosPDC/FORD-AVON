@@ -15,6 +15,7 @@ import {
 import type { CarteraRecord, DashboardFilterParams } from '../../types/cartera';
 import { fetchCartera } from '../../services/carteraService';
 import { getCarteraField, carteraFieldKeys, resolveCountry } from '../../utils/carteraAggregations';
+import { simboloMoneda } from '../../utils/monedaOptions';
 import ChartCard, { type ChartSortOption } from './ChartCard';
 
 interface DashboardChartsProps {
@@ -141,7 +142,7 @@ const DashboardCharts = ({ filters, moneda, monedaCode, pdMigrationChart, zonaSe
     { id: 'za', label: 'Z-A', ascending: false, active: comboSortKey === 'nombre' && comboSortDir === 'desc', onClick: () => { setComboSortKey('nombre'); setComboSortDir('desc'); } }
   ];
 
-  const monedaLabel = moneda === 'USD' ? 'USD' : monedaCode;
+  const simbolo = simboloMoneda(monedaCode);
 
   return (
     <Box
@@ -154,12 +155,12 @@ const DashboardCharts = ({ filters, moneda, monedaCode, pdMigrationChart, zonaSe
     >
       <ChartCard
         title="SALDO INICIAL Y ACTUAL POR PAÍS"
-        subtitle="Comparativo de saldo inicial y saldo vigente"
+        subtitle={`Moneda: ${simbolo}`}
         chartId="chart-horiz-pais-combo"
         fileBaseName="saldo-inicial-actual-por-pais"
         height={CHART_HEIGHT}
         sortOptions={horizSortOptions}
-        csvHeaders={['País', `Saldo Inicial ${monedaLabel}`, `Saldo Actual ${monedaLabel}`]}
+        csvHeaders={['País', `Saldo Inicial ${simbolo}`, `Saldo Actual ${simbolo}`]}
         csvRows={horizData.map((item) => [item.pais, item.asignado, item.actual])}
       >
         {(height) => (
@@ -178,13 +179,13 @@ const DashboardCharts = ({ filters, moneda, monedaCode, pdMigrationChart, zonaSe
       </ChartCard>
 
       <ChartCard
-        title="INICIAL VS RECUPERADO"
-        subtitle="Comparativo por país"
+        title="SALDO INICIAL VS RECUPERADO"
+        subtitle={`Moneda: ${simbolo}`}
         chartId="chart-combo-pais"
         fileBaseName="asignado-vs-recuperado"
         height={CHART_HEIGHT}
         sortOptions={comboSortOptions}
-        csvHeaders={['País', `Inicial ${monedaLabel}`, `Recuperado ${monedaLabel}`]}
+        csvHeaders={['País', `Inicial ${simbolo}`, `Recuperado ${simbolo}`]}
         csvRows={comboData.map((item) => [item.pais, item.asignado, item.recuperado])}
       >
         {(height) => (

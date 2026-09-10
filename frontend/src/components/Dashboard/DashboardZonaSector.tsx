@@ -8,6 +8,7 @@ import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import type { CarteraRecord, DashboardFilterParams } from '../../types/cartera';
 import { fetchCartera } from '../../services/carteraService';
 import { getCarteraField, resolveCountry } from '../../utils/carteraAggregations';
+import { simboloMoneda } from '../../utils/monedaOptions';
 
 interface Props {
   filters: DashboardFilterParams;
@@ -22,7 +23,7 @@ interface PaisGroup { paisKey: string; paisNombre: string; zonas: ZonaAgg[]; }
 const fmt = (value: number, moneda: 'USD' | 'LOCAL', code: string) =>
   moneda === 'USD'
     ? value.toLocaleString(undefined, { maximumFractionDigits: 0 })
-    : `${value.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${code}`;
+    : `${value.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${simboloMoneda(code)}`;
 
 type ZonaSortKey = 'valor' | 'nombre';
 

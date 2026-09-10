@@ -12,6 +12,7 @@ import {
 } from 'recharts';
 import type { CarteraRecord, DashboardFilterParams } from '../../types/cartera';
 import { fetchCartera } from '../../services/carteraService';
+import { simboloMoneda } from '../../utils/monedaOptions';
 import ChartCard, { type ChartSortOption } from './ChartCard';
 
 const PD_COLORS: Record<string, string> = {
@@ -119,7 +120,7 @@ const PDMigrationChart = ({ filters, moneda, monedaCode }: Props) => {
     };
   }, [cuentas, sortKey, sortDir, moneda]);
 
-  const monedaLabel = moneda === 'USD' ? 'USD' : monedaCode;
+  const monedaLabel = simboloMoneda(monedaCode);
 
   const sortOptions: ChartSortOption[] = [
     { id: 'menor-mayor', label: 'Menor a mayor', ascending: true, active: sortKey === 'valor' && sortDir === 'asc', onClick: () => { setSortKey('valor'); setSortDir('asc'); } },

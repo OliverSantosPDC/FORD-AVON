@@ -16,7 +16,6 @@ import ResumenCampaniaTable from '../../components/Dashboard/ResumenCampaniaTabl
 import { useDashboard } from '../../hooks/useDashboard';
 import { useAuth } from '../../context/AuthContext';
 import { getCalidadResumen } from '../../services/controlService';
-import { resolveCountry } from '../../utils/carteraAggregations';
 import { MONEDA_OPTIONS } from '../../utils/monedaOptions';
 import type { DashboardFilterOptions, DashboardFilterParams, DashboardMultiFilterParams, DashboardKpi } from '../../types/cartera';
 
@@ -67,10 +66,8 @@ const DashboardPage = () => {
   const hasFiltersApplied = Object.values(filters).some((list) => list.length > 0);
   if (!hasFiltersApplied && (dashboard.kpis?.totalCuentas ?? 0) === 0) return <Box sx={{ p: 4, textAlign: 'center' }}><Typography sx={{ fontSize: 16, fontWeight: 600 }}>No hay datos disponibles para tu alcance actual.</Typography><Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.5 }}>No tienes cuentas asignadas dentro de tu alcance de acceso.</Typography></Box>;
 
-  const singlePais = filters.pais.length === 1;
-  const paisCanonico = singlePais ? resolveCountry(filters.pais[0])?.name ?? null : null;
   const monedaOption = MONEDA_OPTIONS.find((option) => option.code === monedaFiltro) ?? MONEDA_OPTIONS[0];
-  const monedaSel: 'USD' | 'LOCAL' = monedaOption.pais !== undefined && monedaOption.pais === paisCanonico ? 'LOCAL' : 'USD';
+  const monedaSel: 'USD' | 'LOCAL' = monedaOption.code !== 'USD' ? 'LOCAL' : 'USD';
   const monedaCode = monedaOption.code;
   const monedaLabel = monedaSel === 'LOCAL' ? monedaCode : 'USD';
   const localTotals = dashboard.resumenPD.reduce((a, p) => ({ asignado: a.asignado + p.saldoAsignadoLocal, actual: a.actual + p.saldoActualLocal, recuperado: a.recuperado + p.recuperadoLocal }), { asignado: 0, actual: 0, recuperado: 0 });
