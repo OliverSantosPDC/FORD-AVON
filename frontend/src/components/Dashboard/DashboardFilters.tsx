@@ -96,9 +96,20 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
               disableCloseOnSelect
               filterSelectedOptions
               noOptionsText="Sin opciones"
-              ChipProps={{ size: 'small', sx: { height: 18, fontSize: 10 } }}
+              ChipProps={{
+                size: 'small',
+                sx: {
+                  height: 18,
+                  fontSize: 9.5,
+                  maxWidth: '100%',
+                  minWidth: 0,
+                  flexShrink: 1,
+                  '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', px: 0.75, lineHeight: '18px' }
+                }
+              }}
               sx={{
                 width: '100%',
+                minWidth: 0,
                 '& .MuiOutlinedInput-root': {
                   borderRadius: 2,
                   paddingTop: '2px !important',
@@ -111,7 +122,23 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
                   '&:hover fieldset': { borderColor: '#1E3A8A' },
                   '&.Mui-focused fieldset': { borderColor: '#E6007E' }
                 },
-                '& .MuiInputBase-input': { fontSize: 12 },
+                '& .MuiAutocomplete-inputRoot': {
+                  flexWrap: 'nowrap',
+                  overflow: 'hidden',
+                  gap: 0.5
+                },
+                '& .MuiAutocomplete-tag': {
+                  maxWidth: 'calc(100% - 8px)',
+                  minWidth: 0
+                },
+                '& .MuiAutocomplete-input': {
+                  minWidth: '0 !important',
+                  flexShrink: 1,
+                  fontSize: 11.5,
+                  lineHeight: 1.3
+                },
+                '& .MuiAutocomplete-endAdornment': { flexShrink: 0 },
+                '& .MuiInputBase-input': { fontSize: 11.5 },
                 '& .MuiInputLabel-root': { fontSize: 12 }
               }}
               renderInput={(params) => <TextField {...params} label={field.label} size="small" />}
@@ -136,7 +163,16 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
                 border: '1px solid',
                 borderColor: isDark ? '#334155' : '#E5E7EB'
               },
-              '& .MuiInputBase-input': { fontSize: 12 },
+              '& .MuiSelect-select': {
+                display: 'flex',
+                alignItems: 'center',
+                fontSize: 11.5,
+                lineHeight: 1.3,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              },
+              '& .MuiInputBase-input': { fontSize: 11.5 },
               '& .MuiInputLabel-root': { fontSize: 12 }
             }}
           >
