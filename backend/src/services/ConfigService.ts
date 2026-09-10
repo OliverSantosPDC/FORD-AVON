@@ -77,17 +77,12 @@ export const actualizarVariable = async (id: string, b: Record<string, unknown>)
 };
 
 /* ===== Tasas de conversión ===== */
-const MONEDAS_TASA_FIJA = new Set(['USD', 'PAB']);
 export const listTasasConversion = async () => {
   const { data, error } = await c().from('config_tasas_conversion').select('*').order('codigo');
   if (error) throw new ConfigError(error.message);
   return data ?? [];
 };
 export const actualizarTasaConversion = async (id: string, b: Record<string, unknown>, actor: string | null) => {
-  const { data: row, error: findErr } = await c().from('config_tasas_conversion').select('codigo').eq('id', id).single();
-  if (findErr || !row) throw new ConfigError('Tasa de conversión no encontrada.');
-  const codigo = (row as { codigo: string }).codigo;
-  if (MONEDAS_TASA_FIJA.has(codigo)) throw new ConfigError(`${codigo} mantiene una tasa fija de 1.`);
   const tasa = Number(b.tasa);
   if (!Number.isFinite(tasa) || tasa <= 0) throw new ConfigError('La tasa debe ser un número mayor que 0.');
   const { error } = await c().from('config_tasas_conversion').update({ tasa, updated_at: new Date().toISOString(), updated_by: actor }).eq('id', id);

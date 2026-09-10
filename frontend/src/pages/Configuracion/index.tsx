@@ -21,9 +21,7 @@ import {
   getAuditoria, getTasasConversion, actualizarTasaConversion,
   type Catalogo, type Variable, type Plantilla, type RolesData, type AuditoriaRow, type TasaConversion
 } from '../../services/configuracionService';
-
-/** Monedas que mantienen una tasa fija de 1 (misma regla que el backend). */
-const MONEDAS_TASA_FIJA = new Set(['USD', 'PAB']);
+import { simboloMoneda } from '../../utils/monedaOptions';
 
 const CATALOGOS_FIJOS = [
   'tipificaciones', 'tipos_contacto', 'canales', 'estados_promesa', 'estados_carta',
@@ -458,41 +456,41 @@ const ConfiguracionPage = () => {
             <Box>
               <Typography sx={{ fontWeight: 700 }}>Tasas de Conversión</Typography>
               <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-                Unidades de moneda local equivalentes a 1 USD. Fuente oficial usada por el Dashboard. Dólares y Balboas mantienen tasa fija de 1.
+                Unidades de moneda local equivalentes a 1 USD. Fuente oficial usada por el Dashboard. Dólares y Balboas inician en 1.
               </Typography>
             </Box>
             <TableContainer sx={{ maxHeight: '60vh' }}>
               <Table stickyHeader size="small">
-                <TableHead><TableRow>{['Moneda', 'Código', 'Tasa (por 1 USD)', 'Actualizado'].map((h) => <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>)}</TableRow></TableHead>
+                <TableHead><TableRow>{['Moneda', 'Código', 'Símbolo', 'Tasa (por 1 USD)', 'Actualizado'].map((h) => <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>)}</TableRow></TableHead>
                 <TableBody>
-                  {tasas.map((t) => {
-                    const fija = MONEDAS_TASA_FIJA.has(t.codigo);
-                    return (
-                      <TableRow key={t.id} hover>
-                        <TableCell sx={{ fontWeight: 600 }}>{t.nombre}</TableCell>
-                        <TableCell>{t.codigo}</TableCell>
-                        <TableCell>
-                          {canEdit && !fija ? (
-                            <TextField
-                              variant="standard"
-                              type="number"
-                              defaultValue={t.tasa}
-                              inputProps={{ step: '0.0001', min: '0' }}
-                              onBlur={async (e) => {
-                                const valor = Number(e.target.value);
-                                if (!Number.isFinite(valor) || valor <= 0) { setToast('La tasa debe ser un número mayor que 0.'); e.target.value = String(t.tasa); return; }
-                                if (valor === t.tasa) return;
-                                try { await actualizarTasaConversion(t.id, valor); setTasas(await getTasasConversion()); setToast('Tasa actualizada.'); }
-                                catch (err) { setToast(err instanceof Error ? err.message : 'No se pudo guardar.'); }
-                              }}
-                            />
-                          ) : t.tasa.toFixed(4)}
-                        </TableCell>
-                        <TableCell sx={{ fontSize: 12 }}>{t.updated_at ? String(t.updated_at).slice(0, 16).replace('T', ' ') : '—'}</TableCell>
-                      </TableRow>
-                    );
-                  })}
-                  {tasas.length === 0 && <TableRow><TableCell colSpan={4} align="center" sx={{ py: 3, color: 'text.secondary' }}>Sin registros.</TableCell></TableRow>}
+                  {tasas.map((t) => (
+                    <TableRow key={t.id} hover>
+                      <TableCell sx={{ fontWeight: 600 }}>{t.nombre}</TableCell>
+                      <TableCell>{t.codigo}</TableCell>
+                      <TableCell>{simboloMoneda(t.codigo)}</TableCell>
+                      <TableCell>
+                        {canEdit ? (
+                          <TextField
+                            variant="outlined"
+                            size="small"
+                            type="number"
+                            defaultValue={t.tasa}
+                            inputProps={{ step: '0.0001', min: '0' }}
+                            sx={{ width: 140 }}
+                            onBlur={async (e) => {
+                              const valor = Number(e.target.value);
+                              if (!Number.isFinite(valor) || valor <= 0) { setToast('La tasa debe ser un número mayor que 0.'); e.target.value = String(t.tasa); return; }
+                              if (valor === t.tasa) return;
+                              try { await actualizarTasaConversion(t.id, valor); setTasas(await getTasasConversion()); setToast('Tasa actualizada.'); }
+                              catch (err) { setToast(err instanceof Error ? err.message : 'No se pudo guardar.'); }
+                            }}
+                          />
+                        ) : t.tasa.toFixed(4)}
+                      </TableCell>
+                      <TableCell sx={{ fontSize: 12 }}>{t.updated_at ? String(t.updated_at).slice(0, 16).replace('T', ' ') : '—'}</TableCell>
+                    </TableRow>
+                  ))}
+                  {tasas.length === 0 && <TableRow><TableCell colSpan={5} align="center" sx={{ py: 3, color: 'text.secondary' }}>Sin registros.</TableCell></TableRow>}
                 </TableBody>
               </Table>
             </TableContainer>
