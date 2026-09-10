@@ -6,13 +6,10 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
   ComposedChart,
   Legend,
   Line,
   LineChart,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -50,21 +47,7 @@ const formatCompact = (value: number) => {
   return `$${value}`;
 };
 
-const PD_COLORS: Record<string, string> = {
-  PD0: '#22C55E',
-  PD1: '#16A34A',
-  PD2: '#EAB308',
-  PD3: '#F59E0B',
-  PD4: '#F97316',
-  PD5: '#EA580C',
-  PD6: '#EF4444',
-  PD7: '#B91C1C'
-};
-
-const getPdColor = (pd: string) => PD_COLORS[String(pd ?? '').toUpperCase()] ?? '#94A3B8';
-
 const DashboardCharts = ({ pds, resumenPD, countrySummary }: DashboardChartsProps) => {
-  const [donutDir, setDonutDir] = useState<'asc' | 'desc'>('asc');
   const [horizDir, setHorizDir] = useState<'asc' | 'desc'>('desc');
   const [lineDir, setLineDir] = useState<'asc' | 'desc'>('asc');
   const [comboDir, setComboDir] = useState<'asc' | 'desc'>('asc');
@@ -77,7 +60,6 @@ const DashboardCharts = ({ pds, resumenPD, countrySummary }: DashboardChartsProp
       return direction === 'asc' ? result : -result;
     });
 
-  const donutData = useMemo(() => sortByPd(resumenPD, donutDir), [resumenPD, donutDir]);
   const lineData = useMemo(() => sortByPd(resumenPD, lineDir), [resumenPD, lineDir]);
 
   const horizData = useMemo(() => {
@@ -119,37 +101,6 @@ const DashboardCharts = ({ pds, resumenPD, countrySummary }: DashboardChartsProp
         gridAutoRows: '1fr'
       }}
     >
-      {/* 1 · Donut por PD */}
-      <ChartCard
-        title="Saldo actual por PD"
-        subtitle="Distribución del saldo vigente"
-        chartId="chart-donut-pd"
-        fileBaseName="saldo-actual-por-pd"
-        height={CHART_HEIGHT}
-        sortDirection={donutDir}
-        onSortAsc={() => setDonutDir('asc')}
-        onSortDesc={() => setDonutDir('desc')}
-        sortAscLabel="PD0 → PD7"
-        sortDescLabel="PD7 → PD0"
-        csvHeaders={['PD', 'Saldo Actual USD']}
-        csvRows={donutData.map((item) => [item.pd, item.saldoActualUsd])}
-      >
-        {(height) => (
-          <ResponsiveContainer width="100%" height={height}>
-            <PieChart>
-              <Tooltip formatter={(value: number) => formatUsd(value)} contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} />
-              <Legend verticalAlign="bottom" iconType="circle" iconSize={8} wrapperStyle={legendStyle} />
-              <Pie data={donutData} dataKey="saldoActualUsd" nameKey="pd" innerRadius="52%" outerRadius="78%" paddingAngle={2} cornerRadius={4}>
-                {donutData.map((entry) => (
-                  <Cell key={entry.pd} fill={getPdColor(entry.pd)} />
-                ))}
-              </Pie>
-            </PieChart>
-          </ResponsiveContainer>
-        )}
-      </ChartCard>
-
-      {/* 2 · Barras horizontales por país */}
       <ChartCard
         title="Saldo actual por país"
         subtitle="Comparativo de saldo vigente"
@@ -178,7 +129,6 @@ const DashboardCharts = ({ pds, resumenPD, countrySummary }: DashboardChartsProp
         )}
       </ChartCard>
 
-      {/* 3 · Línea de recuperación */}
       <ChartCard
         title="Recuperación por PD"
         subtitle="Porcentaje recuperado por nivel de riesgo"
@@ -207,7 +157,6 @@ const DashboardCharts = ({ pds, resumenPD, countrySummary }: DashboardChartsProp
         )}
       </ChartCard>
 
-      {/* 4 · Asignado vs Recuperado */}
       <ChartCard
         title="Asignado vs Recuperado"
         subtitle="Comparativo por país"
@@ -237,7 +186,6 @@ const DashboardCharts = ({ pds, resumenPD, countrySummary }: DashboardChartsProp
         )}
       </ChartCard>
 
-      {/* 5 · Área acumulada */}
       <ChartCard
         title="Saldo acumulado por PD"
         subtitle="Exposición acumulada en orden de riesgo"
@@ -272,7 +220,6 @@ const DashboardCharts = ({ pds, resumenPD, countrySummary }: DashboardChartsProp
         )}
       </ChartCard>
 
-      {/* 6 · Barras por PD */}
       <ChartCard
         title="Riesgo por PD"
         subtitle="Exposición asignada USD"
