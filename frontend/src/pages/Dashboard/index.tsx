@@ -84,9 +84,7 @@ const DashboardPage = () => {
       <Box sx={{ gridColumn: '1 / -1' }}>
         <Box sx={{ display: 'grid', gap: 2 }}>
           <PDMigrationChart filters={dashboardFilters} />
-          <Box sx={{ '& > .MuiBox-root > .MuiPaper-root:first-of-type': { display: 'none' } }}>
-            <DashboardCharts pds={dashboard.pds} resumenPD={dashboard.resumenPD} countrySummary={dashboard.countrySummary} />
-          </Box>
+          <DashboardCharts pds={dashboard.pds} resumenPD={dashboard.resumenPD} countrySummary={dashboard.countrySummary} />
         </Box>
       </Box>
       <Box sx={{ gridColumn: '1 / -1' }}><DashboardZonaSector data={dashboard.zonaSectorSummary} moneda={monedaSel} monedaCode={monedaCode} /></Box>
