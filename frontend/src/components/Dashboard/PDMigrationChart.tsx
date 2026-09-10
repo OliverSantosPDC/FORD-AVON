@@ -1,6 +1,7 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Box, Typography } from '@mui/material';
-import type { CarteraRecord } from '../../types/cartera';
+import type { CarteraRecord, DashboardFilterParams } from '../../types/cartera';
+import { fetchCartera } from '../../services/carteraService';
 import ChartCard from './ChartCard';
 
 const PD_COLORS: Record<string, string> = {
@@ -24,7 +25,7 @@ const normalizePd = (value: unknown) => {
 };
 
 interface Props {
-  cuentas: CarteraRecord[];
+  filters: DashboardFilterParams;
 }
 
 interface Flow {
@@ -33,7 +34,17 @@ interface Flow {
   value: number;
 }
 
-const PDMigrationChart = ({ cuentas }: Props) => {
+const PDMigrationChart = ({ filters }: Props) => {
+  const [cuentas, setCuentas] = useState<CarteraRecord[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    fetchCartera(filters)
+      .then((data) => { if (active) setCuentas(data); })
+      .catch(() => { if (active) setCuentas([]); });
+    return () => { active = false; };
+  }, [filters]);
+
   const { flows, totalsInitial, totalsActual, totalSaldo, csvRows } = useMemo(() => {
     const flowMap = new Map<string, number>();
     const initialMap = new Map<string, number>();
@@ -80,7 +91,9 @@ const PDMigrationChart = ({ cuentas }: Props) => {
     const visibleInitial = PD_ORDER.filter((pd) => (totalsInitial.get(pd) ?? 0) > 0);
     const visibleActual = PD_ORDER.filter((pd) => (totalsActual.get(pd) ?? 0) > 0);
     const maxCount = Math.max(visibleInitial.length, visibleActual.length, 1);
-    const scale = Math.max(0.12, (usableHeight - gap * (maxCount - 1)) / Math.max(totalSaldo, 1));
+    const scale = totalSaldo > 0
+      ? Math.min((usableHeight - gap * (maxCount - 1)) / totalSaldo, 1)
+      : 0;
 
     const buildNodes = (pds: string[], totals: Map<string, number>) => {
       let y = top;
