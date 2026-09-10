@@ -99,12 +99,32 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
               ChipProps={{
                 size: 'small',
                 sx: {
-                  height: 18,
-                  fontSize: 9.5,
+                  height: 16,
+                  fontSize: 9,
                   maxWidth: '100%',
                   minWidth: 0,
                   flexShrink: 1,
-                  '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', px: 0.75, lineHeight: '18px' }
+                  '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', px: 0.625, lineHeight: '16px' }
+                }
+              }}
+              componentsProps={{
+                paper: {
+                  sx: {
+                    mt: 0.5,
+                    '& .MuiAutocomplete-listbox': {
+                      py: 0.5,
+                      maxHeight: 260,
+                      fontSize: 12
+                    },
+                    '& .MuiAutocomplete-option': {
+                      fontSize: 12,
+                      minHeight: 26,
+                      py: 0.5,
+                      px: 1.25,
+                      lineHeight: 1.3
+                    },
+                    '& .MuiAutocomplete-noOptions': { fontSize: 12, py: 1 }
+                  }
                 }
               }}
               sx={{
@@ -134,12 +154,12 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
                 '& .MuiAutocomplete-input': {
                   minWidth: '0 !important',
                   flexShrink: 1,
-                  fontSize: 11.5,
+                  fontSize: 11,
                   lineHeight: 1.3
                 },
                 '& .MuiAutocomplete-endAdornment': { flexShrink: 0 },
-                '& .MuiInputBase-input': { fontSize: 11.5 },
-                '& .MuiInputLabel-root': { fontSize: 12 }
+                '& .MuiInputBase-input': { fontSize: 11 },
+                '& .MuiInputLabel-root': { fontSize: 11 }
               }}
               renderInput={(params) => <TextField {...params} label={field.label} size="small" />}
             />
@@ -153,6 +173,15 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
             label="Moneda"
             value={moneda}
             onChange={(event) => onMonedaChange(event.target.value)}
+            SelectProps={{
+              MenuProps: {
+                PaperProps: {
+                  sx: {
+                    '& .MuiMenuItem-root': { fontSize: 12, minHeight: 30, py: 0.5, px: 1.5 }
+                  }
+                }
+              }
+            }}
             sx={{
               minWidth: 150,
               flexShrink: 0,
@@ -166,18 +195,18 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
               '& .MuiSelect-select': {
                 display: 'flex',
                 alignItems: 'center',
-                fontSize: 11.5,
+                fontSize: 11,
                 lineHeight: 1.3,
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap'
               },
-              '& .MuiInputBase-input': { fontSize: 11.5 },
-              '& .MuiInputLabel-root': { fontSize: 12 }
+              '& .MuiInputBase-input': { fontSize: 11 },
+              '& .MuiInputLabel-root': { fontSize: 11 }
             }}
           >
             {MONEDA_OPTIONS.map((option) => (
-              <MenuItem key={option.code} value={option.code} sx={{ fontSize: 12.5 }}>
+              <MenuItem key={option.code} value={option.code} sx={{ fontSize: 12 }}>
                 {option.label}
               </MenuItem>
             ))}
