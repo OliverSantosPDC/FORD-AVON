@@ -32,19 +32,23 @@ const BATCH_SIZE = 500;
 const truncateTable = async (): Promise<void> => {
   const client = getSupabaseClient();
   let totalDeleted = 0;
+
+  // El borrado se hace por la PK `id`, no por `codigo`.
+  // Esto garantiza que también se eliminen filas residuales con codigo NULL
+  // y evita que registros inválidos sobrevivan entre reemplazos de cartera.
   for (;;) {
-    const { data, error } = await client.from(SUPABASE_CARTERA_TABLE).select('codigo').limit(BATCH_SIZE);
-    if (error) throw new Error(`No se pudieron leer códigos para vaciar la tabla: ${error.message}`);
+    const { data, error } = await client.from(SUPABASE_CARTERA_TABLE).select('id').limit(BATCH_SIZE);
+    if (error) throw new Error(`No se pudieron leer IDs para vaciar la tabla: ${error.message}`);
     if (!data || data.length === 0) break;
 
-    const codigos = data
-      .map((row) => (row as { codigo: unknown }).codigo)
-      .filter((codigo): codigo is string | number => codigo !== null && codigo !== undefined);
-    if (codigos.length === 0) break;
+    const ids = data
+      .map((row) => (row as { id: unknown }).id)
+      .filter((id): id is number | string => id !== null && id !== undefined);
+    if (ids.length === 0) break;
 
-    const { error: deleteError } = await client.from(SUPABASE_CARTERA_TABLE).delete().in('codigo', codigos);
+    const { error: deleteError } = await client.from(SUPABASE_CARTERA_TABLE).delete().in('id', ids);
     if (deleteError) throw new Error(`No se pudo vaciar la tabla: ${deleteError.message}`);
-    totalDeleted += codigos.length;
+    totalDeleted += ids.length;
     console.log(`[UPLOAD]   truncate progreso: ${totalDeleted} filas eliminadas`);
   }
 };
@@ -145,8 +149,8 @@ const rssMB = () => Math.round(process.memoryUsage().rss / 1024 / 1024);
  * archivo), y luego lo procesa en DOS pasadas por streaming:
  *   Pasada 1 (validación): valida encabezados y fechas fila por fila, cuenta el
  *     total. NO acumula filas. Si es inválido, la cartera actual queda intacta.
- *   Pasada 2 (reemplazo): trunca la tabla e inserta por lotes de 500, vaciando
- *     el lote tras cada inserción. Nunca mantiene todas las filas en memoria.
+ *   Pasada 2 (reemplazo): trunca la tabla e inserta por lotes de 500, vaciando el
+ *     lote tras cada inserción. Nunca mantiene todas las filas en memoria.
  * Render nunca recibe el archivo por HTTP/multer.
  */
 export const downloadAndReplaceCartera = async (onProgress?: ProgressCallback): Promise<ReplaceCarteraResult> => {
@@ -187,8 +191,11 @@ export const downloadAndReplaceCartera = async (onProgress?: ProgressCallback): 
       onHeaders: () => {
         headersValidated = true;
       },
-      onRow: (record, rowNumber) => {
-        // rowNumber es la fila real de Excel (la fila 1 es el encabezado).
+      onRow: async (record, rowNumber) => {
+        // `codigo` es el identificador obligatorio de una cuenta de cartera.
+        if (record.codigo === null || record.codigo === undefined || String(record.codigo).trim() === '') {
+          throw new Error(`Registro inválido en la fila ${rowNumber}: el campo "codigo" es obligatorio.`);
+        }
         validateRecordTypes(record, rowNumber);
         validateRecordDates(record, rowNumber);
         total += 1;
@@ -228,7 +235,10 @@ export const downloadAndReplaceCartera = async (onProgress?: ProgressCallback): 
     };
 
     await streamWorkbookRows(createReadStream(tmpPath), {
-      onRow: async (record) => {
+      onRow: async (record, rowNumber) => {
+        if (record.codigo === null || record.codigo === undefined || String(record.codigo).trim() === '') {
+          throw new Error(`Registro inválido en la fila ${rowNumber}: el campo "codigo" es obligatorio.`);
+        }
         batch.push(record);
         if (batch.length >= BATCH_SIZE) await flush();
       }
