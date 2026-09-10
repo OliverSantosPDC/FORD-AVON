@@ -9,7 +9,6 @@ import {
   ComposedChart,
   Legend,
   Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -52,8 +51,6 @@ const formatCompact = (value: number) => {
 
 const DashboardCharts = ({ pds, resumenPD, countrySummary, pdMigrationChart, zonaSector }: DashboardChartsProps) => {
   const [horizDir, setHorizDir] = useState<'asc' | 'desc'>('desc');
-  const [horizInicialDir, setHorizInicialDir] = useState<'asc' | 'desc'>('desc');
-  const [lineDir, setLineDir] = useState<'asc' | 'desc'>('asc');
   const [comboDir, setComboDir] = useState<'asc' | 'desc'>('asc');
   const [areaDir, setAreaDir] = useState<'asc' | 'desc'>('asc');
   const [pdsDir, setPdsDir] = useState<'asc' | 'desc'>('asc');
@@ -64,21 +61,12 @@ const DashboardCharts = ({ pds, resumenPD, countrySummary, pdMigrationChart, zon
       return direction === 'asc' ? result : -result;
     });
 
-  const lineData = useMemo(() => sortByPd(resumenPD, lineDir), [resumenPD, lineDir]);
-
   const horizData = useMemo(() => {
     return [...countrySummary].sort((a, b) => {
       const result = a.saldoActualUsd - b.saldoActualUsd;
       return horizDir === 'asc' ? result : -result;
     });
   }, [countrySummary, horizDir]);
-
-  const horizInicialData = useMemo(() => {
-    return [...countrySummary].sort((a, b) => {
-      const result = a.saldoAsignadoUsd - b.saldoAsignadoUsd;
-      return horizInicialDir === 'asc' ? result : -result;
-    });
-  }, [countrySummary, horizInicialDir]);
 
   const comboData = useMemo(() => {
     return [...countrySummary].sort((a, b) => {
@@ -113,18 +101,18 @@ const DashboardCharts = ({ pds, resumenPD, countrySummary, pdMigrationChart, zon
       }}
     >
       <ChartCard
-        title="Saldo actual por país"
-        subtitle="Comparativo de saldo vigente"
-        chartId="chart-horiz-pais"
-        fileBaseName="saldo-actual-por-pais"
+        title="Saldo inicial y actual por país"
+        subtitle="Comparativo de saldo inicial y saldo vigente"
+        chartId="chart-horiz-pais-combo"
+        fileBaseName="saldo-inicial-actual-por-pais"
         height={CHART_HEIGHT}
         sortDirection={horizDir}
         onSortAsc={() => setHorizDir('asc')}
         onSortDesc={() => setHorizDir('desc')}
         sortAscLabel="Menor a mayor"
         sortDescLabel="Mayor a menor"
-        csvHeaders={['País', 'Saldo Actual USD']}
-        csvRows={horizData.map((item) => [item.pais, item.saldoActualUsd])}
+        csvHeaders={['País', 'Saldo Inicial USD', 'Saldo Actual USD']}
+        csvRows={horizData.map((item) => [item.pais, item.saldoAsignadoUsd, item.saldoActualUsd])}
       >
         {(height) => (
           <ResponsiveContainer width="100%" height={height}>
@@ -134,66 +122,8 @@ const DashboardCharts = ({ pds, resumenPD, countrySummary, pdMigrationChart, zon
               <YAxis type="category" dataKey="pais" width={112} tick={axisTick} axisLine={false} tickLine={false} />
               <Tooltip formatter={(value: number) => formatUsd(value)} contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} />
               <Legend verticalAlign="bottom" iconType="circle" iconSize={8} wrapperStyle={legendStyle} />
-              <Bar dataKey="saldoActualUsd" name="Saldo Actual USD" fill="#1E3A8A" radius={[0, 6, 6, 0]} barSize={14} />
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-      </ChartCard>
-
-      <ChartCard
-        title="Recuperación por PD"
-        subtitle="Porcentaje recuperado por nivel de riesgo"
-        chartId="chart-line-pd"
-        fileBaseName="recuperacion-por-pd"
-        height={CHART_HEIGHT}
-        sortDirection={lineDir}
-        onSortAsc={() => setLineDir('asc')}
-        onSortDesc={() => setLineDir('desc')}
-        sortAscLabel="PD0 → PD7"
-        sortDescLabel="PD7 → PD0"
-        csvHeaders={['PD', '% Recuperación USD']}
-        csvRows={lineData.map((item) => [item.pd, item.porcentajeRecuperacionUsd])}
-      >
-        {(height) => (
-          <ResponsiveContainer width="100%" height={height}>
-            <LineChart data={lineData} margin={{ top: 8, right: 16, left: -12, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
-              <XAxis dataKey="pd" tick={axisTick} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={(value) => `${value}%`} tick={axisTick} axisLine={false} tickLine={false} />
-              <Tooltip formatter={(value: number) => `${value.toFixed(2)}%`} contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} />
-              <Legend verticalAlign="bottom" iconType="circle" iconSize={8} wrapperStyle={legendStyle} />
-              <Line type="monotone" dataKey="porcentajeRecuperacionUsd" name="% Recuperación" stroke="#1E3A8A" strokeWidth={2.5} dot={{ r: 3, fill: '#1E3A8A' }} activeDot={{ r: 5 }} />
-            </LineChart>
-          </ResponsiveContainer>
-        )}
-      </ChartCard>
-
-      {pdMigrationChart}
-      {zonaSector}
-
-      <ChartCard
-        title="Saldo inicial por país"
-        subtitle="Comparativo de saldo inicial"
-        chartId="chart-horiz-pais-inicial"
-        fileBaseName="saldo-inicial-por-pais"
-        height={CHART_HEIGHT}
-        sortDirection={horizInicialDir}
-        onSortAsc={() => setHorizInicialDir('asc')}
-        onSortDesc={() => setHorizInicialDir('desc')}
-        sortAscLabel="Menor a mayor"
-        sortDescLabel="Mayor a menor"
-        csvHeaders={['País', 'Saldo Inicial USD']}
-        csvRows={horizInicialData.map((item) => [item.pais, item.saldoAsignadoUsd])}
-      >
-        {(height) => (
-          <ResponsiveContainer width="100%" height={height}>
-            <BarChart data={horizInicialData} layout="vertical" margin={{ top: 4, right: 16, left: 4, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" horizontal={false} />
-              <XAxis type="number" tickFormatter={formatCompact} tick={axisTick} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="pais" width={112} tick={axisTick} axisLine={false} tickLine={false} />
-              <Tooltip formatter={(value: number) => formatUsd(value)} contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} />
-              <Legend verticalAlign="bottom" iconType="circle" iconSize={8} wrapperStyle={legendStyle} />
-              <Bar dataKey="saldoAsignadoUsd" name="Saldo Inicial USD" fill="#1E3A8A" radius={[0, 6, 6, 0]} barSize={14} />
+              <Bar dataKey="saldoAsignadoUsd" name="Saldo Inicial USD" fill="#1E3A8A" radius={[0, 6, 6, 0]} barSize={10} />
+              <Bar dataKey="saldoActualUsd" name="Saldo Actual USD" fill="#0EA5E9" radius={[0, 6, 6, 0]} barSize={10} />
             </BarChart>
           </ResponsiveContainer>
         )}
@@ -227,6 +157,9 @@ const DashboardCharts = ({ pds, resumenPD, countrySummary, pdMigrationChart, zon
           </ResponsiveContainer>
         )}
       </ChartCard>
+
+      {pdMigrationChart}
+      {zonaSector}
 
       <ChartCard
         title="Saldo acumulado por PD"
