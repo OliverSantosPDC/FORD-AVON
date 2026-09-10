@@ -2,7 +2,7 @@ import Autocomplete from '@mui/material/Autocomplete';
 import { Box, Button, Chip, MenuItem, Popover, TextField, Typography, useTheme } from '@mui/material';
 import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
-import { useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import type { DashboardMultiFilterParams } from '../../types/cartera';
 import { MONEDA_OPTIONS } from '../../utils/monedaOptions';
 
@@ -52,6 +52,16 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
   const isDark = theme.palette.mode === 'dark';
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const open = Boolean(anchorEl);
+  const [scrolled, setScrolled] = useState(false);
+
+  // El botón es position:fixed y siempre puede quedar sobre contenido del Dashboard;
+  // aplica más transparencia únicamente mientras la página está desplazada.
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 24);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   const handleMultiChange = (field: keyof DashboardMultiFilterParams, values: string[]) => {
     onChange({
@@ -80,21 +90,23 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
         sx={{
           position: 'fixed',
           top: 76,
-          right: 20,
+          left: 20,
           zIndex: 1200,
           borderRadius: 3,
           textTransform: 'none',
-          fontSize: 11,
+          fontSize: 11.5,
           fontWeight: 800,
           letterSpacing: 0.6,
-          px: 1.5,
-          py: 0.75,
-          minHeight: 34,
-          bgcolor: isDark ? '#111827' : '#FFFFFF',
+          px: 1.75,
+          py: 0.9,
+          minHeight: 38,
+          bgcolor: scrolled ? (isDark ? 'rgba(17, 24, 39, 0.72)' : 'rgba(255, 255, 255, 0.78)') : (isDark ? '#111827' : '#FFFFFF'),
+          backdropFilter: scrolled ? 'blur(8px)' : 'none',
           color: isDark ? '#E2E8F0' : '#1E3A8A',
-          border: '1px solid',
-          borderColor: isDark ? '#334155' : '#E5E7EB',
-          boxShadow: isDark ? '0 10px 26px rgba(0, 0, 0, 0.35)' : '0 10px 26px rgba(15, 23, 42, 0.12)',
+          border: '1.5px solid',
+          borderColor: isDark ? '#3B4B66' : '#1E3A8A33',
+          boxShadow: isDark ? '0 14px 32px rgba(0, 0, 0, 0.45)' : '0 14px 32px rgba(15, 23, 42, 0.18)',
+          transition: 'background-color 200ms ease, box-shadow 200ms ease',
           '&:hover': { bgcolor: isDark ? '#111827' : '#FFFFFF', borderColor: '#E6007E' }
         }}
       >
@@ -108,8 +120,8 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
         open={open}
         anchorEl={anchorEl}
         onClose={() => setAnchorEl(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
         PaperProps={{
           sx: {
             mt: 1,
