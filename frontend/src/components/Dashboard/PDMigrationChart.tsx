@@ -47,7 +47,7 @@ const PDMigrationTooltip = ({ active, payload, label }: { active?: boolean; payl
     <Box sx={{ borderRadius: 1.5, border: '1px solid #E2E8F0', boxShadow: '0 16px 40px rgba(15, 23, 42, 0.14)', backgroundColor: '#FFFFFF', px: 1.5, py: 1 }}>
       <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#0F172A', mb: 0.5 }}>PD Inicial: {label}</Typography>
       <Typography sx={{ fontSize: 12, color: '#475569' }}>PD Actual: {actual}</Typography>
-      <Typography sx={{ fontSize: 12, color: '#475569' }}>Saldo actual USD: {formatUsd(value)}</Typography>
+      <Typography sx={{ fontSize: 12, color: '#475569' }}>Saldo actual: {formatUsd(value)}</Typography>
     </Box>
   );
 };
@@ -127,7 +127,7 @@ const PDMigrationChart = ({ filters }: Props) => {
   ];
 
   return (
-    <ChartCard title="Movimiento de cartera por PD" subtitle="PD inicial → PD actual · saldo actual USD" chartId="chart-pd-migration" fileBaseName="movimiento-cartera-pd" height={240} sortOptions={sortOptions} csvHeaders={['PD Inicial', 'PD Actual', 'Saldo Actual USD']} csvRows={csvRows}>
+    <ChartCard title="MOVIMIENTO DE CARTERA POR PD" subtitle="PD inicial → PD actual · saldo actual" chartId="chart-pd-migration" fileBaseName="movimiento-cartera-pd" height={240} sortOptions={sortOptions} csvHeaders={['PD Inicial', 'PD Actual', 'Saldo Actual USD']} csvRows={csvRows}>
       {(height) => (
         <Box sx={{ width: '100%', height: '100%', position: 'relative' }}>
           <ResponsiveContainer width="100%" height={height}>

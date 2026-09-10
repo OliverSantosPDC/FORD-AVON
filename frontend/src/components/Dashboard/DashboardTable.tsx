@@ -33,7 +33,7 @@ const headCells = [
   { id: 'zona', label: 'Zona' },
   { id: 'pd', label: 'PD' },
   { id: 'campania', label: 'Campaña' },
-  { id: 'saldoActualUsd', label: 'Saldo USD' }
+  { id: 'saldoActualUsd', label: 'Saldo' }
 ];
 
 const pdColor = (pd: string) => {

@@ -14,7 +14,7 @@ type ColumnId = 'campania' | 'cuentas' | 'saldoActualUsd' | 'recuperadoUsd' | 'p
 const columns: { id: ColumnId; label: string; align?: 'right'; width: number }[] = [
   { id: 'campania', label: 'Campaña', width: 160 },
   { id: 'cuentas', label: 'Total Cuentas', align: 'right', width: 110 },
-  { id: 'saldoActualUsd', label: 'El Saldo Asignado', align: 'right', width: 140 },
+  { id: 'saldoActualUsd', label: 'Saldo Inicial', align: 'right', width: 140 },
   { id: 'recuperadoUsd', label: 'Recuperado', align: 'right', width: 100 },
   { id: 'porcentajeRecuperacion', label: '%', align: 'right', width: 70 }
 ];

@@ -28,7 +28,7 @@ type ColumnId = 'zona' | 'pais' | 'saldoActualUsd' | 'recuperadoUsd' | 'porcenta
 const columns: { id: ColumnId; label: string; align?: 'right' }[] = [
   { id: 'zona', label: 'Zona' },
   { id: 'pais', label: 'País' },
-  { id: 'saldoActualUsd', label: 'Saldo USD', align: 'right' },
+  { id: 'saldoActualUsd', label: 'Saldo', align: 'right' },
   { id: 'recuperadoUsd', label: 'Recuperado', align: 'right' },
   { id: 'porcentajeRecuperacion', label: '%', align: 'right' }
 ];

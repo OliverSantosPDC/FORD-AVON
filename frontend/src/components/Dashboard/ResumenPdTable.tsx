@@ -18,8 +18,8 @@ type ColumnId =
 
 const columns: { id: ColumnId; label: string; align?: 'right'; width: number }[] = [
   { id: 'pd', label: 'PD', width: 50 },
-  { id: 'cuentas', label: 'TOTAL CUENTAS', align: 'right', width: 110 },
-  { id: 'saldoActualUsd', label: 'El Saldo Asignado', align: 'right', width: 140 },
+  { id: 'cuentas', label: 'Total Cuentas', align: 'right', width: 110 },
+  { id: 'saldoActualUsd', label: 'Saldo Inicial', align: 'right', width: 140 },
   { id: 'recuperadoUsd', label: 'Recuperado', align: 'right', width: 110 },
   { id: 'porcentajeRecuperacionUsd', label: '%', align: 'right', width: 70 }
 ];

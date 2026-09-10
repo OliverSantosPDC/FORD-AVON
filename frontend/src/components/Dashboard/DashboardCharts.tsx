@@ -94,7 +94,7 @@ const DashboardCharts = ({ countrySummary, pdMigrationChart, zonaSector }: Dashb
       }}
     >
       <ChartCard
-        title="Saldo inicial y actual por país"
+        title="SALDO INICIAL Y ACTUAL POR PAÍS"
         subtitle="Comparativo de saldo inicial y saldo vigente"
         chartId="chart-horiz-pais-combo"
         fileBaseName="saldo-inicial-actual-por-pais"
@@ -111,15 +111,15 @@ const DashboardCharts = ({ countrySummary, pdMigrationChart, zonaSector }: Dashb
               <YAxis type="category" dataKey="pais" width={112} tick={axisTick} axisLine={false} tickLine={false} />
               <Tooltip formatter={(value: number) => formatUsd(value)} contentStyle={tooltipContentStyle} labelStyle={tooltipLabelStyle} />
               <Legend verticalAlign="bottom" iconType="circle" iconSize={8} wrapperStyle={legendStyle} />
-              <Bar dataKey="saldoAsignadoUsd" name="Saldo Inicial USD" fill="#1E3A8A" radius={[0, 6, 6, 0]} barSize={10} />
-              <Bar dataKey="saldoActualUsd" name="Saldo Actual USD" fill="#0EA5E9" radius={[0, 6, 6, 0]} barSize={10} />
+              <Bar dataKey="saldoAsignadoUsd" name="Saldo Inicial" fill="#1E3A8A" radius={[0, 6, 6, 0]} barSize={10} />
+              <Bar dataKey="saldoActualUsd" name="Saldo Actual" fill="#0EA5E9" radius={[0, 6, 6, 0]} barSize={10} />
             </BarChart>
           </ResponsiveContainer>
         )}
       </ChartCard>
 
       <ChartCard
-        title="Asignado vs Recuperado"
+        title="ASIGNADO VS RECUPERADO"
         subtitle="Comparativo por país"
         chartId="chart-combo-pais"
         fileBaseName="asignado-vs-recuperado"

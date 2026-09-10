@@ -137,9 +137,9 @@ const KpiCards = ({ kpis, moneda = 'USD' }: KpiCardsProps) => (
       }
     }}
   >
-    <KpiCard title={`Saldo Asignado ${moneda}`} value={formatNumber(kpis.saldoAsignado, moneda)} icon={<AccountBalanceWalletIcon />} accent="#1E3A8A" />
-    <KpiCard title={`Saldo Actual ${moneda}`} value={formatNumber(kpis.saldoActual, moneda)} icon={<TrendingUpIcon />} accent="#0EA5E9" />
-    <KpiCard title={`Recuperado ${moneda}`} value={formatNumber(kpis.recuperado, moneda)} icon={<PointOfSaleIcon />} accent="#22C55E" />
+    <KpiCard title="Saldo Asignado" value={formatNumber(kpis.saldoAsignado, moneda)} icon={<AccountBalanceWalletIcon />} accent="#1E3A8A" />
+    <KpiCard title="Saldo Actual" value={formatNumber(kpis.saldoActual, moneda)} icon={<TrendingUpIcon />} accent="#0EA5E9" />
+    <KpiCard title="Recuperado" value={formatNumber(kpis.recuperado, moneda)} icon={<PointOfSaleIcon />} accent="#22C55E" />
     <KpiCard title="% Recuperación" value={`${kpis.porcentajeRecuperacion.toFixed(2)}%`} icon={<PercentIcon />} accent="#E6007E" />
     <KpiCard title="Total Cuentas" value={kpis.totalCuentas.toLocaleString()} icon={<PersonIcon />} accent="#7C3AED" />
   </Box>
