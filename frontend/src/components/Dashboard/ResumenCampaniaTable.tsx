@@ -13,8 +13,8 @@ interface ResumenCampaniaTableProps {
 
 type ColumnId = 'campania' | 'cuentas' | 'saldoInicial' | 'recuperadoUsd' | 'porcentajeRecuperacion';
 
-const columns: { id: ColumnId; label: string; align?: 'right'; width: number }[] = [
-  { id: 'campania', label: 'Campaña', width: 130 },
+const columns: { id: ColumnId; label: string; align?: 'right'; width: number; wrap?: boolean }[] = [
+  { id: 'campania', label: 'Campaña', width: 130, wrap: true },
   { id: 'cuentas', label: 'Total Cuentas', align: 'right', width: 92 },
   { id: 'saldoInicial', label: 'Saldo Inicial', align: 'right', width: 118 },
   { id: 'recuperadoUsd', label: 'Recuperado', align: 'right', width: 100 },
@@ -161,7 +161,7 @@ const ResumenCampaniaTable = ({ data, moneda, monedaCode }: ResumenCampaniaTable
                   key={column.id}
                   align={column.align}
                   sortDirection={orderBy === column.id ? order : false}
-                  sx={{ width: column.width, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, py: 0.75, whiteSpace: 'normal', wordBreak: 'break-word' }}
+                  sx={{ width: column.width, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, py: 0.5, whiteSpace: 'nowrap', lineHeight: 1.2 }}
                 >
                   <TableSortLabel active={orderBy === column.id} direction={orderBy === column.id ? order : 'asc'} onClick={() => handleSort(column.id)}>
                     {column.label}
@@ -174,7 +174,7 @@ const ResumenCampaniaTable = ({ data, moneda, monedaCode }: ResumenCampaniaTable
             {sortedData.map((row, index) => (
               <TableRow key={index} hover sx={{ transition: 'background-color 200ms ease-in-out' }}>
                 {visibleColumns.map((column) => (
-                  <TableCell key={column.id} align={column.align} sx={{ width: column.width, fontSize: 11.5, py: 0.6, whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                  <TableCell key={column.id} align={column.align} sx={{ width: column.width, fontSize: 11, py: 0.4, whiteSpace: column.wrap ? 'normal' : 'nowrap', lineHeight: 1.3 }}>
                     {getRowValue(row, column.id)}
                   </TableCell>
                 ))}

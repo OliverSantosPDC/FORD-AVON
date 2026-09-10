@@ -27,12 +27,12 @@ interface TopZonasTableProps {
 
 type ColumnId = 'zona' | 'pais' | 'saldoInicial' | 'recuperadoUsd' | 'porcentajeRecuperacion';
 
-const columns: { id: ColumnId; label: string; align?: 'right'; width: number }[] = [
-  { id: 'zona', label: 'Zona', width: 120 },
-  { id: 'pais', label: 'País', width: 78 },
-  { id: 'saldoInicial', label: 'Saldo Inicial', align: 'right', width: 128 },
-  { id: 'recuperadoUsd', label: 'Recuperado', align: 'right', width: 100 },
-  { id: 'porcentajeRecuperacion', label: '%', align: 'right', width: 58 }
+const columns: { id: ColumnId; label: string; align?: 'right'; width: number; wrap?: boolean }[] = [
+  { id: 'zona', label: 'Zona', width: 150, wrap: true },
+  { id: 'pais', label: 'País', width: 46 },
+  { id: 'saldoInicial', label: 'Saldo Inicial', align: 'right', width: 126 },
+  { id: 'recuperadoUsd', label: 'Recuperado', align: 'right', width: 98 },
+  { id: 'porcentajeRecuperacion', label: '%', align: 'right', width: 54 }
 ];
 
 const formatCurrency = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -84,9 +84,9 @@ const TopZonasTable = ({ data, moneda, monedaCode }: TopZonasTableProps) => {
       case 'zona':
         return row.key;
       case 'pais':
-        return row.pais;
+        return row.paisAbbr;
       case 'saldoInicial':
-        return moneda === 'USD' ? `${formatCurrency(row.saldoAsignadoUsd)} (${row.paisAbbr})` : `${formatCurrency(row.saldoAsignadoLocal)} ${monedaCode}`;
+        return moneda === 'USD' ? formatCurrency(row.saldoAsignadoUsd) : `${formatCurrency(row.saldoAsignadoLocal)} ${monedaCode}`;
       case 'recuperadoUsd':
         return moneda === 'USD' ? formatCurrency(row.recuperadoUsd) : formatCurrency(row.recuperadoLocal);
       case 'porcentajeRecuperacion':
@@ -164,7 +164,7 @@ const TopZonasTable = ({ data, moneda, monedaCode }: TopZonasTableProps) => {
                   key={column.id}
                   align={column.align}
                   sortDirection={orderBy === column.id ? order : false}
-                  sx={{ width: column.width, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, py: 0.75, whiteSpace: 'normal', wordBreak: 'break-word' }}
+                  sx={{ width: column.width, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, py: 0.5, whiteSpace: 'nowrap', lineHeight: 1.2 }}
                 >
                   <TableSortLabel active={orderBy === column.id} direction={orderBy === column.id ? order : 'asc'} onClick={() => handleSort(column.id)}>
                     {column.label}
@@ -177,7 +177,7 @@ const TopZonasTable = ({ data, moneda, monedaCode }: TopZonasTableProps) => {
             {visibleData.map((row, index) => (
               <TableRow key={index} hover sx={{ transition: 'background-color 200ms ease-in-out' }}>
                 {visibleColumns.map((column) => (
-                  <TableCell key={column.id} align={column.align} sx={{ width: column.width, whiteSpace: 'normal', wordBreak: 'break-word', fontSize: 11.5, py: 0.6 }}>
+                  <TableCell key={column.id} align={column.align} sx={{ width: column.width, whiteSpace: column.wrap ? 'normal' : 'nowrap', fontSize: 11, py: 0.4, lineHeight: 1.3 }}>
                     {getRowValue(row, column.id)}
                   </TableCell>
                 ))}

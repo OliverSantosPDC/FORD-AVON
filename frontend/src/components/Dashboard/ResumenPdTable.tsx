@@ -146,7 +146,7 @@ const ResumenPdTable = ({ data, moneda, monedaCode }: ResumenPdTableProps) => {
                   key={column.id}
                   align={column.align}
                   sortDirection={orderBy === column.id ? order : false}
-                  sx={{ width: column.width, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, py: 0.75, whiteSpace: 'normal', wordBreak: 'break-word' }}
+                  sx={{ width: column.width, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, py: 0.5, whiteSpace: 'nowrap', lineHeight: 1.2 }}
                 >
                   <TableSortLabel active={orderBy === column.id} direction={orderBy === column.id ? order : 'asc'} onClick={() => handleSort(column.id)}>
                     {column.label}
@@ -164,13 +164,13 @@ const ResumenPdTable = ({ data, moneda, monedaCode }: ResumenPdTableProps) => {
                     if (column.id === 'pd') {
                       // El PD conserva el color de texto según su nivel de riesgo.
                       return (
-                        <TableCell key={column.id} align={column.align} sx={{ width: column.width, fontSize: 11.5, py: 0.6, whiteSpace: 'normal', wordBreak: 'break-word', color: estado.color, fontWeight: 700 }}>
+                        <TableCell key={column.id} align={column.align} sx={{ width: column.width, fontSize: 11, py: 0.4, whiteSpace: 'nowrap', lineHeight: 1.3, color: estado.color, fontWeight: 700 }}>
                           {row.pd}
                         </TableCell>
                       );
                     }
                     return (
-                      <TableCell key={column.id} align={column.align} sx={{ width: column.width, fontSize: 11.5, py: 0.6, whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                      <TableCell key={column.id} align={column.align} sx={{ width: column.width, fontSize: 11, py: 0.4, whiteSpace: 'nowrap', lineHeight: 1.3 }}>
                         {getRowValue(row, column.id)}
                       </TableCell>
                     );
