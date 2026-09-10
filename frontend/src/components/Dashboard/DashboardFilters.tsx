@@ -116,7 +116,6 @@ const DashboardFilters = ({ filters, onChange, onClear, options, moneda, onMoned
               key={field.name}
               multiple
               size="small"
-              limitTags={1}
               options={field.options}
               value={filters[field.name as keyof DashboardMultiFilterParams]}
               onChange={(_, value) => handleMultiChange(field.name as keyof DashboardMultiFilterParams, value)}
