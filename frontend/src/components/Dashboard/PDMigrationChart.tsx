@@ -108,7 +108,7 @@ const PDMigrationChart = ({ filters }: Props) => {
   }, [cuentas]);
 
   return (
-    <ChartCard title="Movimiento de cartera por PD" subtitle="PD inicial → PD actual · saldo actual USD" chartId="chart-pd-migration" fileBaseName="movimiento-cartera-pd" height={270} csvHeaders={['PD Inicial', 'PD Actual', 'Saldo Actual USD']} csvRows={csvRows}>
+    <ChartCard title="Movimiento de cartera por PD" subtitle="PD inicial → PD actual · saldo actual USD" chartId="chart-pd-migration" fileBaseName="movimiento-cartera-pd" height={240} csvHeaders={['PD Inicial', 'PD Actual', 'Saldo Actual USD']} csvRows={csvRows}>
       {(height) => (
         <Box sx={{ width: '100%', height: '100%', position: 'relative' }}>
           <ResponsiveContainer width="100%" height={height}>
