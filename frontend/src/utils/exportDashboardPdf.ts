@@ -127,6 +127,34 @@ export const createExportSnapshot = async (root: HTMLElement): Promise<ExportSna
   return { container, root: clone };
 };
 
+/** Una fila de píxeles cuenta como "en blanco" (espacio real entre tarjetas del grid,
+ *  nunca contenido) si todos los píxeles muestreados son cercanos al blanco/fondo. Se
+ *  muestrea con un paso (en vez de leer cada píxel) para que la búsqueda sea rápida. */
+const isRowBlank = (row: Uint8ClampedArray, sampleStep: number, threshold = 232): boolean => {
+  for (let x = 0; x < row.length; x += 4 * sampleStep) {
+    if (row[x + 3] === 0) continue; // transparente cuenta como blanco
+    if (row[x] < threshold || row[x + 1] < threshold || row[x + 2] < threshold) return false;
+  }
+  return true;
+};
+
+/** Busca, cerca del corte "ideal" (uniforme) de página, la fila en blanco más próxima
+ *  hacia ARRIBA (nunca hacia abajo: correr el corte más tarde alargaría la página más
+ *  allá del área imprimible). Si no hay ninguna fila en blanco dentro de la ventana de
+ *  búsqueda, se usa el corte ideal tal cual (no siempre es evitable). Esto es lo único
+ *  que decide DÓNDE cortar la misma captura larga y continua — no recorta ni reconstruye
+ *  ningún componente. */
+const findSafeCutY = (ctx: CanvasRenderingContext2D, canvasWidth: number, idealY: number, maxSearchPx: number): number => {
+  const sampleStep = Math.max(1, Math.floor(canvasWidth / 400)); // ~400 muestras por fila, suficiente y rápido
+  for (let offset = 0; offset <= maxSearchPx; offset++) {
+    const y = idealY - offset;
+    if (y <= 0) break;
+    const row = ctx.getImageData(0, y, canvasWidth, 1).data;
+    if (isRowBlank(row, sampleStep)) return y;
+  }
+  return idealY;
+};
+
 /**
  * Genera el PDF a partir del MISMO snapshot que se mostró en el preview (mismo render
  * para preview y PDF, sin reconstruir nada). El snapshot debe estar insertado en el
@@ -134,10 +162,13 @@ export const createExportSnapshot = async (root: HTMLElement): Promise<ExportSna
  * su layout.
  *
  * Técnica: una única captura larga de todo `snapshot.root` (equivalente a un "full page
- * screenshot"), cortada después en páginas consecutivas de igual alto — como si
- * simplemente se hubiera hecho scroll hacia abajo y se hubiera seguido capturando. No se
- * captura componente por componente ni se decide dónde "cabe" cada uno: las páginas son
- * segmentos consecutivos de la misma imagen, nunca una composición independiente.
+ * screenshot"), cortada después en páginas consecutivas — como si simplemente se hubiera
+ * hecho scroll hacia abajo y se hubiera seguido capturando. No se captura componente por
+ * componente ni se decide dónde "cabe" cada uno: las páginas son segmentos consecutivos
+ * de la misma imagen, nunca una composición independiente. El único ajuste es DÓNDE cae
+ * cada corte: en vez de un corte uniforme ciego, se busca la franja en blanco real más
+ * cercana (espacio ya existente entre tarjetas del grid) para no partir un gráfico/tarjeta
+ * a la mitad.
  */
 export const renderSnapshotToPdf = async (snapshot: ExportSnapshot, filenamePrefix = 'FORD-AVON_Dashboard_OnePage'): Promise<void> => {
   const canvas = await html2canvas(snapshot.root, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
@@ -153,16 +184,25 @@ export const renderSnapshotToPdf = async (snapshot: ExportSnapshot, filenamePref
     const imgWidthMm = usableWidthMm;
     const pxPerMm = canvas.width / imgWidthMm;
     const sliceHeightPx = Math.max(1, Math.floor(usableHeightMm * pxPerMm));
+    // Ventana de búsqueda del corte "seguro": una fracción acotada del alto de página,
+    // suficiente para alcanzar el espacio entre tarjetas (gap del grid) sin achicar la
+    // página de forma perceptible si no encuentra una franja en blanco cercana.
+    const maxSearchPx = Math.max(1, Math.round(sliceHeightPx * 0.12));
+    const ctx = canvas.getContext('2d');
 
     let renderedPx = 0;
     let pageStarted = false;
     while (renderedPx < canvas.height) {
-      const thisSlicePx = Math.min(sliceHeightPx, canvas.height - renderedPx);
+      const idealEnd = renderedPx + sliceHeightPx;
+      const isLastChunk = idealEnd >= canvas.height;
+      const cutY = isLastChunk || !ctx ? Math.min(idealEnd, canvas.height) : findSafeCutY(ctx, canvas.width, idealEnd, maxSearchPx);
+      const thisSlicePx = Math.max(1, Math.min(cutY, canvas.height) - renderedPx);
+
       const sliceCanvas = document.createElement('canvas');
       sliceCanvas.width = canvas.width;
       sliceCanvas.height = thisSlicePx;
-      const ctx = sliceCanvas.getContext('2d');
-      if (ctx) ctx.drawImage(canvas, 0, renderedPx, canvas.width, thisSlicePx, 0, 0, canvas.width, thisSlicePx);
+      const sliceCtx = sliceCanvas.getContext('2d');
+      if (sliceCtx) sliceCtx.drawImage(canvas, 0, renderedPx, canvas.width, thisSlicePx, 0, 0, canvas.width, thisSlicePx);
       if (pageStarted) pdf.addPage();
       pageStarted = true;
       const sliceHeightMm = (thisSlicePx / canvas.width) * imgWidthMm;
