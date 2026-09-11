@@ -12,10 +12,11 @@ import TopGestoresTable from '../../components/Dashboard/TopGestoresTable';
 import TopZonasTable from '../../components/Dashboard/TopZonasTable';
 import ResumenPdTable from '../../components/Dashboard/ResumenPdTable';
 import ResumenCampaniaTable from '../../components/Dashboard/ResumenCampaniaTable';
+import OnePagePreviewDialog from '../../components/Dashboard/OnePagePreviewDialog';
 import { useDashboard } from '../../hooks/useDashboard';
 import { useTasasConversion } from '../../hooks/useTasasConversion';
 import { MONEDA_OPTIONS } from '../../utils/monedaOptions';
-import { exportDashboardToPdf } from '../../utils/exportDashboardPdf';
+import { createExportSnapshot, type ExportSnapshot } from '../../utils/exportDashboardPdf';
 import type { DashboardFilterOptions, DashboardFilterParams, DashboardMultiFilterParams, DashboardKpi } from '../../types/cartera';
 
 const TABLE_TILE = 300;
@@ -31,6 +32,8 @@ const DashboardPage = () => {
   const dashboardRootRef = useRef<HTMLDivElement | null>(null);
   const [generandoOnePage, setGenerandoOnePage] = useState(false);
   const [onePageError, setOnePageError] = useState<string | null>(null);
+  const [onePagePreviewOpen, setOnePagePreviewOpen] = useState(false);
+  const [onePageSnapshot, setOnePageSnapshot] = useState<ExportSnapshot | null>(null);
 
   // Tasas de conversión oficiales (Configuración > Tasas de Conversión, tabla Supabase
   // config_tasas_conversion): fuente única para convertir USD a la moneda local
@@ -38,16 +41,27 @@ const DashboardPage = () => {
   // (también usado por ConversionRates) y se refresca solo, sin depender de una recarga.
   const { tasas, error: tasasError } = useTasasConversion();
 
+  // OnePage: Dashboard real -> clon de exportación (fotografía del estado actual,
+  // filtros/moneda/datos incluidos) -> Preview -> PDF generado desde ese MISMO clon.
+  // El Dashboard real (dashboardRootRef) nunca se modifica; todo el trabajo ocurre
+  // sobre el clon desconectado que arma createExportSnapshot.
   const handleGenerarOnePage = async () => {
     if (!dashboardRootRef.current || generandoOnePage) return;
     setGenerandoOnePage(true);
     try {
-      await exportDashboardToPdf({ root: dashboardRootRef.current });
+      const snapshot = await createExportSnapshot(dashboardRootRef.current);
+      setOnePageSnapshot(snapshot);
+      setOnePagePreviewOpen(true);
     } catch {
-      setOnePageError('No se pudo generar el PDF de OnePage. Intenta nuevamente.');
+      setOnePageError('No se pudo preparar la vista previa de OnePage. Intenta nuevamente.');
     } finally {
       setGenerandoOnePage(false);
     }
+  };
+
+  const handleCloseOnePagePreview = () => {
+    setOnePagePreviewOpen(false);
+    setOnePageSnapshot(null);
   };
 
   const availableOptions = dashboard?.filterOptions ?? EMPTY_OPTIONS;
@@ -130,7 +144,7 @@ const DashboardPage = () => {
       )}
       <Box data-onepage-skip="true" sx={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 1.5 }}>
         <Button variant="outlined" startIcon={<DescriptionOutlinedIcon />} onClick={handleGenerarOnePage} disabled={generandoOnePage} sx={{ textTransform: 'none' }}>
-          {generandoOnePage ? 'Generando PDF...' : 'Generar OnePage'}
+          {generandoOnePage ? 'Preparando vista previa...' : 'Generar OnePage'}
         </Button>
       </Box>
       <Box sx={{ gridColumn: '1 / -1' }}><KpiCards kpis={kpisDisplay} moneda={monedaLabel} /></Box>
@@ -152,6 +166,7 @@ const DashboardPage = () => {
       <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><TopZonasTable data={topZonasConTasa} moneda="LOCAL" monedaCode={monedaCode} /></Box>
       <Box sx={{ gridColumn: '1 / -1', height: DETAIL_TILE }}><DashboardTable data={dashboard.cuentas} moneda="LOCAL" monedaCode={monedaCode} tasa={tasaActual} /></Box>
     </Box>
+    <OnePagePreviewDialog open={onePagePreviewOpen} snapshot={onePageSnapshot} onClose={handleCloseOnePagePreview} />
     <Snackbar open={!!onePageError} autoHideDuration={5000} onClose={() => setOnePageError(null)} message={onePageError ?? ''} />
     </>
   );
