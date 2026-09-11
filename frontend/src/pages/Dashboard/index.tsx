@@ -1,4 +1,4 @@
-import { Alert, Box, Button, Snackbar, Typography } from '@mui/material';
+import { Alert, Box, Button, Typography } from '@mui/material';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import DashboardFilters from '../../components/Dashboard/DashboardFilters';
@@ -16,7 +16,6 @@ import OnePagePreviewDialog from '../../components/Dashboard/OnePagePreviewDialo
 import { useDashboard } from '../../hooks/useDashboard';
 import { useTasasConversion } from '../../hooks/useTasasConversion';
 import { MONEDA_OPTIONS } from '../../utils/monedaOptions';
-import { createExportSnapshot, type ExportSnapshot } from '../../utils/exportDashboardPdf';
 import type { DashboardFilterOptions, DashboardFilterParams, DashboardMultiFilterParams, DashboardKpi } from '../../types/cartera';
 
 const TABLE_TILE = 300;
@@ -30,10 +29,7 @@ const DashboardPage = () => {
   const dashboardFilters: DashboardFilterParams = useMemo(() => ({ pais: filters.pais, gestor: filters.gestor, gerente: filters.gerente, zona: filters.zona, pd: filters.pd, campania: filters.campania }), [filters]);
   const { data: dashboard, loading, error } = useDashboard(dashboardFilters);
   const dashboardRootRef = useRef<HTMLDivElement | null>(null);
-  const [generandoOnePage, setGenerandoOnePage] = useState(false);
-  const [onePageError, setOnePageError] = useState<string | null>(null);
   const [onePagePreviewOpen, setOnePagePreviewOpen] = useState(false);
-  const [onePageSnapshot, setOnePageSnapshot] = useState<ExportSnapshot | null>(null);
 
   // Tasas de conversión oficiales (Configuración > Tasas de Conversión, tabla Supabase
   // config_tasas_conversion): fuente única para convertir USD a la moneda local
@@ -41,28 +37,12 @@ const DashboardPage = () => {
   // (también usado por ConversionRates) y se refresca solo, sin depender de una recarga.
   const { tasas, error: tasasError } = useTasasConversion();
 
-  // OnePage: Dashboard real -> clon de exportación (fotografía del estado actual,
-  // filtros/moneda/datos incluidos) -> Preview -> PDF generado desde ese MISMO clon.
-  // El Dashboard real (dashboardRootRef) nunca se modifica; todo el trabajo ocurre
-  // sobre el clon desconectado que arma createExportSnapshot.
-  const handleGenerarOnePage = async () => {
-    if (!dashboardRootRef.current || generandoOnePage) return;
-    setGenerandoOnePage(true);
-    try {
-      const snapshot = await createExportSnapshot(dashboardRootRef.current);
-      setOnePageSnapshot(snapshot);
-      setOnePagePreviewOpen(true);
-    } catch {
-      setOnePageError('No se pudo preparar la vista previa de OnePage. Intenta nuevamente.');
-    } finally {
-      setGenerandoOnePage(false);
-    }
-  };
-
-  const handleCloseOnePagePreview = () => {
-    setOnePagePreviewOpen(false);
-    setOnePageSnapshot(null);
-  };
+  // OnePage: el diálogo se abre de inmediato al hacer click (sin esperar nada); la
+  // preparación del snapshot de exportación (clonar el Dashboard real, expandir scroll,
+  // convertir SVG a imagen) ocurre dentro de OnePagePreviewDialog mientras el diálogo
+  // ya está visible. El Dashboard real (dashboardRootRef) nunca se modifica.
+  const handleGenerarOnePage = () => setOnePagePreviewOpen(true);
+  const handleCloseOnePagePreview = () => setOnePagePreviewOpen(false);
 
   const availableOptions = dashboard?.filterOptions ?? EMPTY_OPTIONS;
   useEffect(() => {
@@ -143,8 +123,8 @@ const DashboardPage = () => {
         </Box>
       )}
       <Box data-onepage-skip="true" sx={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 1.5 }}>
-        <Button variant="outlined" startIcon={<DescriptionOutlinedIcon />} onClick={handleGenerarOnePage} disabled={generandoOnePage} sx={{ textTransform: 'none' }}>
-          {generandoOnePage ? 'Preparando vista previa...' : 'Generar OnePage'}
+        <Button variant="outlined" startIcon={<DescriptionOutlinedIcon />} onClick={handleGenerarOnePage} sx={{ textTransform: 'none' }}>
+          Generar OnePage
         </Button>
       </Box>
       <Box sx={{ gridColumn: '1 / -1' }}><KpiCards kpis={kpisDisplay} moneda={monedaLabel} /></Box>
@@ -166,8 +146,7 @@ const DashboardPage = () => {
       <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><TopZonasTable data={topZonasConTasa} moneda="LOCAL" monedaCode={monedaCode} /></Box>
       <Box sx={{ gridColumn: '1 / -1', height: DETAIL_TILE }}><DashboardTable data={dashboard.cuentas} moneda="LOCAL" monedaCode={monedaCode} tasa={tasaActual} /></Box>
     </Box>
-    <OnePagePreviewDialog open={onePagePreviewOpen} snapshot={onePageSnapshot} onClose={handleCloseOnePagePreview} />
-    <Snackbar open={!!onePageError} autoHideDuration={5000} onClose={() => setOnePageError(null)} message={onePageError ?? ''} />
+    <OnePagePreviewDialog open={onePagePreviewOpen} onClose={handleCloseOnePagePreview} getRoot={() => dashboardRootRef.current} />
     </>
   );
 };

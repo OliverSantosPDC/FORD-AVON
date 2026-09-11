@@ -1,26 +1,62 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Typography } from '@mui/material';
+import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined';
 import type { ExportSnapshot } from '../../utils/exportDashboardPdf';
-import { renderSnapshotToPdf } from '../../utils/exportDashboardPdf';
+import { createExportSnapshot, renderSnapshotToPdf } from '../../utils/exportDashboardPdf';
 
 interface OnePagePreviewDialogProps {
   open: boolean;
-  snapshot: ExportSnapshot | null;
   onClose: () => void;
+  /** Devuelve el elemento raíz del Dashboard real en el momento de abrir el preview
+   *  (no antes): así cada apertura fotografía el estado/filtros/moneda vigentes. */
+  getRoot: () => HTMLElement | null;
 }
 
 /**
- * Vista previa de OnePage: muestra el MISMO clon de exportación (`snapshot.container`)
- * que luego se usa para generar el PDF, dentro de un contenedor con scroll. No es una
- * maqueta ni un resumen: es el Dashboard real (filtros, moneda, gráficos y tablas ya
- * expandidas) insertado tal cual como nodo DOM.
+ * Vista previa de OnePage. El diálogo se abre de inmediato al cambiar `open` a true
+ * (no espera nada): la preparación del snapshot (clonar, expandir scroll, convertir
+ * SVG a imagen) ocurre DESPUÉS, dentro de este componente, mientras el diálogo ya
+ * está visible mostrando "Preparando vista previa...". Si la preparación falla, el
+ * diálogo permanece abierto y muestra el error real (nunca se cierra solo ni se
+ * descarga nada). El PDF se genera únicamente al pulsar "Generar PDF", a partir del
+ * mismo snapshot ya mostrado aquí.
  */
-const OnePagePreviewDialog = ({ open, snapshot, onClose }: OnePagePreviewDialogProps) => {
+const OnePagePreviewDialog = ({ open, onClose, getRoot }: OnePagePreviewDialogProps) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
-  const [generando, setGenerando] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [snapshot, setSnapshot] = useState<ExportSnapshot | null>(null);
+  const [prepError, setPrepError] = useState<string | null>(null);
+  const [generandoPdf, setGenerandoPdf] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setSnapshot(null);
+    setPrepError(null);
+    setPdfError(null);
+
+    const root = getRoot();
+    if (!root) {
+      setPrepError('No se encontró el contenido del Dashboard para generar la vista previa.');
+      return;
+    }
+
+    let cancelled = false;
+    createExportSnapshot(root)
+      .then((snap) => {
+        if (cancelled) return;
+        setSnapshot(snap);
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setPrepError(e instanceof Error ? e.message : 'No se pudo preparar la vista previa de OnePage.');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -32,15 +68,15 @@ const OnePagePreviewDialog = ({ open, snapshot, onClose }: OnePagePreviewDialogP
   }, [snapshot]);
 
   const handleGenerarPdf = async () => {
-    if (!snapshot || generando) return;
-    setGenerando(true);
-    setError(null);
+    if (!snapshot || generandoPdf) return;
+    setGenerandoPdf(true);
+    setPdfError(null);
     try {
       await renderSnapshotToPdf(snapshot);
     } catch {
-      setError('No se pudo generar el PDF. Intenta nuevamente.');
+      setPdfError('No se pudo generar el PDF. Intenta nuevamente.');
     } finally {
-      setGenerando(false);
+      setGenerandoPdf(false);
     }
   };
 
@@ -51,9 +87,14 @@ const OnePagePreviewDialog = ({ open, snapshot, onClose }: OnePagePreviewDialogP
         <IconButton onClick={onClose} size="small"><CloseIcon fontSize="small" /></IconButton>
       </DialogTitle>
       <DialogContent dividers sx={{ bgcolor: 'action.hover', p: 2 }}>
-        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-        {!snapshot ? (
-          <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>Preparando vista previa...</Typography>
+        {pdfError && <Alert severity="error" sx={{ mb: 2 }}>{pdfError}</Alert>}
+        {prepError ? (
+          <Alert severity="error">{prepError}</Alert>
+        ) : !snapshot ? (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 2 }}>
+            <CircularProgress size={18} />
+            <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>Preparando vista previa...</Typography>
+          </Box>
         ) : (
           <Box sx={{ overflow: 'auto', height: '100%', bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
             <Box sx={{ p: 2 }} ref={mountRef} />
@@ -66,10 +107,10 @@ const OnePagePreviewDialog = ({ open, snapshot, onClose }: OnePagePreviewDialogP
           variant="contained"
           startIcon={<PictureAsPdfOutlinedIcon />}
           onClick={handleGenerarPdf}
-          disabled={!snapshot || generando}
+          disabled={!snapshot || generandoPdf}
           sx={{ textTransform: 'none' }}
         >
-          {generando ? 'Generando PDF...' : 'Generar PDF'}
+          {generandoPdf ? 'Generando PDF...' : 'Generar PDF'}
         </Button>
       </DialogActions>
     </Dialog>
