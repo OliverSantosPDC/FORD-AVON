@@ -14,7 +14,9 @@ const router = Router();
  *  Debe declararse antes de '/catalogos/:catalogo' para no ser interceptada por ese parámetro. */
 router.get('/catalogos/tasas-conversion', requireAuth, async (_req: Request, res: Response) => {
   try {
-    return res.json(await listTasasConversion());
+    const tasas = await listTasasConversion();
+    console.log('[TASAS] GET /catalogos/tasas-conversion ->', JSON.stringify((tasas as Array<{ codigo: string; tasa: number }>).map((t) => ({ codigo: t.codigo, tasa: t.tasa }))));
+    return res.json(tasas);
   } catch (e) {
     return res.status(400).json({ error: e instanceof ConfigError ? e.message : 'No se pudo cargar las tasas de conversión.' });
   }

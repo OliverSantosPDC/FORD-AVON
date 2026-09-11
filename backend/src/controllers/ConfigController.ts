@@ -27,13 +27,24 @@ export class ConfigController {
   async crearVariable(req: Request, res: Response) { try { const r = await crearVariable(req.body ?? {}); await this.audit(req, 'CONFIG_VARIABLE_CREAR', r.id); return res.status(201).json(r); } catch (e) { return this.fail(res, e); } }
   async actualizarVariable(req: Request, res: Response) { try { await actualizarVariable(req.params.id, req.body ?? {}); await this.audit(req, 'CONFIG_VARIABLE_EDITAR', req.params.id); return res.json({ ok: true }); } catch (e) { return this.fail(res, e); } }
 
-  async tasasConversion(_req: Request, res: Response) { try { return res.json(await listTasasConversion()); } catch (e) { return this.fail(res, e); } }
+  async tasasConversion(_req: Request, res: Response) {
+    try {
+      const tasas = await listTasasConversion();
+      console.log('[TASAS] GET /configuracion/tasas-conversion ->', JSON.stringify((tasas as Array<{ codigo: string; tasa: number }>).map((t) => ({ codigo: t.codigo, tasa: t.tasa }))));
+      return res.json(tasas);
+    } catch (e) { return this.fail(res, e); }
+  }
   async actualizarTasaConversion(req: Request, res: Response) {
     try {
+      console.log('[TASAS] PATCH /configuracion/tasas-conversion/' + req.params.id + ' body=', JSON.stringify(req.body ?? {}));
       await actualizarTasaConversion(req.params.id, req.body ?? {}, req.auth?.userId ?? null);
       await this.audit(req, 'CONFIG_TASA_CONVERSION_EDITAR', req.params.id);
+      console.log('[TASAS] PATCH /configuracion/tasas-conversion/' + req.params.id + ' -> ok');
       return res.json({ ok: true });
-    } catch (e) { return this.fail(res, e); }
+    } catch (e) {
+      console.log('[TASAS] PATCH /configuracion/tasas-conversion/' + req.params.id + ' -> error', e instanceof Error ? e.message : e);
+      return this.fail(res, e);
+    }
   }
 
   async rolesPermisos(_req: Request, res: Response) { try { return res.json(await getRolesPermisos()); } catch (e) { return this.fail(res, e); } }
