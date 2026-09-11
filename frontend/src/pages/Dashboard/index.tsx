@@ -74,20 +74,15 @@ const DashboardPage = () => {
   if (!hasFiltersApplied && (dashboard.kpis?.totalCuentas ?? 0) === 0) return <Box sx={{ p: 4, textAlign: 'center' }}><Typography sx={{ fontSize: 16, fontWeight: 600 }}>No hay datos disponibles para tu alcance actual.</Typography><Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.5 }}>No tienes cuentas asignadas dentro de tu alcance de acceso.</Typography></Box>;
 
   const monedaOption = MONEDA_OPTIONS.find((option) => option.code === monedaFiltro) ?? MONEDA_OPTIONS[0];
-  const monedaSel: 'USD' | 'LOCAL' = monedaOption.code !== 'USD' ? 'LOCAL' : 'USD';
   const monedaCode = monedaOption.code;
-  // Si no hay tasa oficial disponible para la moneda local seleccionada (fallo de red o
-  // fila faltante en Supabase), NO se convierte en silencio con 1: se muestra en USD y se
-  // avisa explícitamente, en vez de presentar cifras mal etiquetadas como si fueran la
-  // moneda local.
-  const tasaDisponible = monedaSel === 'USD' || tasas[monedaCode] !== undefined;
-  const monedaEfectiva: 'USD' | 'LOCAL' = tasaDisponible ? monedaSel : 'USD';
-  const monedaLabel = monedaEfectiva === 'LOCAL' ? monedaCode : 'USD';
+  const monedaLabel = monedaCode;
   // Tasa oficial configurada para la moneda seleccionada (fuente única: Configuración > Tasas
-  // de Conversión, tabla Supabase config_tasas_conversion, vía useTasasConversion). Reemplaza
-  // cualquier saldo "local" almacenado por saldoUsd * tasa, para que un cambio de tasa se
-  // refleje de inmediato en KPIs, gráficos y tablas. USD siempre usa 1 (nunca esta tasa).
-  const tasaActual = monedaEfectiva === 'LOCAL' ? tasas[monedaCode] : 1;
+  // de Conversión, tabla Supabase config_tasas_conversion, vía useTasasConversion). Se aplica a
+  // TODAS las monedas por igual, incluyendo USD/El Salvador: la tasa guardada es la fuente de
+  // verdad, sin ninguna moneda exenta. Si la tasa de la moneda seleccionada no está disponible
+  // (fallo de red o fila faltante), no se asume 1 en silencio: se muestra una alerta explícita.
+  const tasaDisponible = tasas[monedaCode] !== undefined;
+  const tasaActual = tasaDisponible ? tasas[monedaCode] : 1;
   const resumenPDConTasa = dashboard.resumenPD.map((p) => ({
     ...p,
     saldoAsignadoLocal: p.saldoAsignadoUsd * tasaActual,
@@ -118,7 +113,9 @@ const DashboardPage = () => {
     sectores: z.sectores.map((s) => ({ ...s, saldoActualLocal: s.saldoActualUsd * tasaActual }))
   }));
   const localTotals = resumenPDConTasa.reduce((a, p) => ({ asignado: a.asignado + p.saldoAsignadoLocal, actual: a.actual + p.saldoActualLocal, recuperado: a.recuperado + p.recuperadoLocal }), { asignado: 0, actual: 0, recuperado: 0 });
-  const kpisDisplay: DashboardKpi = monedaEfectiva === 'LOCAL' ? { saldoAsignado: localTotals.asignado, saldoActual: localTotals.actual, recuperado: localTotals.recuperado, porcentajeRecuperacion: dashboard.kpis.porcentajeRecuperacion, totalCuentas: dashboard.kpis.totalCuentas } : dashboard.kpis;
+  // La tasa configurada se aplica siempre, para cualquier moneda seleccionada (incluido USD):
+  // los KPIs se calculan siempre a partir de los saldos ya multiplicados por tasaActual.
+  const kpisDisplay: DashboardKpi = { saldoAsignado: localTotals.asignado, saldoActual: localTotals.actual, recuperado: localTotals.recuperado, porcentajeRecuperacion: dashboard.kpis.porcentajeRecuperacion, totalCuentas: dashboard.kpis.totalCuentas };
 
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: 2, alignItems: 'stretch', width: '100%' }}>
@@ -126,10 +123,10 @@ const DashboardPage = () => {
         <DashboardFilters filters={filters} onChange={handleChangeFilters} onClear={handleClearFilters} options={availableOptions} moneda={monedaFiltro} onMonedaChange={setMonedaFiltro} />
       </Box>
       <Box sx={{ gridColumn: '1 / -1', mt: '19px' }}><ConversionRates /></Box>
-      {monedaSel === 'LOCAL' && (tasasError || !tasaDisponible) && (
+      {(tasasError || !tasaDisponible) && (
         <Box sx={{ gridColumn: '1 / -1' }}>
           <Alert severity="warning">
-            No se pudo obtener la tasa oficial de {monedaCode} desde Configuración. Mostrando valores en USD hasta confirmar la tasa.
+            No se pudo obtener la tasa oficial de {monedaCode} desde Configuración. Los valores mostrados pueden no reflejar la tasa configurada.
           </Alert>
         </Box>
       )}
@@ -141,19 +138,19 @@ const DashboardPage = () => {
         <Box sx={{ display: 'grid', gap: 2, mt: 1 }}>
           <DashboardCharts
             filters={dashboardFilters}
-            moneda={monedaEfectiva}
+            moneda="LOCAL"
             monedaCode={monedaCode}
             tasa={tasaActual}
-            pdMigrationChart={<PDMigrationChart filters={dashboardFilters} moneda={monedaEfectiva} monedaCode={monedaCode} tasa={tasaActual} />}
-            zonaSector={<DashboardZonaSector filters={dashboardFilters} moneda={monedaEfectiva} monedaCode={monedaCode} tasa={tasaActual} />}
+            pdMigrationChart={<PDMigrationChart filters={dashboardFilters} moneda="LOCAL" monedaCode={monedaCode} tasa={tasaActual} />}
+            zonaSector={<DashboardZonaSector filters={dashboardFilters} moneda="LOCAL" monedaCode={monedaCode} tasa={tasaActual} />}
           />
         </Box>
       </Box>
-      <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><ResumenPdTable filters={dashboardFilters} moneda={monedaEfectiva} monedaCode={monedaCode} tasa={tasaActual} /></Box>
-      <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><ResumenCampaniaTable data={resumenCampaniaConTasa} moneda={monedaEfectiva} monedaCode={monedaCode} /></Box>
-      <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><TopGestoresTable data={topGestoresConTasa} moneda={monedaEfectiva} monedaCode={monedaCode} /></Box>
-      <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><TopZonasTable data={topZonasConTasa} moneda={monedaEfectiva} monedaCode={monedaCode} /></Box>
-      <Box sx={{ gridColumn: '1 / -1', height: DETAIL_TILE }}><DashboardTable data={dashboard.cuentas} moneda={monedaEfectiva} monedaCode={monedaCode} tasa={tasaActual} /></Box>
+      <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><ResumenPdTable filters={dashboardFilters} moneda="LOCAL" monedaCode={monedaCode} tasa={tasaActual} /></Box>
+      <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><ResumenCampaniaTable data={resumenCampaniaConTasa} moneda="LOCAL" monedaCode={monedaCode} /></Box>
+      <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><TopGestoresTable data={topGestoresConTasa} moneda="LOCAL" monedaCode={monedaCode} /></Box>
+      <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><TopZonasTable data={topZonasConTasa} moneda="LOCAL" monedaCode={monedaCode} /></Box>
+      <Box sx={{ gridColumn: '1 / -1', height: DETAIL_TILE }}><DashboardTable data={dashboard.cuentas} moneda="LOCAL" monedaCode={monedaCode} tasa={tasaActual} /></Box>
       <DashboardOnePage open={onePageOpen} onClose={() => setOnePageOpen(false)} filters={filters} kpis={kpisDisplay} moneda={monedaLabel} calidad={calNota} puedeCalidad={canCalidadVer} zonaSector={zonaSectorConTasa} resumenPD={resumenPDConTasa} />
     </Box>
   );

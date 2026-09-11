@@ -143,7 +143,7 @@ const DashboardTable = ({ data, moneda, monedaCode, tasa }: DashboardTableProps)
       visibleHeadCells.map((headCell) => {
         const value = getCellValue(row, headCell.id, country, moneda, tasa);
         if (headCell.id === 'saldoActualUsd' && typeof value === 'number') {
-          return moneda === 'USD' ? formatNumber(value) : `${formatNumber(value)} ${monedaCode}`;
+          return monedaCode === 'USD' ? formatNumber(value) : `${formatNumber(value)} ${monedaCode}`;
         }
         return value;
       })
@@ -300,7 +300,7 @@ const DashboardTable = ({ data, moneda, monedaCode, tasa }: DashboardTableProps)
                         textOverflow: 'ellipsis'
                       }}
                     >
-                      {isCurrency && typeof value === 'number' ? (moneda === 'USD' ? formatNumber(value) : `${formatNumber(value)} ${monedaCode}`) : String(value)}
+                      {isCurrency && typeof value === 'number' ? (monedaCode === 'USD' ? formatNumber(value) : `${formatNumber(value)} ${monedaCode}`) : String(value)}
                     </TableCell>
                   );
                 })}

@@ -30,7 +30,7 @@ const filtroChips = (f: DashboardMultiFilterParams) => {
 /** Resumen ejecutivo (OnePage) del Dashboard. Estructura reutilizable e imprimible a PDF (window.print). */
 const DashboardOnePage = ({ open, onClose, filters, kpis, moneda, calidad, puedeCalidad, zonaSector, resumenPD }: Props) => {
   const topZonas = [...zonaSector].sort((a, b) => b.saldoActualUsd - a.saldoActualUsd).slice(0, 8);
-  const val = (z: ZonaSectorSummary) => (moneda === 'USD' ? z.saldoActualUsd : z.saldoActualLocal);
+  const val = (z: ZonaSectorSummary) => z.saldoActualLocal;
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <style>{`@media print { body * { visibility: hidden !important; } #dash-onepage, #dash-onepage * { visibility: visible !important; } #dash-onepage { position: absolute; left: 0; top: 0; width: 100%; padding: 16px; } .no-print { display: none !important; } }`}</style>
@@ -92,7 +92,7 @@ const DashboardOnePage = ({ open, onClose, filters, kpis, moneda, calidad, puede
             {resumenPD.slice(0, 10).map((p) => (
               <Box key={p.pd} sx={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
                 <span>{p.pd}</span>
-                <span>{money(moneda === 'USD' ? p.saldoActualUsd : p.saldoActualLocal, moneda)} · {p.cuentas} · {(moneda === 'USD' ? p.porcentajeRecuperacionUsd : p.porcentajeRecuperacionLocal).toFixed(1)}%</span>
+                <span>{money(p.saldoActualLocal, moneda)} · {p.cuentas} · {p.porcentajeRecuperacionLocal.toFixed(1)}%</span>
               </Box>
             ))}
           </Stack>
