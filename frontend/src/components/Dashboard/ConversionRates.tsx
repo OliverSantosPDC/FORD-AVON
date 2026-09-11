@@ -27,7 +27,7 @@ const ConversionRates = () => {
           <Box key={r.code} sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5 }}>
             <Typography sx={{ fontSize: 11, fontWeight: 700 }}>{r.label}:</Typography>
             <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
-              {r.code === 'USD' ? '1.00' : r.rate === null ? '—' : `1 USD = ${r.rate.toFixed(4)} ${r.code}`}
+              {r.rate === null ? '—' : `1 USD = ${r.rate.toFixed(4)} ${r.code}`}
             </Typography>
           </Box>
         ))}
