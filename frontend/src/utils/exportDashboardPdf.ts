@@ -2,22 +2,30 @@ import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
 /**
- * OnePage del Dashboard: genera una "fotografía" fiel del Dashboard tal como está
- * renderizado (filtros, moneda y datos actuales), sin reconstruir un resumen aparte.
+ * OnePage del Dashboard: es una CAPTURA (equivalente a un "full page screenshot") del
+ * Dashboard tal como está renderizado en este momento — filtros, moneda, datos, tamaños
+ * y scroll interno de cada componente exactamente como se ven. No reconstruye nada ni
+ * reorganiza componentes: el PDF es simplemente esa misma captura larga, cortada en
+ * páginas consecutivas (como si se hubiera hecho scroll y se hubiera seguido capturando).
  *
  * Flujo: Dashboard real → clon de exportación (`createExportSnapshot`) → Preview (mismo
  * clon, mostrado en un diálogo con scroll) → PDF (`renderSnapshotToPdf`, capturado del
- * MISMO clon que el usuario revisó). El Dashboard real nunca se modifica: todo el trabajo
- * de expansión de scroll interno y de preparar los gráficos ocurre sobre un `cloneNode`
- * desconectado, que se descarta al cerrar el preview.
+ * MISMO clon que el usuario revisó). El Dashboard real nunca se modifica.
+ *
+ * IMPORTANTE: esta captura NO expande contenedores con scroll interno (tablas con
+ * `overflow`/`maxHeight`, listas, etc.). Cada componente conserva exactamente su alto,
+ * ancho y scroll actuales — si una tabla muestra 10 de 50 filas por tener scroll propio,
+ * el PDF la muestra igual, con esas mismas 10 filas visibles. Fidelidad visual al
+ * Dashboard real tiene prioridad sobre exponer datos que hoy están ocultos por scroll.
  */
 
 /** Recharts/SVG: html2canvas no siempre rasteriza correctamente un <svg> vivo (gradientes,
  *  texto, clip-path). La técnica confiable (misma usada por utils/chartExport.ts para
  *  "Exportar PNG") es serializar el SVG real a data URL y dejar que el propio navegador
  *  lo decodifique como imagen; luego html2canvas solo necesita pintar un <img> ya
- *  decodificado, sin reinterpretar el SVG. No se reconstruye ni se sustituye el gráfico:
- *  es el mismo SVG, servido como imagen para una captura fiel. */
+ *  decodificado, sin reinterpretar el SVG. No se reconstruye ni se sustituye el gráfico,
+ *  no se cambian dimensiones/escalas/leyendas: es el mismo SVG, servido como imagen para
+ *  una captura fiel. */
 const serializeSvgToDataUrl = (svg: SVGSVGElement): string => {
   const clone = svg.cloneNode(true) as SVGSVGElement;
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
@@ -28,8 +36,8 @@ const serializeSvgToDataUrl = (svg: SVGSVGElement): string => {
 
 /** Reemplaza cada <svg> del snapshot por un <img> con el mismo SVG serializado como
  *  fuente, del mismo ancho/alto ya medido (Recharts fija width/height reales en el SVG
- *  al montar). Devuelve la promesa de que todas las imágenes terminaron de decodificar,
- *  para no capturar un gráfico a medio pintar. */
+ *  al montar) — no se altera ningún tamaño. Devuelve la promesa de que todas las
+ *  imágenes terminaron de decodificar, para no capturar un gráfico a medio pintar. */
 const replaceSvgsWithImages = (root: HTMLElement): Promise<void>[] => {
   const svgs = Array.from(root.querySelectorAll<SVGSVGElement>('svg'));
   return svgs.map((svg) => {
@@ -52,7 +60,8 @@ const replaceSvgsWithImages = (root: HTMLElement): Promise<void>[] => {
 /** Oculta tooltips flotantes de Recharts (hover) que no forman parte permanente de la
  *  vista: si el cursor estaba sobre un gráfico al momento de clonar, el tooltip vivo se
  *  clona también; se fuerza su ocultamiento para que el PDF no muestre un tooltip
- *  "congelado" que no corresponde a una interacción real del usuario. */
+ *  "congelado" que no corresponde a una interacción real del usuario. Esto no cambia
+ *  tamaños ni layout, solo visibilidad de un overlay transitorio. */
 const hideTransientTooltips = (root: HTMLElement) => {
   root.querySelectorAll<HTMLElement>('.recharts-tooltip-wrapper, .recharts-tooltip-cursor').forEach((el) => {
     el.style.display = 'none';
@@ -65,47 +74,6 @@ const removeSkippedElements = (root: HTMLElement) => {
   root.querySelectorAll<HTMLElement>('[data-onepage-skip="true"]').forEach((el) => el.remove());
 };
 
-interface SavedStyle {
-  el: HTMLElement;
-  height: string;
-  maxHeight: string;
-  overflow: string;
-  overflowY: string;
-}
-
-/** Dentro del CLON (nunca del Dashboard real), encuentra los contenedores que hoy
- *  recortan contenido por scroll interno (overflow-y auto/scroll con scrollHeight >
- *  clientHeight): tablas y listas con scroll propio. */
-const findClippedScrollers = (root: HTMLElement): HTMLElement[] => {
-  const candidates = [root, ...Array.from(root.querySelectorAll<HTMLElement>('*'))];
-  return candidates.filter((el) => {
-    const style = getComputedStyle(el);
-    const scrollsY = style.overflowY === 'auto' || style.overflowY === 'scroll';
-    return scrollsY && el.scrollHeight - el.clientHeight > 1;
-  });
-};
-
-/** Libera, dentro del clon, cualquier altura fija en la cadena desde `el` hasta `root`
- *  (inclusive) para que el contenido antes recortado por scroll pueda expandirse sin
- *  quedar truncado por un ancestro con height:100% atado a una altura fija. Como todo
- *  esto ocurre sobre el clon desconectado, no hace falta restaurar nada en el DOM real. */
-const expandChainToRoot = (el: HTMLElement, root: HTMLElement, seen: Set<HTMLElement>) => {
-  let current: HTMLElement | null = el;
-  while (current) {
-    if (!seen.has(current)) {
-      seen.add(current);
-      current.style.height = 'auto';
-      current.style.maxHeight = 'none';
-    }
-    if (current === el) {
-      current.style.overflow = 'visible';
-      current.style.overflowY = 'visible';
-    }
-    if (current === root) break;
-    current = current.parentElement;
-  }
-};
-
 const waitForLayout = () =>
   new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 
@@ -113,21 +81,22 @@ export interface ExportSnapshot {
   /** Contenedor a insertar en el preview (ancho fijo = ancho real del Dashboard al
    *  momento de generar, para que nada reflowee de forma distinta al original). */
   container: HTMLElement;
-  /** El mismo nodo, ya clonado/preparado (scrollers expandidos, SVG→imagen, sin
-   *  botón OnePage). Preview y PDF capturan este único nodo: nunca se reconstruye. */
+  /** El mismo nodo, ya clonado/preparado (SVG→imagen, sin botón OnePage). Preview y PDF
+   *  capturan este único nodo tal cual — ningún contenedor con scroll interno se toca:
+   *  cada tabla/lista conserva exactamente su alto y sus filas visibles actuales. */
   root: HTMLElement;
 }
 
 /**
  * Crea el clon de exportación a partir del Dashboard real ya renderizado. No modifica
  * el DOM real en ningún momento: todo el trabajo ocurre sobre `root.cloneNode(true)`.
+ * No expande ningún contenedor con scroll interno — el clon conserva el mismo `overflow`,
+ * `maxHeight` y filas visibles que el Dashboard real en este instante.
  *
- * Detección de scroll interno y medidas de SVG (getBoundingClientRect/scrollHeight)
- * solo devuelven valores reales si el nodo está adjunto al documento y "layouteado" —
- * en un nodo desconectado, scrollHeight/clientHeight valen ambos 0. Por eso el clon se
- * adjunta temporalmente fuera de pantalla (position:fixed, left muy negativo) mientras
- * se preparan scrollers/SVG, y se desconecta antes de devolver el snapshot; el preview
- * luego lo vuelve a montar (ya con los estilos de expansión ya "horneados" como inline).
+ * La medición de los SVG (getBoundingClientRect) solo devuelve valores reales si el nodo
+ * está adjunto al documento y "layouteado" — en un nodo desconectado valdría 0. Por eso
+ * el clon se adjunta temporalmente fuera de pantalla (position:fixed, left muy negativo)
+ * mientras se preparan los SVG, y se desconecta antes de devolver el snapshot.
  */
 export const createExportSnapshot = async (root: HTMLElement): Promise<ExportSnapshot> => {
   const width = root.getBoundingClientRect().width;
@@ -145,9 +114,6 @@ export const createExportSnapshot = async (root: HTMLElement): Promise<ExportSna
     removeSkippedElements(clone);
     hideTransientTooltips(clone);
 
-    const seen = new Set<HTMLElement>();
-    findClippedScrollers(clone).forEach((el) => expandChainToRoot(el, clone, seen));
-
     const imagesLoaded = replaceSvgsWithImages(clone);
     await Promise.all(imagesLoaded);
     await waitForLayout();
@@ -163,11 +129,18 @@ export const createExportSnapshot = async (root: HTMLElement): Promise<ExportSna
 
 /**
  * Genera el PDF a partir del MISMO snapshot que se mostró en el preview (mismo render
- * para preview y PDF). El snapshot debe estar insertado en el documento (aunque sea en
- * un contenedor oculto) para que html2canvas pueda medir/pintar su layout.
+ * para preview y PDF, sin reconstruir nada). El snapshot debe estar insertado en el
+ * documento (aunque sea en un contenedor oculto) para que html2canvas pueda medir/pintar
+ * su layout.
+ *
+ * Técnica: una única captura larga de todo `snapshot.root` (equivalente a un "full page
+ * screenshot"), cortada después en páginas consecutivas de igual alto — como si
+ * simplemente se hubiera hecho scroll hacia abajo y se hubiera seguido capturando. No se
+ * captura componente por componente ni se decide dónde "cabe" cada uno: las páginas son
+ * segmentos consecutivos de la misma imagen, nunca una composición independiente.
  */
 export const renderSnapshotToPdf = async (snapshot: ExportSnapshot, filenamePrefix = 'FORD-AVON_Dashboard_OnePage'): Promise<void> => {
-  const sections = Array.from(snapshot.root.children).filter((child): child is HTMLElement => child instanceof HTMLElement);
+  const canvas = await html2canvas(snapshot.root, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
 
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   const pageWidthMm = 297;
@@ -175,51 +148,27 @@ export const renderSnapshotToPdf = async (snapshot: ExportSnapshot, filenamePref
   const marginMm = 8;
   const usableWidthMm = pageWidthMm - marginMm * 2;
   const usableHeightMm = pageHeightMm - marginMm * 2;
-  const gapMm = 4;
 
-  let cursorYMm = marginMm;
-  let pageStarted = false;
-
-  for (const section of sections) {
-    // eslint-disable-next-line no-await-in-loop
-    const canvas = await html2canvas(section, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
-    if (canvas.width === 0 || canvas.height === 0) continue;
-
+  if (canvas.width > 0 && canvas.height > 0) {
     const imgWidthMm = usableWidthMm;
-    const imgHeightMm = (canvas.height / canvas.width) * imgWidthMm;
+    const pxPerMm = canvas.width / imgWidthMm;
+    const sliceHeightPx = Math.max(1, Math.floor(usableHeightMm * pxPerMm));
 
-    if (imgHeightMm > usableHeightMm) {
-      // La sección es más alta que una página completa: se corta en varias páginas
-      // (única forma técnicamente posible de incluirla completa).
-      const pxPerMm = canvas.width / imgWidthMm;
-      const sliceHeightPx = Math.max(1, Math.floor(usableHeightMm * pxPerMm));
-      let renderedPx = 0;
-      while (renderedPx < canvas.height) {
-        const thisSlicePx = Math.min(sliceHeightPx, canvas.height - renderedPx);
-        const sliceCanvas = document.createElement('canvas');
-        sliceCanvas.width = canvas.width;
-        sliceCanvas.height = thisSlicePx;
-        const ctx = sliceCanvas.getContext('2d');
-        if (ctx) ctx.drawImage(canvas, 0, renderedPx, canvas.width, thisSlicePx, 0, 0, canvas.width, thisSlicePx);
-        if (pageStarted) pdf.addPage();
-        pageStarted = true;
-        const sliceHeightMm = (thisSlicePx / canvas.width) * imgWidthMm;
-        pdf.addImage(sliceCanvas.toDataURL('image/jpeg', 0.92), 'JPEG', marginMm, marginMm, imgWidthMm, sliceHeightMm);
-        renderedPx += thisSlicePx;
-      }
-      cursorYMm = pageHeightMm;
-      continue;
-    }
-
-    if (!pageStarted) {
+    let renderedPx = 0;
+    let pageStarted = false;
+    while (renderedPx < canvas.height) {
+      const thisSlicePx = Math.min(sliceHeightPx, canvas.height - renderedPx);
+      const sliceCanvas = document.createElement('canvas');
+      sliceCanvas.width = canvas.width;
+      sliceCanvas.height = thisSlicePx;
+      const ctx = sliceCanvas.getContext('2d');
+      if (ctx) ctx.drawImage(canvas, 0, renderedPx, canvas.width, thisSlicePx, 0, 0, canvas.width, thisSlicePx);
+      if (pageStarted) pdf.addPage();
       pageStarted = true;
-    } else if (cursorYMm + imgHeightMm > pageHeightMm - marginMm) {
-      pdf.addPage();
-      cursorYMm = marginMm;
+      const sliceHeightMm = (thisSlicePx / canvas.width) * imgWidthMm;
+      pdf.addImage(sliceCanvas.toDataURL('image/jpeg', 0.95), 'JPEG', marginMm, marginMm, imgWidthMm, sliceHeightMm);
+      renderedPx += thisSlicePx;
     }
-
-    pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', marginMm, cursorYMm, imgWidthMm, imgHeightMm);
-    cursorYMm += imgHeightMm + gapMm;
   }
 
   const now = new Date();
