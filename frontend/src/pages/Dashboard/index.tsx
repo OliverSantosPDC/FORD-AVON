@@ -1,13 +1,12 @@
-import { Alert, Box, Button, Typography } from '@mui/material';
+import { Alert, Box, Button, Snackbar, Typography } from '@mui/material';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import DashboardFilters from '../../components/Dashboard/DashboardFilters';
 import ConversionRates from '../../components/Dashboard/ConversionRates';
 import KpiCards from '../../components/Dashboard/KpiCards';
 import DashboardCharts from '../../components/Dashboard/DashboardCharts';
 import PDMigrationChart from '../../components/Dashboard/PDMigrationChart';
 import DashboardZonaSector from '../../components/Dashboard/DashboardZonaSector';
-import DashboardOnePage from '../../components/Dashboard/DashboardOnePage';
 import DashboardTable from '../../components/Dashboard/DashboardTable';
 import TopGestoresTable from '../../components/Dashboard/TopGestoresTable';
 import TopZonasTable from '../../components/Dashboard/TopZonasTable';
@@ -15,9 +14,8 @@ import ResumenPdTable from '../../components/Dashboard/ResumenPdTable';
 import ResumenCampaniaTable from '../../components/Dashboard/ResumenCampaniaTable';
 import { useDashboard } from '../../hooks/useDashboard';
 import { useTasasConversion } from '../../hooks/useTasasConversion';
-import { useAuth } from '../../context/AuthContext';
-import { getCalidadResumen } from '../../services/controlService';
 import { MONEDA_OPTIONS } from '../../utils/monedaOptions';
+import { exportDashboardToPdf } from '../../utils/exportDashboardPdf';
 import type { DashboardFilterOptions, DashboardFilterParams, DashboardMultiFilterParams, DashboardKpi } from '../../types/cartera';
 
 const TABLE_TILE = 300;
@@ -28,12 +26,11 @@ const sanitizeSelectedValues = (values: string[], availableOptions: string[]) =>
 const DashboardPage = () => {
   const [filters, setFilters] = useState<DashboardMultiFilterParams>({ pais: [], gestor: [], gerente: [], zona: [], pd: [], campania: [] });
   const [monedaFiltro, setMonedaFiltro] = useState<string>('USD');
-  const [onePageOpen, setOnePageOpen] = useState(false);
   const dashboardFilters: DashboardFilterParams = useMemo(() => ({ pais: filters.pais, gestor: filters.gestor, gerente: filters.gerente, zona: filters.zona, pd: filters.pd, campania: filters.campania }), [filters]);
   const { data: dashboard, loading, error } = useDashboard(dashboardFilters);
-  const { hasPermission } = useAuth();
-  const canCalidadVer = hasPermission('control_operativo.calidad.ver');
-  const [calNota, setCalNota] = useState<{ nota: number; evaluaciones: number } | null>(null);
+  const dashboardRootRef = useRef<HTMLDivElement | null>(null);
+  const [generandoOnePage, setGenerandoOnePage] = useState(false);
+  const [onePageError, setOnePageError] = useState<string | null>(null);
 
   // Tasas de conversión oficiales (Configuración > Tasas de Conversión, tabla Supabase
   // config_tasas_conversion): fuente única para convertir USD a la moneda local
@@ -41,12 +38,17 @@ const DashboardPage = () => {
   // (también usado por ConversionRates) y se refresca solo, sin depender de una recarga.
   const { tasas, error: tasasError } = useTasasConversion();
 
-  useEffect(() => {
-    if (!canCalidadVer) { setCalNota(null); return; }
-    let active = true;
-    getCalidadResumen(dashboardFilters).then((r) => { if (active) setCalNota({ nota: r.notaGlobal, evaluaciones: r.evaluaciones }); }).catch(() => { if (active) setCalNota(null); });
-    return () => { active = false; };
-  }, [canCalidadVer, dashboardFilters]);
+  const handleGenerarOnePage = async () => {
+    if (!dashboardRootRef.current || generandoOnePage) return;
+    setGenerandoOnePage(true);
+    try {
+      await exportDashboardToPdf({ root: dashboardRootRef.current });
+    } catch {
+      setOnePageError('No se pudo generar el PDF de OnePage. Intenta nuevamente.');
+    } finally {
+      setGenerandoOnePage(false);
+    }
+  };
 
   const availableOptions = dashboard?.filterOptions ?? EMPTY_OPTIONS;
   useEffect(() => {
@@ -107,18 +109,14 @@ const DashboardPage = () => {
     saldoActualLocal: z.saldoActualUsd * tasaActual,
     recuperadoLocal: z.recuperadoUsd * tasaActual
   }));
-  const zonaSectorConTasa = dashboard.zonaSectorSummary.map((z) => ({
-    ...z,
-    saldoActualLocal: z.saldoActualUsd * tasaActual,
-    sectores: z.sectores.map((s) => ({ ...s, saldoActualLocal: s.saldoActualUsd * tasaActual }))
-  }));
   const localTotals = resumenPDConTasa.reduce((a, p) => ({ asignado: a.asignado + p.saldoAsignadoLocal, actual: a.actual + p.saldoActualLocal, recuperado: a.recuperado + p.recuperadoLocal }), { asignado: 0, actual: 0, recuperado: 0 });
   // La tasa configurada se aplica siempre, para cualquier moneda seleccionada (incluido USD):
   // los KPIs se calculan siempre a partir de los saldos ya multiplicados por tasaActual.
   const kpisDisplay: DashboardKpi = { saldoAsignado: localTotals.asignado, saldoActual: localTotals.actual, recuperado: localTotals.recuperado, porcentajeRecuperacion: dashboard.kpis.porcentajeRecuperacion, totalCuentas: dashboard.kpis.totalCuentas };
 
   return (
-    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: 2, alignItems: 'stretch', width: '100%' }}>
+    <>
+    <Box ref={dashboardRootRef} sx={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: 2, alignItems: 'stretch', width: '100%' }}>
       <Box sx={{ gridColumn: '1 / -1' }}>
         <DashboardFilters filters={filters} onChange={handleChangeFilters} onClear={handleClearFilters} options={availableOptions} moneda={monedaFiltro} onMonedaChange={setMonedaFiltro} />
       </Box>
@@ -130,8 +128,10 @@ const DashboardPage = () => {
           </Alert>
         </Box>
       )}
-      <Box sx={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 1.5 }}>
-        <Button variant="outlined" startIcon={<DescriptionOutlinedIcon />} onClick={() => setOnePageOpen(true)} sx={{ textTransform: 'none' }}>Generar OnePage</Button>
+      <Box data-onepage-skip="true" sx={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 1.5 }}>
+        <Button variant="outlined" startIcon={<DescriptionOutlinedIcon />} onClick={handleGenerarOnePage} disabled={generandoOnePage} sx={{ textTransform: 'none' }}>
+          {generandoOnePage ? 'Generando PDF...' : 'Generar OnePage'}
+        </Button>
       </Box>
       <Box sx={{ gridColumn: '1 / -1' }}><KpiCards kpis={kpisDisplay} moneda={monedaLabel} /></Box>
       <Box sx={{ gridColumn: '1 / -1' }}>
@@ -151,8 +151,9 @@ const DashboardPage = () => {
       <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><TopGestoresTable data={topGestoresConTasa} moneda="LOCAL" monedaCode={monedaCode} /></Box>
       <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><TopZonasTable data={topZonasConTasa} moneda="LOCAL" monedaCode={monedaCode} /></Box>
       <Box sx={{ gridColumn: '1 / -1', height: DETAIL_TILE }}><DashboardTable data={dashboard.cuentas} moneda="LOCAL" monedaCode={monedaCode} tasa={tasaActual} /></Box>
-      <DashboardOnePage open={onePageOpen} onClose={() => setOnePageOpen(false)} filters={filters} kpis={kpisDisplay} moneda={monedaLabel} calidad={calNota} puedeCalidad={canCalidadVer} zonaSector={zonaSectorConTasa} resumenPD={resumenPDConTasa} />
     </Box>
+    <Snackbar open={!!onePageError} autoHideDuration={5000} onClose={() => setOnePageError(null)} message={onePageError ?? ''} />
+    </>
   );
 };
 
