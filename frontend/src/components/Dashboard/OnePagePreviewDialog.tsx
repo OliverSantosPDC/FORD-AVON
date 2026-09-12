@@ -11,6 +11,8 @@ interface OnePagePreviewDialogProps {
   /** Devuelve el elemento raíz del Dashboard real en el momento de abrir el preview
    *  (no antes): así cada apertura fotografía el estado/filtros/moneda vigentes. */
   getRoot: () => HTMLElement | null;
+  /** Prefijo del nombre de archivo del PDF (por defecto, el del Dashboard). */
+  filenamePrefix?: string;
 }
 
 /**
@@ -22,7 +24,7 @@ interface OnePagePreviewDialogProps {
  * descarga nada). El PDF se genera únicamente al pulsar "Generar PDF", a partir del
  * mismo snapshot ya mostrado aquí.
  */
-const OnePagePreviewDialog = ({ open, onClose, getRoot }: OnePagePreviewDialogProps) => {
+const OnePagePreviewDialog = ({ open, onClose, getRoot, filenamePrefix }: OnePagePreviewDialogProps) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [snapshot, setSnapshot] = useState<ExportSnapshot | null>(null);
   const [prepError, setPrepError] = useState<string | null>(null);
@@ -72,7 +74,7 @@ const OnePagePreviewDialog = ({ open, onClose, getRoot }: OnePagePreviewDialogPr
     setGenerandoPdf(true);
     setPdfError(null);
     try {
-      await renderSnapshotToPdf(snapshot);
+      await renderSnapshotToPdf(snapshot, filenamePrefix);
     } catch {
       setPdfError('No se pudo generar el PDF. Intenta nuevamente.');
     } finally {

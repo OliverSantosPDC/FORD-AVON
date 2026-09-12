@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Divider, Grid, MenuItem, Paper, Stack, Table, TableBody,
   TableCell, TableContainer, TableHead, TableRow, TextField, Tooltip, Typography
@@ -6,11 +6,22 @@ import {
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import KpiCards from '../components/Dashboard/KpiCards';
-import InteligenciaOnePage from '../components/Inteligencia/InteligenciaOnePage';
+import DashboardFilters from '../components/Dashboard/DashboardFilters';
+import OnePagePreviewDialog from '../components/Dashboard/OnePagePreviewDialog';
 import { exportRowsToCsv } from '../utils/tableExport';
 import { MONEDA_POR_PAIS } from '../services/gestionService';
 import { getCentroInteligencia, type CentroFiltros, type CentroInteligencia } from '../services/inteligenciaService';
-import type { DashboardKpi } from '../types/cartera';
+import type { DashboardKpi, DashboardMultiFilterParams } from '../types/cartera';
+
+const EMPTY_FILTROS: DashboardMultiFilterParams = { pais: [], gestor: [], gerente: [], zona: [], pd: [], campania: [] };
+
+/** DashboardFilters expone los mismos 6 campos que el Dashboard (país/gestor/gerente/zona/
+ *  pd/campaña), pero el backend de Centro de Inteligencia (CentroFiltros) solo entiende
+ *  país/zona/pd/gestor. Gerente y campaña quedan visibles en el filtro (mismo componente,
+ *  mismo comportamiento) pero no tienen efecto aquí al no existir en este backend. */
+const toCentroFiltros = (f: DashboardMultiFilterParams): CentroFiltros => ({
+  pais: f.pais, zona: f.zona, pd: f.pd, gestor: f.gestor
+});
 
 const money = (v: number | null, code = 'USD') =>
   v === null || v === undefined ? '—'
@@ -57,24 +68,30 @@ const BarList = <T extends { clave: string; cuentas?: number }>({ title, items, 
 };
 
 const InteligenciaPage = () => {
-  const [filtros, setFiltros] = useState<CentroFiltros>({});
+  const [filtros, setFiltros] = useState<DashboardMultiFilterParams>(EMPTY_FILTROS);
   const [data, setData] = useState<CentroInteligencia | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [moneda, setMoneda] = useState<'USD' | 'LOCAL'>('USD');
-  const [onePageOpen, setOnePageOpen] = useState(false);
+  const inteligenciaRootRef = useRef<HTMLDivElement | null>(null);
+  const [onePagePreviewOpen, setOnePagePreviewOpen] = useState(false);
 
-  const cargar = async (f: CentroFiltros) => {
+  const cargar = async (f: DashboardMultiFilterParams) => {
     setLoading(true); setError(null);
-    try { setData(await getCentroInteligencia(f)); }
+    try { setData(await getCentroInteligencia(toCentroFiltros(f))); }
     catch (e) { setError(e instanceof Error ? e.message : 'No fue posible cargar el Centro de Inteligencia.'); }
     finally { setLoading(false); }
   };
   useEffect(() => { void cargar(filtros); /* eslint-disable-next-line */ }, [filtros]);
 
-  const opts = data?.filterOptions ?? { pais: [], zona: [], sector: [], pd: [], riesgo: [], gestor: [] };
-  const singlePais = (filtros.pais ?? []).length === 1;
-  const monedaCode = singlePais ? (MONEDA_POR_PAIS[(filtros.pais as string[])[0].toUpperCase()] ?? 'USD') : 'USD';
+  // DashboardFilters requiere los 6 campos del Dashboard; gerente/campaña no existen en
+  // el backend de Centro de Inteligencia, por lo que se muestran vacíos (sin datos).
+  const opts = {
+    pais: data?.filterOptions.pais ?? [], gestor: data?.filterOptions.gestor ?? [], gerente: [] as string[],
+    zona: data?.filterOptions.zona ?? [], pd: data?.filterOptions.pd ?? [], campania: [] as string[]
+  };
+  const singlePais = filtros.pais.length === 1;
+  const monedaCode = singlePais ? (MONEDA_POR_PAIS[filtros.pais[0].toUpperCase()] ?? 'USD') : 'USD';
   const monedaSel: 'USD' | 'LOCAL' = singlePais && moneda === 'LOCAL' ? 'LOCAL' : 'USD';
   const codeMostrar = monedaSel === 'LOCAL' ? monedaCode : 'USD';
 
@@ -86,9 +103,6 @@ const InteligenciaPage = () => {
       : { saldoAsignado: k.saldoAsignadoUsd, saldoActual: k.saldoActualUsd, recuperado: k.recuperadoUsd, porcentajeRecuperacion: k.pctRecuperacion, totalCuentas: k.cuentas };
   }, [data, monedaSel]);
 
-  const setF = (k: keyof CentroFiltros, v: string[]) => setFiltros((prev) => ({ ...prev, [k]: v }));
-  const multiVal = (e: { target: { value: unknown } }): string[] => (typeof e.target.value === 'string' ? e.target.value.split(',') : (e.target.value as string[]));
-
   const hallazgosPorCategoria = useMemo(() => {
     const m = new Map<string, CentroInteligencia['hallazgos']>();
     (data?.hallazgos ?? []).forEach((h) => { const it = m.get(h.categoria) ?? []; it.push(h); m.set(h.categoria, it); });
@@ -99,19 +113,12 @@ const InteligenciaPage = () => {
   if (error) return <Box sx={{ p: 2 }}><Alert severity="error">{error}</Alert></Box>;
   if (!data || !kpisDisplay) return <Box sx={{ p: 2 }}><Typography>Sin datos disponibles.</Typography></Box>;
 
-  const filtroSelects: Array<{ key: keyof CentroFiltros; label: string; options: string[] }> = [
-    { key: 'pais', label: 'País', options: opts.pais },
-    { key: 'zona', label: 'Zona', options: opts.zona },
-    { key: 'sector', label: 'Sector', options: opts.sector },
-    { key: 'pd', label: 'PD', options: opts.pd },
-    { key: 'riesgo', label: 'Riesgo', options: opts.riesgo },
-    { key: 'gestor', label: 'Gestor', options: opts.gestor }
-  ];
-
   return (
-    <Box sx={{ p: { xs: 1, md: 2 } }}>
+    <>
+    <Box ref={inteligenciaRootRef} sx={{ p: { xs: 1, md: 2 } }}>
       <Stack spacing={2}>
-        {/* 1 · Encabezado + filtros */}
+        {/* 1 · Encabezado + filtros (mismo componente Filtro anclado en el sidebar que usan
+            Dashboard/Gestión/Control Operativo — DashboardFilters se porta al mismo slot) */}
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1.5 }}>
           <Box>
             <Typography sx={{ fontSize: 20, fontWeight: 800 }}>Centro de Inteligencia</Typography>
@@ -124,22 +131,13 @@ const InteligenciaPage = () => {
                 <MenuItem value="LOCAL">Moneda Local ({monedaCode})</MenuItem>
               </TextField>
             )}
-            <Button variant="outlined" startIcon={<DescriptionOutlinedIcon />} onClick={() => setOnePageOpen(true)} sx={{ textTransform: 'none' }}>Generar OnePage</Button>
+            <Box data-onepage-skip="true">
+              <Button variant="outlined" startIcon={<DescriptionOutlinedIcon />} onClick={() => setOnePagePreviewOpen(true)} sx={{ textTransform: 'none' }}>Generar OnePage</Button>
+            </Box>
           </Box>
         </Box>
 
-        <Paper sx={{ p: 1.5, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
-          <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
-            {filtroSelects.map((fs) => (
-              <TextField key={fs.key as string} select size="small" label={fs.label} value={(filtros[fs.key] as string[]) ?? []} sx={{ minWidth: 150 }}
-                SelectProps={{ multiple: true, renderValue: (v) => ((v as string[]).length ? (v as string[]).join(', ') : 'Todos') }}
-                onChange={(e) => setF(fs.key, multiVal(e))}>
-                {fs.options.length === 0 ? <MenuItem value="" disabled>Sin datos</MenuItem> : fs.options.map((o) => <MenuItem key={o} value={o}>{o}</MenuItem>)}
-              </TextField>
-            ))}
-            <Button size="small" onClick={() => setFiltros({})} sx={{ textTransform: 'none' }}>Limpiar</Button>
-          </Stack>
-        </Paper>
+        <DashboardFilters filters={filtros} onChange={setFiltros} onClear={() => setFiltros(EMPTY_FILTROS)} options={opts} />
 
         {/* 2 · KPIs principales */}
         <KpiCards kpis={kpisDisplay} moneda={codeMostrar} />
@@ -271,9 +269,14 @@ const InteligenciaPage = () => {
         <Divider />
         <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>Las proyecciones son estimaciones basadas en el ritmo diario de recuperación del mes en curso; no representan valores garantizados.</Typography>
       </Stack>
-
-      <InteligenciaOnePage open={onePageOpen} onClose={() => setOnePageOpen(false)} data={data} />
     </Box>
+    <OnePagePreviewDialog
+      open={onePagePreviewOpen}
+      onClose={() => setOnePagePreviewOpen(false)}
+      getRoot={() => inteligenciaRootRef.current}
+      filenamePrefix="FORD-AVON_Inteligencia_OnePage"
+    />
+    </>
   );
 };
 

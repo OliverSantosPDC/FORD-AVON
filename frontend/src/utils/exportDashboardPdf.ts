@@ -205,6 +205,21 @@ const paginateBands = (bands: Band[], canvasHeight: number, sliceHeightPx: numbe
     pages.push([cursor, pageEnd]);
     cursor = pageEnd;
   }
+
+  // Contenido que no queda dentro de ninguna tarjeta detectada (por ejemplo texto/una
+  // línea divisoria suelta al final de la página, fuera de cualquier .MuiPaper-root) no
+  // genera su propia banda, y puede terminar solo en una página nueva casi vacía. Se
+  // fusiona hacia atrás con la página anterior siempre que, juntas, sigan cabiendo en una
+  // sola página — nunca se fusionan dos páginas que ya estaban legítimamente llenas.
+  for (let i = pages.length - 1; i > 0; i -= 1) {
+    const [start, end] = pages[i];
+    const [prevStart, prevEnd] = pages[i - 1];
+    if (prevEnd === start && end - prevStart <= sliceHeightPx) {
+      pages[i - 1] = [prevStart, end];
+      pages.splice(i, 1);
+    }
+  }
+
   return pages;
 };
 

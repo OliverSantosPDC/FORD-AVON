@@ -122,9 +122,18 @@ const RootLayout = () => {
         </Tooltip>
       </Toolbar>
       <Divider sx={{ mb: 1.25, borderColor: mode === 'light' ? '#E5E7EB' : '#17233F' }} />
-      {/* Punto de anclaje: aquí se porta (via portal) el botón "FILTROS" del Dashboard/Gestión,
-          justo antes del listado de módulos, para que quede integrado al sidebar. */}
-      <Box id="sidebar-filtros-slot" />
+      {/* Punto de anclaje: aquí se porta (via portal) el botón "FILTROS" de los módulos de
+          Análisis/Operación (Dashboard, Gestión, Control Operativo, Centro de Inteligencia),
+          justo antes del listado de módulos, para que quede integrado al sidebar. Se marca
+          position:sticky (no un offset fijo) para que, si el listado de módulos es lo bastante
+          largo como para requerir scroll dentro del propio sidebar, el botón no se desplace
+          fuera de vista: se ancla al tope del contenedor con scroll (el propio sidebar), en vez
+          de flotar sobre el contenido de la página. Cuando ningún módulo porta el botón (por
+          ejemplo, en Configuración), el contenedor queda vacío (altura 0) y no ocupa espacio. */}
+      <Box
+        id="sidebar-filtros-slot"
+        sx={{ position: 'sticky', top: 0, zIndex: 1, bgcolor: mode === 'light' ? '#F6F8FB' : '#111827' }}
+      />
       <SidebarNav collapsed={sidebarCollapsed} />
       <Box sx={{ p: 1.75 }}>
         <Typography variant="caption" sx={{ color: mode === 'light' ? '#6B7280' : '#94A3B8', fontSize: 10 }}>
