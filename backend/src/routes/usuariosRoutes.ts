@@ -34,6 +34,10 @@ router.get('/usuarios/password-requests', requireAuth, requirePermission(ADMIN),
 router.post('/usuarios/password-requests/:id/resolver', requireAuth, requirePermission(ADMIN), (req, res) => passwordRequests.resolver(req, res));
 router.delete('/usuarios/password-requests', requireAuth, requirePermission(ADMIN), (req, res) => passwordRequests.eliminarHistorial(req, res));
 
+// Eliminación masiva de usuarios (antes de '/usuarios/:id' para evitar colisión de rutas).
+router.post('/usuarios/eliminar-masivo/validar', requireAuth, requirePermission(ADMIN), (req, res) => controller.validarEliminarMasivo(req, res));
+router.delete('/usuarios/eliminar-masivo', requireAuth, requirePermission(ADMIN), (req, res) => controller.eliminarMasivo(req, res));
+
 router.get('/usuarios/resumen-alcance', requireAuth, lectura, (req, res) => controller.resumenAlcance(req, res));
 router.get('/usuarios/catalogos', requireAuth, lectura, (req, res) => controller.catalogos(req, res));
 router.get('/usuarios', requireAuth, lectura, (req, res) => controller.list(req, res));

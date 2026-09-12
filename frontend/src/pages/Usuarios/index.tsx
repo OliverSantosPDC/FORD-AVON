@@ -58,11 +58,14 @@ import {
   resolvePasswordRequest,
   deletePasswordRequests,
   getResumenAlcance,
+  validarEliminacionMasivaUsuarios,
+  eliminarUsuariosMasivo,
   type UsuarioListItem,
   type Catalogos,
   type UsuarioPayload,
   type PasswordRequest,
-  type AlcanceResumenItem
+  type AlcanceResumenItem,
+  type ValidacionEliminacionMasiva
 } from '../../services/usuariosService';
 import { getRoles, putRolPermisos, type RolesData } from '../../services/configuracionService';
 
@@ -163,6 +166,60 @@ const UsuariosPage = () => {
   const [pwSel, setPwSel] = useState<Set<string>>(new Set());
   const [confirmDeletePw, setConfirmDeletePw] = useState<string[] | null>(null);
   const [deletingPw, setDeletingPw] = useState(false);
+
+  // Selección múltiple + eliminación masiva en Grupos y Niveles (Secciones 4-9):
+  // una selección independiente por nivel (Supervisor=3, Gestor=4, Gerente de zona=5).
+  const [selNiveles, setSelNiveles] = useState<Record<number, Set<string>>>({});
+  const selNivel = (nivel: number): Set<string> => selNiveles[nivel] ?? new Set<string>();
+  const toggleSelNivel = (nivel: number, id: string) => setSelNiveles((s) => {
+    const cur = new Set(s[nivel] ?? []);
+    cur.has(id) ? cur.delete(id) : cur.add(id);
+    return { ...s, [nivel]: cur };
+  });
+  const toggleSelAllNivel = (nivel: number, ids: string[]) => setSelNiveles((s) => {
+    const cur = s[nivel] ?? new Set<string>();
+    const todos = ids.length > 0 && ids.every((id) => cur.has(id));
+    return { ...s, [nivel]: todos ? new Set<string>() : new Set(ids) };
+  });
+  const [bulkDeleteNivel, setBulkDeleteNivel] = useState<number | null>(null);
+  const [bulkValidando, setBulkValidando] = useState(false);
+  const [bulkValidacion, setBulkValidacion] = useState<ValidacionEliminacionMasiva | null>(null);
+  const [bulkEjecutando, setBulkEjecutando] = useState(false);
+  const abrirConfirmBulkDelete = async (nivel: number) => {
+    const ids = [...selNivel(nivel)];
+    if (ids.length === 0) return;
+    setBulkDeleteNivel(nivel);
+    setBulkValidacion(null);
+    setBulkValidando(true);
+    try {
+      setBulkValidacion(await validarEliminacionMasivaUsuarios(ids));
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'No se pudo validar la selección.');
+      setBulkDeleteNivel(null);
+    } finally {
+      setBulkValidando(false);
+    }
+  };
+  const cerrarBulkDelete = () => { setBulkDeleteNivel(null); setBulkValidacion(null); };
+  const confirmarBulkDelete = async () => {
+    if (bulkDeleteNivel === null) return;
+    const ids = [...selNivel(bulkDeleteNivel)];
+    setBulkEjecutando(true);
+    try {
+      const r = await eliminarUsuariosMasivo(ids);
+      const problemas = r.bloqueados.length + r.errores.length;
+      setToast(problemas > 0
+        ? `${r.eliminados.length} usuario(s) eliminado(s) correctamente; ${problemas} no se pudieron eliminar.`
+        : `${r.eliminados.length} usuario(s) eliminado(s) correctamente.`);
+      setSelNiveles((s) => ({ ...s, [bulkDeleteNivel]: new Set() }));
+      cerrarBulkDelete();
+      await load();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'No se pudo completar la eliminación masiva.');
+    } finally {
+      setBulkEjecutando(false);
+    }
+  };
 
   // Agrupación por rol de "Gestión de usuarios" (Sección 11-B): búsqueda + orden
   // + grupos expandibles, todo dentro del rol real (role.clave) de cada usuario.
@@ -715,24 +772,53 @@ const UsuariosPage = () => {
 
           {[2, 3, 4, 5].map((nivel) => {
             const usuariosNivel = usuarios.filter((u) => u.role?.nivel === nivel);
+            // Selección múltiple + eliminación masiva (Secciones 4-6): Supervisor(3)/Gestor(4)/Gerente de zona(5).
+            // Liderazgo (2) no se pidió con selección múltiple; se deja como visual de solo lectura.
+            const seleccionable = nivel !== 2;
+            const sel = selNivel(nivel);
+            const idsVisibles = usuariosNivel.map((u) => u.id);
+            const todosSeleccionados = idsVisibles.length > 0 && idsVisibles.every((id) => sel.has(id));
+            const cols = seleccionable ? 4 : 3;
             return (
               <Paper key={nivel} sx={{ borderRadius: 2.5, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
-                <Box sx={{ p: 1.5 }}>
-                  <Typography sx={{ fontWeight: 700 }}>{NIVEL_LABEL[nivel]}</Typography>
-                  <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{usuariosNivel.length} usuario(s) en este nivel</Typography>
+                <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+                  <Box>
+                    <Typography sx={{ fontWeight: 700 }}>{NIVEL_LABEL[nivel]}</Typography>
+                    <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{usuariosNivel.length} usuario(s) en este nivel</Typography>
+                  </Box>
+                  {seleccionable && sel.size > 0 && (
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <Chip size="small" label={`${sel.size} seleccionado(s)`} />
+                      <Button size="small" color="error" variant="outlined" startIcon={<DeleteOutlineIcon fontSize="small" />}
+                        onClick={() => abrirConfirmBulkDelete(nivel)} sx={{ textTransform: 'none' }}>
+                        Eliminar seleccionados
+                      </Button>
+                    </Stack>
+                  )}
                 </Box>
                 <TableContainer sx={{ maxHeight: 320 }}>
                   <Table size="small" stickyHeader>
                     <TableHead>
                       <TableRow>
+                        {seleccionable && (
+                          <TableCell padding="checkbox">
+                            <Checkbox size="small" indeterminate={sel.size > 0 && !todosSeleccionados} checked={todosSeleccionados}
+                              disabled={idsVisibles.length === 0} onChange={() => toggleSelAllNivel(nivel, idsVisibles)} />
+                          </TableCell>
+                        )}
                         {['Usuario', 'Dependencia', 'Alcance calculado'].map((h) => <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>)}
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {usuariosNivel.length === 0 ? (
-                        <TableRow><TableCell colSpan={3} align="center" sx={{ py: 2, color: 'text.secondary', fontSize: 12 }}>Sin usuarios en este nivel.</TableCell></TableRow>
+                        <TableRow><TableCell colSpan={cols} align="center" sx={{ py: 2, color: 'text.secondary', fontSize: 12 }}>Sin usuarios en este nivel.</TableCell></TableRow>
                       ) : usuariosNivel.map((u) => (
-                        <TableRow key={u.id} hover>
+                        <TableRow key={u.id} hover selected={sel.has(u.id)}>
+                          {seleccionable && (
+                            <TableCell padding="checkbox">
+                              <Checkbox size="small" checked={sel.has(u.id)} onChange={() => toggleSelNivel(nivel, u.id)} />
+                            </TableCell>
+                          )}
                           <TableCell sx={{ fontSize: 12 }}>{[u.nombre, u.apellido].filter(Boolean).join(' ')}</TableCell>
                           <TableCell sx={{ fontSize: 12, color: 'text.secondary' }}>
                             {nivel === 2 ? 'Administrador' : nivel === 3 ? 'Liderazgo' : nivel === 4 ? 'Supervisor' : 'Supervisor'}
@@ -748,6 +834,51 @@ const UsuariosPage = () => {
           })}
         </Stack>
       )}
+
+      <Dialog open={bulkDeleteNivel !== null} onClose={cerrarBulkDelete} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Eliminar usuarios seleccionados</DialogTitle>
+        <DialogContent dividers>
+          {bulkValidando ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={24} /></Box>
+          ) : bulkValidacion && (
+            <Stack spacing={1.5}>
+              <Typography sx={{ fontSize: 14 }}>
+                ¿Deseas eliminar {bulkValidacion.permitidos.length} usuario{bulkValidacion.permitidos.length === 1 ? '' : 's'}?
+              </Typography>
+              {bulkValidacion.permitidos.length > 0 && (
+                <Box sx={{ maxHeight: 160, overflowY: 'auto' }}>
+                  {bulkValidacion.permitidos.map((p) => (
+                    <Typography key={p.id} sx={{ fontSize: 12, color: 'text.secondary' }}>• {p.email} ({p.rol})</Typography>
+                  ))}
+                </Box>
+              )}
+              {bulkValidacion.bloqueados.length > 0 && (
+                <Alert severity="warning">
+                  <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 0.5 }}>
+                    {bulkValidacion.bloqueados.length} usuario{bulkValidacion.bloqueados.length === 1 ? '' : 's'} no se puede{bulkValidacion.bloqueados.length === 1 ? '' : 'n'} eliminar:
+                  </Typography>
+                  {bulkValidacion.bloqueados.map((b) => (
+                    <Typography key={b.id} sx={{ fontSize: 12 }}>• {b.email || b.id}: {b.motivo}</Typography>
+                  ))}
+                </Alert>
+              )}
+              {bulkValidacion.permitidos.length === 0 && (
+                <Alert severity="error">Ningún usuario de la selección puede eliminarse.</Alert>
+              )}
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={cerrarBulkDelete} sx={{ textTransform: 'none' }}>Cancelar</Button>
+          <Button
+            color="error" variant="contained" onClick={confirmarBulkDelete}
+            disabled={bulkValidando || bulkEjecutando || !bulkValidacion || bulkValidacion.permitidos.length === 0}
+            sx={{ textTransform: 'none' }}
+          >
+            {bulkEjecutando ? <CircularProgress size={18} color="inherit" /> : 'Eliminar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* ===== ROLES Y PERMISOS (movido desde Configuración) ===== */}
       {tab === TAB_ROLES && rolesData && (

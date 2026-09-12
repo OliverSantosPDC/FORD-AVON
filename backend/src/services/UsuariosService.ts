@@ -484,20 +484,40 @@ export const actualizarUsuario = async (id: string, input: ActualizarUsuarioInpu
   await sincronizarRelaciones(id, clave, input);
 };
 
+/** Error de AUTORIZACIÓN (nunca de validación de datos): el controller debe
+ *  traducirlo a HTTP 403, no 400. */
+export class UsuariosForbiddenError extends UsuariosError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UsuariosForbiddenError';
+  }
+}
+
+interface PerfilAEliminar { id: string; email: string; roleClave: string | null; }
+
 /**
- * Elimina un usuario: limpia relaciones, borra de Supabase Auth y de profiles.
- * No permite auto-eliminación. Devuelve datos para auditoría.
+ * Regla de autorización para eliminar un usuario (Sección 3):
+ *  - Nadie puede eliminarse a sí mismo (cualquier rol).
+ *  - Un usuario con rol ADMINISTRADOR SOLO puede ser eliminado por OTRO
+ *    ADMINISTRADOR (Gestor/Supervisor/Gerente de zona/Liderazgo -> NUNCA).
+ * Se valida SIEMPRE en el backend (el frontend nunca es la fuente de verdad).
  */
-export const eliminarUsuario = async (id: string, actorId: string | null): Promise<{ email: string; roleClave: string | null }> => {
-  if (actorId && actorId === id) throw new UsuariosError('No puedes eliminar tu propia cuenta.');
+const validarPermisoEliminar = (target: PerfilAEliminar, actorId: string | null, actorRoleClave: string | null): void => {
+  if (actorId && actorId === target.id) throw new UsuariosForbiddenError('No puedes eliminar tu propia cuenta.');
+  if (target.roleClave === 'administrador' && actorRoleClave !== 'administrador') {
+    throw new UsuariosForbiddenError('Solo un Administrador puede eliminar a otro Administrador.');
+  }
+};
+
+/** Limpia relaciones + Auth + perfil de UN usuario ya autorizado para eliminarse.
+ *  No valida permisos (eso ya se hizo antes de invocar esta función). */
+const ejecutarEliminacionUsuario = async (id: string): Promise<void> => {
   const client = getSupabaseClient();
 
-  const { data: perfil } = await client.from('profiles').select('id, email, roles ( clave )').eq('id', id).single();
-  if (!perfil) throw new UsuariosError('Usuario no encontrado.');
-  const email = String((perfil as Record<string, unknown>).email ?? '');
-  const roleClave = roleRefOf((perfil as Record<string, unknown>).roles)?.clave ?? null;
-
-  // 1) Limpia relaciones de alcance para que no quede acceso residual.
+  // 1) Limpia relaciones de alcance para que no quede acceso residual. Solo
+  //    quita LAS ASIGNACIONES (quién supervisa/depende de quién): nunca borra
+  //    a los usuarios "hijos" (Gestores/Gerentes de zona de un Supervisor
+  //    eliminado siguen existiendo como cuentas independientes).
   await client.from('gestores').update({ usuario_id: null }).eq('usuario_id', id);
   await client.from('supervisor_gestor').delete().eq('supervisor_id', id);
   await client.from('supervisor_gerente_zona').delete().or(`supervisor_id.eq.${id},gerente_zona_id.eq.${id}`);
@@ -515,8 +535,110 @@ export const eliminarUsuario = async (id: string, actorId: string | null): Promi
 
   // 3) Elimina el perfil (por si no hubo cascada).
   await client.from('profiles').delete().eq('id', id);
+};
+
+/**
+ * Elimina un usuario: valida el permiso (auto-eliminación / regla de
+ * Administrador), limpia relaciones, borra de Supabase Auth y de profiles.
+ * Devuelve datos para auditoría.
+ */
+export const eliminarUsuario = async (
+  id: string,
+  actorId: string | null,
+  actorRoleClave: string | null
+): Promise<{ email: string; roleClave: string | null }> => {
+  const client = getSupabaseClient();
+
+  const { data: perfil } = await client.from('profiles').select('id, email, roles ( clave )').eq('id', id).single();
+  if (!perfil) throw new UsuariosError('Usuario no encontrado.');
+  const email = String((perfil as Record<string, unknown>).email ?? '');
+  const roleClave = roleRefOf((perfil as Record<string, unknown>).roles)?.clave ?? null;
+
+  validarPermisoEliminar({ id, email, roleClave }, actorId, actorRoleClave);
+  await ejecutarEliminacionUsuario(id);
 
   return { email, roleClave };
+};
+
+export interface CandidatoEliminacion { id: string; email: string; rol: string | null; }
+export interface CandidatoBloqueado extends CandidatoEliminacion { motivo: string; }
+export interface ValidacionEliminacionMasiva {
+  permitidos: CandidatoEliminacion[];
+  bloqueados: CandidatoBloqueado[];
+}
+
+/**
+ * Valida TODA una selección de ids SIN eliminar nada (Sección 8-9): separa
+ * permitidos/bloqueados con motivo, para mostrarlos ANTES de pedir
+ * confirmación. Nunca hace una eliminación parcial silenciosa: cada id
+ * queda explícitamente en un grupo u otro.
+ */
+export const validarEliminacionMasiva = async (
+  ids: string[],
+  actorId: string | null,
+  actorRoleClave: string | null
+): Promise<ValidacionEliminacionMasiva> => {
+  const idsUnicos = Array.from(new Set(ids.filter((x) => typeof x === 'string' && x.trim())));
+  const permitidos: CandidatoEliminacion[] = [];
+  const bloqueados: CandidatoBloqueado[] = [];
+  if (idsUnicos.length === 0) return { permitidos, bloqueados };
+
+  const client = getSupabaseClient();
+  const { data, error } = await client.from('profiles').select('id, email, roles ( clave )').in('id', idsUnicos);
+  if (error) throw new UsuariosError(`No se pudo verificar la selección: ${error.message}`);
+  const encontrados = new Map(((data ?? []) as Array<Record<string, unknown>>).map((f) => [String(f.id), f]));
+
+  for (const id of idsUnicos) {
+    const fila = encontrados.get(id);
+    if (!fila) { bloqueados.push({ id, email: '', rol: null, motivo: 'Usuario no encontrado.' }); continue; }
+    const email = String(fila.email ?? '');
+    const rol = roleRefOf(fila.roles)?.clave ?? null;
+    try {
+      validarPermisoEliminar({ id, email, roleClave: rol }, actorId, actorRoleClave);
+      permitidos.push({ id, email, rol });
+    } catch (permError) {
+      const motivo = permError instanceof Error ? permError.message : 'No autorizado.';
+      bloqueados.push({ id, email, rol, motivo });
+    }
+  }
+  return { permitidos, bloqueados };
+};
+
+export interface ResultadoEliminacionMasiva {
+  eliminados: CandidatoEliminacion[];
+  bloqueados: CandidatoBloqueado[];
+  errores: CandidatoBloqueado[];
+}
+
+/**
+ * Elimina una selección completa de usuarios (Sección 8-9). Re-valida TODO en
+ * el servidor (nunca confía en que el frontend ya validó): solo se eliminan
+ * los ids que pasan `validarPermisoEliminar` en el momento de ejecutar, nunca
+ * los bloqueados. El resultado siempre enumera qué pasó con CADA id
+ * (eliminado/bloqueado/error) — nunca una eliminación parcial silenciosa.
+ * Operación idempotente: reintentar sobre ids ya eliminados los reporta como
+ * "Usuario no encontrado" en `bloqueados`, sin fallar.
+ */
+export const eliminarUsuariosMasivo = async (
+  ids: string[],
+  actorId: string | null,
+  actorRoleClave: string | null
+): Promise<ResultadoEliminacionMasiva> => {
+  const { permitidos, bloqueados } = await validarEliminacionMasiva(ids, actorId, actorRoleClave);
+  const eliminados: CandidatoEliminacion[] = [];
+  const errores: CandidatoBloqueado[] = [];
+
+  for (const candidato of permitidos) {
+    try {
+      await ejecutarEliminacionUsuario(candidato.id);
+      eliminados.push(candidato);
+    } catch (execError) {
+      const motivo = execError instanceof Error ? execError.message : 'No se pudo eliminar.';
+      errores.push({ ...candidato, motivo });
+    }
+  }
+
+  return { eliminados, bloqueados, errores };
 };
 
 /* ============================================================================

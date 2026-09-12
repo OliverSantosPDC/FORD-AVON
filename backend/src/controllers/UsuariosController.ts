@@ -7,10 +7,13 @@ import {
   actualizarUsuario,
   restablecerPassword,
   eliminarUsuario,
+  validarEliminacionMasiva,
+  eliminarUsuariosMasivo,
   validarWorkbook,
   aplicarWorkbook,
   obtenerResumenAlcance,
   UsuariosError,
+  UsuariosForbiddenError,
   type CrearUsuarioInput,
   type ActualizarUsuarioInput
 } from '../services/UsuariosService';
@@ -103,11 +106,48 @@ export class UsuariosController {
   async remove(req: Request, res: Response): Promise<Response> {
     try {
       const actorId = req.auth?.userId ?? null;
-      const { email, roleClave } = await eliminarUsuario(req.params.id, actorId);
+      const actorRoleClave = req.auth?.role?.clave ?? null;
+      const { email, roleClave } = await eliminarUsuario(req.params.id, actorId, actorRoleClave);
       await registrarAuditoria(actorId, 'ELIMINAR_USUARIO', 'usuarios', req.params.id, { email, rol: roleClave });
       return res.json({ ok: true });
     } catch (error) {
       return this.fail(res, error, 'No se pudo eliminar el usuario.');
+    }
+  }
+
+  /** POST /api/usuarios/eliminar-masivo/validar — separa permitidos/bloqueados SIN eliminar nada (Sección 8-9). */
+  async validarEliminarMasivo(req: Request, res: Response): Promise<Response> {
+    try {
+      const { ids } = (req.body ?? {}) as { ids?: unknown };
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ error: 'Debes seleccionar al menos un usuario.' });
+      }
+      const actorId = req.auth?.userId ?? null;
+      const actorRoleClave = req.auth?.role?.clave ?? null;
+      return res.json(await validarEliminacionMasiva(ids.map(String), actorId, actorRoleClave));
+    } catch (error) {
+      return this.fail(res, error, 'No se pudo validar la selección.');
+    }
+  }
+
+  /** DELETE /api/usuarios/eliminar-masivo — re-valida TODO en el servidor y elimina solo los permitidos. */
+  async eliminarMasivo(req: Request, res: Response): Promise<Response> {
+    try {
+      const { ids } = (req.body ?? {}) as { ids?: unknown };
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ error: 'Debes seleccionar al menos un usuario.' });
+      }
+      const actorId = req.auth?.userId ?? null;
+      const actorRoleClave = req.auth?.role?.clave ?? null;
+      const resultado = await eliminarUsuariosMasivo(ids.map(String), actorId, actorRoleClave);
+      await registrarAuditoria(actorId, 'ELIMINAR_USUARIOS_MASIVO', 'usuarios', null, {
+        eliminados: resultado.eliminados.map((u) => ({ id: u.id, email: u.email, rol: u.rol })),
+        bloqueados: resultado.bloqueados.map((u) => ({ id: u.id, email: u.email, motivo: u.motivo })),
+        errores: resultado.errores.map((u) => ({ id: u.id, email: u.email, motivo: u.motivo }))
+      });
+      return res.json(resultado);
+    } catch (error) {
+      return this.fail(res, error, 'No se pudo completar la eliminación masiva.');
     }
   }
 
@@ -151,6 +191,10 @@ export class UsuariosController {
   }
 
   private fail(res: Response, error: unknown, fallback: string): Response {
+    if (error instanceof UsuariosForbiddenError) {
+      console.error('[USUARIOS] 403', error.message);
+      return res.status(403).json({ error: error.message });
+    }
     const message = error instanceof UsuariosError ? error.message : fallback;
     console.error('[USUARIOS]', error);
     return res.status(400).json({ error: message });

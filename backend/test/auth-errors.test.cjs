@@ -49,6 +49,21 @@ test('describirErrorAuth nunca incluye stack traces', () => {
   assert.equal(typeof msg, 'string');
 });
 
+test('describirErrorAuth — caso real de producción: GoTrue "error finding user" (bug de tokens NULL) da un mensaje claro sin "{}"', () => {
+  // Reproduce EXACTAMENTE el error real observado en los logs de Supabase Auth
+  // para este proyecto: auth.users con confirmation_token/recovery_token/
+  // email_change_token_new NULL rompía el escaneo interno de GoTrue
+  // ("sql: Scan error on column index 3 ... converting NULL to string"),
+  // devolviendo un cuerpo de error vacío/sin campos reconocibles. La causa
+  // real era un problema de DATOS (corregido con una migración que normaliza
+  // esas columnas a '' en Supabase), no de este código — pero el manejo de
+  // errores debe seguir mostrando algo claro y nunca "{}" crudo.
+  const err = { name: 'AuthApiError', message: '{}', status: 500, code: undefined };
+  const msg = describirErrorAuth(err, 'No se pudo eliminar el usuario de Auth.');
+  assert.equal(msg, 'No se pudo eliminar el usuario de Auth. (estado HTTP: 500)');
+  assert.equal(esUsuarioAuthInexistente(err), false, 'un 500 genérico NO debe tratarse como "usuario ya inexistente"');
+});
+
 test('esUsuarioAuthInexistente detecta code/status/mensaje de "no encontrado"', () => {
   assert.equal(esUsuarioAuthInexistente({ code: 'user_not_found' }), true);
   assert.equal(esUsuarioAuthInexistente({ status: 404 }), true);

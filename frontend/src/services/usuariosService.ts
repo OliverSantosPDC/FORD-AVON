@@ -143,6 +143,33 @@ export const deleteUsuario = async (id: string): Promise<void> => {
   if (!res.ok) throw new Error(await parseError(res, 'No se pudo eliminar el usuario.'));
 };
 
+export interface CandidatoEliminacion { id: string; email: string; rol: string | null; }
+export interface CandidatoBloqueado extends CandidatoEliminacion { motivo: string; }
+export interface ValidacionEliminacionMasiva { permitidos: CandidatoEliminacion[]; bloqueados: CandidatoBloqueado[]; }
+export interface ResultadoEliminacionMasiva { eliminados: CandidatoEliminacion[]; bloqueados: CandidatoBloqueado[]; errores: CandidatoBloqueado[]; }
+
+/** Separa permitidos/bloqueados (con motivo) SIN eliminar nada. Se usa para mostrar la confirmación. */
+export const validarEliminacionMasivaUsuarios = async (ids: string[]): Promise<ValidacionEliminacionMasiva> => {
+  const res = await apiFetch('/api/usuarios/eliminar-masivo/validar', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids })
+  });
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudo validar la selección.'));
+  return res.json();
+};
+
+/** Re-valida TODO en el servidor y elimina solo los permitidos (nunca una eliminación parcial silenciosa: el resultado enumera cada id). */
+export const eliminarUsuariosMasivo = async (ids: string[]): Promise<ResultadoEliminacionMasiva> => {
+  const res = await apiFetch('/api/usuarios/eliminar-masivo', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids })
+  });
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudo completar la eliminación masiva.'));
+  return res.json();
+};
+
 /** Restablece la contraseña de un usuario (admin). No devuelve la contraseña. */
 export const resetPasswordUsuario = async (id: string, password: string): Promise<void> => {
   const res = await apiFetch(`/api/usuarios/${id}/password`, {
