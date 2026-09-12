@@ -167,8 +167,13 @@ const UsuariosPage = () => {
   const [confirmDeletePw, setConfirmDeletePw] = useState<string[] | null>(null);
   const [deletingPw, setDeletingPw] = useState(false);
 
-  // Selección múltiple + eliminación masiva en Grupos y Niveles (Secciones 4-9):
-  // una selección independiente por nivel (Supervisor=3, Gestor=4, Gerente de zona=5).
+  // Selección múltiple + eliminación masiva (Secciones 1-9): una fuente
+  // ("Gestión de usuarios" con selección única global, o "Grupos y Niveles"
+  // con una selección independiente por nivel: Supervisor=3/Gestor=4/
+  // Gerente de zona=5) alimenta el MISMO diálogo/lógica de confirmación —
+  // reutiliza exactamente los mismos endpoints (validarEliminacionMasivaUsuarios/
+  // eliminarUsuariosMasivo), sin duplicar backend ni el flujo de confirmación.
+  type BulkDeleteSource = { kind: 'nivel'; nivel: number } | { kind: 'gestion' };
   const [selNiveles, setSelNiveles] = useState<Record<number, Set<string>>>({});
   const selNivel = (nivel: number): Set<string> => selNiveles[nivel] ?? new Set<string>();
   const toggleSelNivel = (nivel: number, id: string) => setSelNiveles((s) => {
@@ -181,37 +186,53 @@ const UsuariosPage = () => {
     const todos = ids.length > 0 && ids.every((id) => cur.has(id));
     return { ...s, [nivel]: todos ? new Set<string>() : new Set(ids) };
   });
-  const [bulkDeleteNivel, setBulkDeleteNivel] = useState<number | null>(null);
+
+  // Selección de "Gestión de usuarios" (Sección 1-3): UNA selección global,
+  // independiente de los grupos por rol (un usuario aparece en un solo grupo,
+  // pero la selección/el botón "Eliminar seleccionados" es único para la tabla).
+  const [selUsuarios, setSelUsuarios] = useState<Set<string>>(new Set());
+  const toggleSelUsuario = (id: string) => setSelUsuarios((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleSelGrupoUsuarios = (ids: string[]) => setSelUsuarios((s) => {
+    const n = new Set(s);
+    const todos = ids.length > 0 && ids.every((id) => n.has(id));
+    ids.forEach((id) => (todos ? n.delete(id) : n.add(id)));
+    return n;
+  });
+
+  const [bulkDeleteTarget, setBulkDeleteTarget] = useState<{ source: BulkDeleteSource; ids: string[] } | null>(null);
   const [bulkValidando, setBulkValidando] = useState(false);
   const [bulkValidacion, setBulkValidacion] = useState<ValidacionEliminacionMasiva | null>(null);
   const [bulkEjecutando, setBulkEjecutando] = useState(false);
-  const abrirConfirmBulkDelete = async (nivel: number) => {
-    const ids = [...selNivel(nivel)];
+  const abrirConfirmBulkDelete = async (source: BulkDeleteSource, ids: string[]) => {
     if (ids.length === 0) return;
-    setBulkDeleteNivel(nivel);
+    setBulkDeleteTarget({ source, ids });
     setBulkValidacion(null);
     setBulkValidando(true);
     try {
       setBulkValidacion(await validarEliminacionMasivaUsuarios(ids));
     } catch (err) {
       setToast(err instanceof Error ? err.message : 'No se pudo validar la selección.');
-      setBulkDeleteNivel(null);
+      setBulkDeleteTarget(null);
     } finally {
       setBulkValidando(false);
     }
   };
-  const cerrarBulkDelete = () => { setBulkDeleteNivel(null); setBulkValidacion(null); };
+  const cerrarBulkDelete = () => { setBulkDeleteTarget(null); setBulkValidacion(null); };
   const confirmarBulkDelete = async () => {
-    if (bulkDeleteNivel === null) return;
-    const ids = [...selNivel(bulkDeleteNivel)];
+    if (!bulkDeleteTarget) return;
     setBulkEjecutando(true);
     try {
-      const r = await eliminarUsuariosMasivo(ids);
+      const r = await eliminarUsuariosMasivo(bulkDeleteTarget.ids);
       const problemas = r.bloqueados.length + r.errores.length;
       setToast(problemas > 0
         ? `${r.eliminados.length} usuario(s) eliminado(s) correctamente; ${problemas} no se pudieron eliminar.`
         : `${r.eliminados.length} usuario(s) eliminado(s) correctamente.`);
-      setSelNiveles((s) => ({ ...s, [bulkDeleteNivel]: new Set() }));
+      if (bulkDeleteTarget.source.kind === 'nivel') {
+        const nivel = bulkDeleteTarget.source.nivel;
+        setSelNiveles((s) => ({ ...s, [nivel]: new Set() }));
+      } else {
+        setSelUsuarios(new Set());
+      }
       cerrarBulkDelete();
       await load();
     } catch (err) {
@@ -518,6 +539,11 @@ const UsuariosPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [usuarios, usuarioSearch, usuarioOrden, resumenPorUsuario]);
 
+  // Todos los ids REALMENTE filtrados (búsqueda aplicada, sin paginación): es
+  // exactamente lo que "Seleccionar todos" debe seleccionar (Sección 3).
+  const idsUsuariosFiltrados = useMemo(() => gruposUsuarios.flatMap((g) => g.usuarios.map((u) => u.id)), [gruposUsuarios]);
+  const todosFiltradosSeleccionados = idsUsuariosFiltrados.length > 0 && idsUsuariosFiltrados.every((id) => selUsuarios.has(id));
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 3 }}>
@@ -592,6 +618,30 @@ const UsuariosPage = () => {
                 </TextField>
                 <Button size="small" onClick={() => setGruposAbiertos(new Set(gruposUsuarios.map((g) => g.clave)))} sx={{ textTransform: 'none' }}>Expandir todo</Button>
                 <Button size="small" onClick={() => setGruposAbiertos(new Set())} sx={{ textTransform: 'none' }}>Contraer todo</Button>
+                {canAdminGlobal && (
+                  <FormControlLabel
+                    sx={{ ml: 'auto', mr: 0 }}
+                    control={
+                      <Checkbox
+                        size="small"
+                        indeterminate={selUsuarios.size > 0 && !todosFiltradosSeleccionados}
+                        checked={todosFiltradosSeleccionados}
+                        disabled={idsUsuariosFiltrados.length === 0}
+                        onChange={() => setSelUsuarios(todosFiltradosSeleccionados ? new Set() : new Set(idsUsuariosFiltrados))}
+                      />
+                    }
+                    label={<Typography sx={{ fontSize: 13 }}>Seleccionar todos los filtrados ({idsUsuariosFiltrados.length})</Typography>}
+                  />
+                )}
+                {canAdminGlobal && selUsuarios.size > 0 && (
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Chip size="small" label={`${selUsuarios.size} seleccionado(s)`} />
+                    <Button size="small" color="error" variant="outlined" startIcon={<DeleteOutlineIcon fontSize="small" />}
+                      onClick={() => abrirConfirmBulkDelete({ kind: 'gestion' }, [...selUsuarios])} sx={{ textTransform: 'none' }}>
+                      Eliminar seleccionados
+                    </Button>
+                  </Stack>
+                )}
               </Box>
 
               {gruposUsuarios.length === 0 ? (
@@ -605,6 +655,15 @@ const UsuariosPage = () => {
                     data-testid={`grupo-usuarios-${grupo.clave}`}
                     sx={{ p: 1.25, display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer', bgcolor: 'action.hover' }}
                   >
+                    {canAdminGlobal && (
+                      <Checkbox
+                        size="small"
+                        onClick={(e) => e.stopPropagation()}
+                        indeterminate={grupo.usuarios.some((u) => selUsuarios.has(u.id)) && !grupo.usuarios.every((u) => selUsuarios.has(u.id))}
+                        checked={grupo.usuarios.every((u) => selUsuarios.has(u.id))}
+                        onChange={() => toggleSelGrupoUsuarios(grupo.usuarios.map((u) => u.id))}
+                      />
+                    )}
                     <IconButton size="small">
                       {gruposAbiertos.has(grupo.clave) ? <KeyboardArrowDownIcon fontSize="small" /> : <KeyboardArrowRightIcon fontSize="small" />}
                     </IconButton>
@@ -616,6 +675,7 @@ const UsuariosPage = () => {
                       <Table stickyHeader size="small">
                         <TableHead>
                           <TableRow>
+                            {canAdminGlobal && <TableCell padding="checkbox" />}
                             {['Nombre', 'Correo', 'Rol / Nivel', 'Alcance', 'Estado', 'Acciones'].map((h) => (
                               <TableCell key={h} sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</TableCell>
                             ))}
@@ -623,7 +683,12 @@ const UsuariosPage = () => {
                         </TableHead>
                         <TableBody>
                           {grupo.usuarios.map((u) => (
-                            <TableRow key={u.id} hover>
+                            <TableRow key={u.id} hover selected={selUsuarios.has(u.id)}>
+                              {canAdminGlobal && (
+                                <TableCell padding="checkbox">
+                                  <Checkbox size="small" checked={selUsuarios.has(u.id)} onChange={() => toggleSelUsuario(u.id)} />
+                                </TableCell>
+                              )}
                               <TableCell sx={{ whiteSpace: 'nowrap' }}>{[u.nombre, u.apellido].filter(Boolean).join(' ') || '—'}</TableCell>
                               <TableCell sx={{ whiteSpace: 'nowrap' }}>{u.email}</TableCell>
                               <TableCell>
@@ -790,7 +855,7 @@ const UsuariosPage = () => {
                     <Stack direction="row" spacing={1} alignItems="center">
                       <Chip size="small" label={`${sel.size} seleccionado(s)`} />
                       <Button size="small" color="error" variant="outlined" startIcon={<DeleteOutlineIcon fontSize="small" />}
-                        onClick={() => abrirConfirmBulkDelete(nivel)} sx={{ textTransform: 'none' }}>
+                        onClick={() => abrirConfirmBulkDelete({ kind: 'nivel', nivel }, [...sel])} sx={{ textTransform: 'none' }}>
                         Eliminar seleccionados
                       </Button>
                     </Stack>
@@ -835,7 +900,7 @@ const UsuariosPage = () => {
         </Stack>
       )}
 
-      <Dialog open={bulkDeleteNivel !== null} onClose={cerrarBulkDelete} maxWidth="sm" fullWidth>
+      <Dialog open={bulkDeleteTarget !== null} onClose={cerrarBulkDelete} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 700 }}>Eliminar usuarios seleccionados</DialogTitle>
         <DialogContent dividers>
           {bulkValidando ? (
