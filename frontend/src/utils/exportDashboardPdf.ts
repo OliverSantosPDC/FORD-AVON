@@ -127,32 +127,85 @@ export const createExportSnapshot = async (root: HTMLElement): Promise<ExportSna
   return { container, root: clone };
 };
 
-/** Una fila de píxeles cuenta como "en blanco" (espacio real entre tarjetas del grid,
- *  nunca contenido) si todos los píxeles muestreados son cercanos al blanco/fondo. Se
- *  muestrea con un paso (en vez de leer cada píxel) para que la búsqueda sea rápida. */
-const isRowBlank = (row: Uint8ClampedArray, sampleStep: number, threshold = 232): boolean => {
-  for (let x = 0; x < row.length; x += 4 * sampleStep) {
-    if (row[x + 3] === 0) continue; // transparente cuenta como blanco
-    if (row[x] < threshold || row[x + 1] < threshold || row[x + 2] < threshold) return false;
-  }
-  return true;
+/**
+ * Detecta los bloques visuales principales del Dashboard capturado: cada tarjeta real
+ * (`.MuiPaper-root`, y `.MuiAlert-root` para el aviso de tasa no disponible), tomando solo
+ * la más externa cuando una contiene a otra (evita contar dos veces una tarjeta con un
+ * Paper anidado). No depende de ningún nombre de componente ni de esta versión concreta
+ * del Dashboard: es puramente estructural (la misma clase que usa cada tarjeta real, sea
+ * cual sea su contenido). Como respaldo genérico, cualquier hijo directo de `root` que no
+ * contenga ninguna tarjeta detectada se agrega completo como su propio bloque (cubre filas
+ * que no usan Paper, como la barra de filtros).
+ */
+const collectLayoutBlocks = (root: HTMLElement): HTMLElement[] => {
+  const cards = Array.from(root.querySelectorAll<HTMLElement>('.MuiPaper-root, .MuiAlert-root'));
+  const topCards = cards.filter((el) => !cards.some((other) => other !== el && other.contains(el)));
+
+  const blocks: HTMLElement[] = [...topCards];
+  Array.from(root.children).forEach((child) => {
+    if (!(child instanceof HTMLElement)) return;
+    const alreadyCovered = topCards.some((card) => child.contains(card));
+    if (!alreadyCovered) blocks.push(child);
+  });
+  return blocks;
 };
 
-/** Busca, cerca del corte "ideal" (uniforme) de página, la fila en blanco más próxima
- *  hacia ARRIBA (nunca hacia abajo: correr el corte más tarde alargaría la página más
- *  allá del área imprimible). Si no hay ninguna fila en blanco dentro de la ventana de
- *  búsqueda, se usa el corte ideal tal cual (no siempre es evitable). Esto es lo único
- *  que decide DÓNDE cortar la misma captura larga y continua — no recorta ni reconstruye
- *  ningún componente. */
-const findSafeCutY = (ctx: CanvasRenderingContext2D, canvasWidth: number, idealY: number, maxSearchPx: number): number => {
-  const sampleStep = Math.max(1, Math.floor(canvasWidth / 400)); // ~400 muestras por fila, suficiente y rápido
-  for (let offset = 0; offset <= maxSearchPx; offset++) {
-    const y = idealY - offset;
-    if (y <= 0) break;
-    const row = ctx.getImageData(0, y, canvasWidth, 1).data;
-    if (isRowBlank(row, sampleStep)) return y;
+interface Band { top: number; bottom: number; }
+
+/** Mide el `top`/`bottom` real (relativo a `root`) de cada bloque y fusiona los que se
+ *  solapan verticalmente (tarjetas de una misma fila del grid) en una sola banda: una
+ *  banda es la unidad mínima que nunca debe partirse entre dos páginas. */
+const computeBands = (root: HTMLElement, blocks: HTMLElement[]): Band[] => {
+  const rootTop = root.getBoundingClientRect().top;
+  const raw = blocks
+    .map((el) => {
+      const r = el.getBoundingClientRect();
+      return { top: r.top - rootTop, bottom: r.bottom - rootTop };
+    })
+    .filter((b) => b.bottom > b.top)
+    .sort((a, b) => a.top - b.top);
+
+  const merged: Band[] = [];
+  for (const b of raw) {
+    const last = merged[merged.length - 1];
+    if (last && b.top <= last.bottom) last.bottom = Math.max(last.bottom, b.bottom);
+    else merged.push({ ...b });
   }
-  return idealY;
+  return merged;
+};
+
+/** Empaqueta las bandas (ya en píxeles del canvas capturado) en páginas: agrega bandas
+ *  completas a la página actual mientras quepan en `sliceHeightPx`; si la siguiente banda
+ *  no cabe completa, la página termina donde acabó la última banda que sí cabía y esa
+ *  banda empieza en la página siguiente. Una banda por sí sola más alta que una página
+ *  completa (caso límite) se acepta igual como único segmento de esa página — el corte
+ *  forzado dentro de ella se resuelve después, por tramos de tamaño uniforme, ya que no
+ *  existe forma de mantenerla completa en ninguna página. */
+const paginateBands = (bands: Band[], canvasHeight: number, sliceHeightPx: number): Array<[number, number]> => {
+  const pages: Array<[number, number]> = [];
+  let cursor = 0;
+  let idx = 0;
+  while (cursor < canvasHeight) {
+    let pageEnd = cursor;
+    let addedAny = false;
+    while (idx < bands.length) {
+      const band = bands[idx];
+      if (band.bottom <= cursor) { idx += 1; continue; }
+      const wouldEnd = Math.min(band.bottom, canvasHeight);
+      if (!addedAny || wouldEnd - cursor <= sliceHeightPx) {
+        pageEnd = wouldEnd;
+        addedAny = true;
+        idx += 1;
+        if (wouldEnd - cursor >= sliceHeightPx) break;
+      } else {
+        break;
+      }
+    }
+    if (!addedAny) pageEnd = canvasHeight;
+    pages.push([cursor, pageEnd]);
+    cursor = pageEnd;
+  }
+  return pages;
 };
 
 /**
@@ -162,15 +215,19 @@ const findSafeCutY = (ctx: CanvasRenderingContext2D, canvasWidth: number, idealY
  * su layout.
  *
  * Técnica: una única captura larga de todo `snapshot.root` (equivalente a un "full page
- * screenshot"), cortada después en páginas consecutivas — como si simplemente se hubiera
- * hecho scroll hacia abajo y se hubiera seguido capturando. No se captura componente por
- * componente ni se decide dónde "cabe" cada uno: las páginas son segmentos consecutivos
- * de la misma imagen, nunca una composición independiente. El único ajuste es DÓNDE cae
- * cada corte: en vez de un corte uniforme ciego, se busca la franja en blanco real más
- * cercana (espacio ya existente entre tarjetas del grid) para no partir un gráfico/tarjeta
- * a la mitad.
+ * screenshot"). No se captura componente por componente: se captura UNA sola vez, y
+ * después se decide dónde cortarla en páginas usando los límites reales (bounding boxes)
+ * de las tarjetas del Dashboard, medidos en el DOM antes de aplanar a imagen — nunca
+ * coordenadas fijas ni nombres de componentes. Cada página agrupa tarjetas completas; si
+ * la siguiente tarjeta no cabe entera en el espacio restante, empieza completa en la
+ * página siguiente. Solo si una tarjeta por sí sola excede el alto de una página completa
+ * se corta (no hay otra forma de mantenerla entera en ninguna página).
  */
 export const renderSnapshotToPdf = async (snapshot: ExportSnapshot, filenamePrefix = 'FORD-AVON_Dashboard_OnePage'): Promise<void> => {
+  const rootWidth = snapshot.root.getBoundingClientRect().width;
+  const blocks = collectLayoutBlocks(snapshot.root);
+  const bands = computeBands(snapshot.root, blocks);
+
   const canvas = await html2canvas(snapshot.root, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
 
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
@@ -182,32 +239,32 @@ export const renderSnapshotToPdf = async (snapshot: ExportSnapshot, filenamePref
 
   if (canvas.width > 0 && canvas.height > 0) {
     const imgWidthMm = usableWidthMm;
+    const scale = rootWidth > 0 ? canvas.width / rootWidth : 2; // escala real usada por html2canvas
     const pxPerMm = canvas.width / imgWidthMm;
     const sliceHeightPx = Math.max(1, Math.floor(usableHeightMm * pxPerMm));
-    // Ventana de búsqueda del corte "seguro": una fracción acotada del alto de página,
-    // suficiente para alcanzar el espacio entre tarjetas (gap del grid) sin achicar la
-    // página de forma perceptible si no encuentra una franja en blanco cercana.
-    const maxSearchPx = Math.max(1, Math.round(sliceHeightPx * 0.12));
-    const ctx = canvas.getContext('2d');
+    const canvasBands = bands.map((b) => ({ top: Math.round(b.top * scale), bottom: Math.round(b.bottom * scale) }));
 
-    let renderedPx = 0;
     let pageStarted = false;
-    while (renderedPx < canvas.height) {
-      const idealEnd = renderedPx + sliceHeightPx;
-      const isLastChunk = idealEnd >= canvas.height;
-      const cutY = isLastChunk || !ctx ? Math.min(idealEnd, canvas.height) : findSafeCutY(ctx, canvas.width, idealEnd, maxSearchPx);
-      const thisSlicePx = Math.max(1, Math.min(cutY, canvas.height) - renderedPx);
+    for (const [pageStart, pageEnd] of paginateBands(canvasBands, canvas.height, sliceHeightPx)) {
+      // Una página normalmente es un solo tramo; solo se subdivide (tramos de igual alto)
+      // cuando una banda por sí sola excede el alto de página y no quedó alternativa.
+      let segStart = pageStart;
+      while (segStart < pageEnd) {
+        const segEnd = Math.min(pageEnd, segStart + sliceHeightPx);
+        const thisSlicePx = segEnd - segStart;
+        if (thisSlicePx <= 0) break;
 
-      const sliceCanvas = document.createElement('canvas');
-      sliceCanvas.width = canvas.width;
-      sliceCanvas.height = thisSlicePx;
-      const sliceCtx = sliceCanvas.getContext('2d');
-      if (sliceCtx) sliceCtx.drawImage(canvas, 0, renderedPx, canvas.width, thisSlicePx, 0, 0, canvas.width, thisSlicePx);
-      if (pageStarted) pdf.addPage();
-      pageStarted = true;
-      const sliceHeightMm = (thisSlicePx / canvas.width) * imgWidthMm;
-      pdf.addImage(sliceCanvas.toDataURL('image/jpeg', 0.95), 'JPEG', marginMm, marginMm, imgWidthMm, sliceHeightMm);
-      renderedPx += thisSlicePx;
+        const sliceCanvas = document.createElement('canvas');
+        sliceCanvas.width = canvas.width;
+        sliceCanvas.height = thisSlicePx;
+        const sliceCtx = sliceCanvas.getContext('2d');
+        if (sliceCtx) sliceCtx.drawImage(canvas, 0, segStart, canvas.width, thisSlicePx, 0, 0, canvas.width, thisSlicePx);
+        if (pageStarted) pdf.addPage();
+        pageStarted = true;
+        const sliceHeightMm = (thisSlicePx / canvas.width) * imgWidthMm;
+        pdf.addImage(sliceCanvas.toDataURL('image/jpeg', 0.95), 'JPEG', marginMm, marginMm, imgWidthMm, sliceHeightMm);
+        segStart = segEnd;
+      }
     }
   }
 
