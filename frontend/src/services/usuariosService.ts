@@ -163,6 +163,8 @@ export interface PreviewItem {
   rol: string;
   /** Valor relacionado (relación simple) o "PAIS / ZONA" (hojas País-Zona). Ausente en USUARIOS. */
   valor?: string;
+  /** Columna que originó el error (vacío si estado=VALIDO). */
+  columna: string;
   estado: 'VALIDO' | 'ERROR';
   mensaje: string;
 }
@@ -188,6 +190,7 @@ export interface ResultadoAplicarItem {
   nombre?: string;
   apellido?: string;
   rol: string;
+  columna: string;
   resultado: 'OK' | 'ERROR';
   password: string;
   mensaje: string;

@@ -461,3 +461,87 @@ test('Carga masiva — email duplicado, referencia inexistente, País-Zona invá
   const filaInvalidaUsuarios = resultados.filter((r) => r.hoja === 'USUARIOS');
   assert.equal(filaInvalidaUsuarios.filter((r) => r.resultado === 'ERROR').length, 1);
 });
+
+test('Carga masiva — PAIS/ZONA: obligatorios, columna reportada, y "zona de otro país" se rechaza', async () => {
+  const buf = await buildWorkbook({
+    usuarios: [],
+    gerentePaisZona: [
+      ['gerente1.qatest@example.com', '', '107'], // PAIS vacío -> columna PAIS
+      ['gerente1.qatest@example.com', 'GUATEMALA', ''], // ZONA vacía -> columna ZONA
+      ['gerente1.qatest@example.com', 'GUATEMALA', '999'], // zona inexistente en cartera
+      ['gerente1.qatest@example.com', 'GUATEMALA', '208'] // 208 pertenece EXCLUSIVAMENTE a EL SALVADOR en cartera
+    ]
+  });
+  const parsed = await parsearWorkbook(buf);
+  const { items } = await validarWorkbook(parsed);
+  const filas = items.filter((i) => i.hoja === 'GERENTE_PAIS_ZONA').sort((a, b) => a.fila - b.fila);
+  assert.equal(filas.length, 4);
+  filas.forEach((f) => assert.equal(f.estado, 'ERROR'));
+
+  assert.equal(filas[0].columna, 'PAIS');
+  assert.match(filas[0].mensaje, /PAIS es obligatorio/);
+
+  assert.equal(filas[1].columna, 'ZONA');
+  assert.match(filas[1].mensaje, /ZONA es obligatorio/);
+
+  assert.equal(filas[2].columna, 'PAIS/ZONA');
+  assert.match(filas[2].mensaje, /inexistente en cartera/);
+  assert.match(filas[2].mensaje, /GUATEMALA \/ 999/);
+
+  // GUATEMALA + 208 no existe como PAR en cartera (208 es exclusivo de EL SALVADOR):
+  // debe rechazarse exactamente igual que una zona inexistente, nunca aceptarse
+  // por existir "208" en algún país.
+  assert.equal(filas[3].columna, 'PAIS/ZONA');
+  assert.match(filas[3].mensaje, /inexistente en cartera/);
+  assert.match(filas[3].mensaje, /GUATEMALA \/ 208/);
+});
+
+test('Carga masiva — Zona 107 en Guatemala y República Dominicana asignada a USUARIOS DIFERENTES: se aceptan, se guardan, no se mezclan, y ScopeService respeta el País', async () => {
+  const buf = await buildWorkbook({
+    usuarios: [
+      ['CREAR', 'gerenteGuatemala.qatest@example.com', 'Gerente', 'Guatemala', 'gerente_zona', 5, '', 'SI'],
+      ['CREAR', 'gerenteRD.qatest@example.com', 'Gerente', 'RD', 'gerente_zona', 5, '', 'SI']
+    ],
+    gerentePaisZona: [
+      ['gerenteGuatemala.qatest@example.com', 'GUATEMALA', '107'],
+      ['gerenteRD.qatest@example.com', 'REPUBLICA DOMINICANA', '107']
+    ]
+  });
+  const parsed = await parsearWorkbook(buf);
+  const validacion = await validarWorkbook(parsed);
+  assert.equal(validacion.resumen.errores, 0, JSON.stringify(validacion.items.filter((i) => i.estado === 'ERROR')));
+
+  const { resumen } = await aplicarWorkbook(parsed, false, null);
+  assert.equal(resumen.errores, 0);
+  assert.equal(resumen.creaciones, 2);
+  assert.equal(resumen.relacionesCreadas, 2);
+
+  // ---- Se guardaron correctamente y NO se mezclan (verificación directa en la "BD") ----
+  const gGuatemala = findProfile('gerenteguatemala.qatest@example.com');
+  const gRD = findProfile('gerenterd.qatest@example.com');
+  const pzGuatemala = activeRows('gerente_zona_zona', 'usuario_id', gGuatemala.id);
+  const pzRD = activeRows('gerente_zona_zona', 'usuario_id', gRD.id);
+  assert.equal(pzGuatemala.length, 1);
+  assert.equal(pzGuatemala[0].pais, 'GUATEMALA');
+  assert.equal(pzRD.length, 1);
+  assert.equal(pzRD[0].pais, 'REPUBLICA DOMINICANA');
+  // Mismo zona_id (ambos son "zona 107"), pero el país que se guardó es distinto.
+  assert.equal(pzGuatemala[0].zona_id, pzRD[0].zona_id);
+  assert.notEqual(pzGuatemala[0].pais, pzRD[0].pais);
+
+  // ---- ScopeService (applyScope) respeta el País: un Gerente de Guatemala NUNCA
+  // obtiene cartera de República Dominicana por compartir el mismo número de zona ----
+  const { applyScope } = require(path.join(distDir, 'services', 'ScopeFilter.js'));
+  const carteraCompartida = [
+    { pais: 'GUATEMALA', zona: '107', gestor: 'GESTOR GT' },
+    { pais: 'REPUBLICA DOMINICANA', zona: '107', gestor: 'GESTOR RD' }
+  ];
+  const ctxGuatemala = { isGlobal: false, scope: { paises: [], zonas: [], gestores: [], paisZonaGrant: [{ pais: 'GUATEMALA', zona: '107' }] } };
+  const ctxRD = { isGlobal: false, scope: { paises: [], zonas: [], gestores: [], paisZonaGrant: [{ pais: 'REPUBLICA DOMINICANA', zona: '107' }] } };
+  const visiblesGuatemala = applyScope(carteraCompartida, ctxGuatemala, { gestorField: 'gestor', zonaField: 'zona', paisField: 'pais' });
+  const visiblesRD = applyScope(carteraCompartida, ctxRD, { gestorField: 'gestor', zonaField: 'zona', paisField: 'pais' });
+  assert.equal(visiblesGuatemala.length, 1);
+  assert.equal(visiblesGuatemala[0].pais, 'GUATEMALA');
+  assert.equal(visiblesRD.length, 1);
+  assert.equal(visiblesRD[0].pais, 'REPUBLICA DOMINICANA');
+});

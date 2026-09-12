@@ -540,6 +540,8 @@ export interface PreviewItem {
   email: string;
   rol: string;
   valor?: string;
+  /** Columna que originó el error (vacío si la fila es VALIDO). */
+  columna: string;
   estado: 'VALIDO' | 'ERROR';
   mensaje: string;
 }
@@ -566,6 +568,8 @@ export interface ResultadoAplicarItem {
   nombre?: string;
   apellido?: string;
   rol: string;
+  /** Columna que originó el error (vacío si resultado=OK). */
+  columna: string;
   resultado: 'OK' | 'ERROR';
   /** Solo para CREAR; vacío en el resto. No se persiste. */
   password: string;
@@ -654,45 +658,50 @@ const validarNivel = (fila: FilaUsuarioImport, rolInfo: { nivel: number | null }
   return '';
 };
 
+interface ResultadoValidacion { mensaje: string; columna: string; }
+const ok: ResultadoValidacion = { mensaje: '', columna: '' };
+
 /** Valida una fila de la hoja USUARIOS SIN tocar la BD. */
-const validarFilaUsuario = (fila: FilaUsuarioImport, ctx: ContextoMasivo, vistos: Set<string>): string => {
+const validarFilaUsuario = (fila: FilaUsuarioImport, ctx: ContextoMasivo, vistos: Set<string>): ResultadoValidacion => {
   const accion = fila.accion.toUpperCase();
-  if (!ACCIONES_VALIDAS.includes(accion)) return `ACCION no válida: "${fila.accion}".`;
+  if (!ACCIONES_VALIDAS.includes(accion)) return { mensaje: `ACCION no válida: "${fila.accion}".`, columna: 'ACCION' };
 
   const email = normEmail(fila.email);
-  if (!email) return 'EMAIL es obligatorio.';
-  if (!EMAIL_RE.test(email)) return 'EMAIL inválido.';
-  if (vistos.has(email)) return 'EMAIL duplicado dentro de la hoja USUARIOS.';
+  if (!email) return { mensaje: 'EMAIL es obligatorio.', columna: 'EMAIL' };
+  if (!EMAIL_RE.test(email)) return { mensaje: 'EMAIL inválido.', columna: 'EMAIL' };
+  if (vistos.has(email)) return { mensaje: 'EMAIL duplicado dentro de la hoja USUARIOS.', columna: 'EMAIL' };
 
   const existente = ctx.perfilesPorEmail.get(email);
 
   if (accion === 'CREAR') {
-    if (existente) return 'El usuario ya existe (email duplicado).';
-    if (!fila.nombre.trim()) return 'NOMBRE es obligatorio.';
-    if (!fila.apellido.trim()) return 'APELLIDO es obligatorio.';
-    if (!fila.rol) return 'ROL es obligatorio.';
+    if (existente) return { mensaje: 'El usuario ya existe (email duplicado).', columna: 'EMAIL' };
+    if (!fila.nombre.trim()) return { mensaje: 'NOMBRE es obligatorio.', columna: 'NOMBRE' };
+    if (!fila.apellido.trim()) return { mensaje: 'APELLIDO es obligatorio.', columna: 'APELLIDO' };
+    if (!fila.rol) return { mensaje: 'ROL es obligatorio.', columna: 'ROL' };
     const rolInfo = ctx.rolesPorClave.get(fila.rol);
-    if (!rolInfo) return `ROL no válido: "${fila.rol}".`;
+    if (!rolInfo) return { mensaje: `ROL no válido: "${fila.rol}".`, columna: 'ROL' };
     const nivelErr = validarNivel(fila, rolInfo);
-    if (nivelErr) return nivelErr;
+    if (nivelErr) return { mensaje: nivelErr, columna: 'NIVEL' };
     if (fila.rol === 'gestor') {
-      if (!fila.nombreCartera.trim()) return 'NOMBRE_CARTERA es obligatorio para ROL=gestor.';
-      if (!ctx.carteraGestores.has(fila.nombreCartera.trim().toLowerCase())) return `NOMBRE_CARTERA no existe en cartera.gestor: "${fila.nombreCartera}".`;
+      if (!fila.nombreCartera.trim()) return { mensaje: 'NOMBRE_CARTERA es obligatorio para ROL=gestor.', columna: 'NOMBRE_CARTERA' };
+      if (!ctx.carteraGestores.has(fila.nombreCartera.trim().toLowerCase())) {
+        return { mensaje: `NOMBRE_CARTERA no existe en cartera.gestor: "${fila.nombreCartera}".`, columna: 'NOMBRE_CARTERA' };
+      }
     }
-    return '';
+    return ok;
   }
 
-  if (!existente) return 'Usuario no encontrado.';
+  if (!existente) return { mensaje: 'Usuario no encontrado.', columna: 'EMAIL' };
   if (accion === 'ACTUALIZAR' && fila.rol) {
     const rolInfo = ctx.rolesPorClave.get(fila.rol);
-    if (!rolInfo) return `ROL no válido: "${fila.rol}".`;
+    if (!rolInfo) return { mensaje: `ROL no válido: "${fila.rol}".`, columna: 'ROL' };
     const nivelErr = validarNivel(fila, rolInfo);
-    if (nivelErr) return nivelErr;
+    if (nivelErr) return { mensaje: nivelErr, columna: 'NIVEL' };
     if (fila.rol === 'gestor' && fila.nombreCartera.trim() && !ctx.carteraGestores.has(fila.nombreCartera.trim().toLowerCase())) {
-      return `NOMBRE_CARTERA no existe en cartera.gestor: "${fila.nombreCartera}".`;
+      return { mensaje: `NOMBRE_CARTERA no existe en cartera.gestor: "${fila.nombreCartera}".`, columna: 'NOMBRE_CARTERA' };
     }
   }
-  return '';
+  return ok;
 };
 
 interface RelacionDef { hoja: string; colPropietario: string; colRelacionado: string; rolPropietario: string; rolRelacionado: string; }
@@ -708,28 +717,28 @@ const validarFilasRelacion = (
   return filas.map((f) => {
     const propietario = normEmail(f.propietario);
     const relacionado = normEmail(f.relacionado);
-    let mensaje = '';
-    if (!propietario) mensaje = `${def.colPropietario} es obligatorio.`;
-    else if (!relacionado) mensaje = `${def.colRelacionado} es obligatorio.`;
-    else if (propietario === relacionado) mensaje = 'Referencia circular: un usuario no puede asignarse a sí mismo.';
+    let mensaje = ''; let columna = '';
+    if (!propietario) { mensaje = `${def.colPropietario} es obligatorio.`; columna = def.colPropietario; }
+    else if (!relacionado) { mensaje = `${def.colRelacionado} es obligatorio.`; columna = def.colRelacionado; }
+    else if (propietario === relacionado) { mensaje = 'Referencia circular: un usuario no puede asignarse a sí mismo.'; columna = def.colRelacionado; }
     if (!mensaje) {
       const key = `${propietario}||${relacionado}`;
-      if (vistos.has(key)) mensaje = 'Fila duplicada.';
+      if (vistos.has(key)) { mensaje = 'Fila duplicada.'; columna = `${def.colPropietario}/${def.colRelacionado}`; }
       vistos.add(key);
     }
     if (!mensaje) {
       const efP = rolEfectivo(propietario, usuariosPorEmail, ctx);
-      if (!efP.rol) mensaje = `${def.colPropietario} inexistente: "${f.propietario}".`;
-      else if (efP.rol !== def.rolPropietario) mensaje = `${f.propietario} no tiene rol "${def.rolPropietario}" (relación jerárquica inválida; tiene "${efP.rol}").`;
-      else if (efP.activo === false) mensaje = `${f.propietario} quedará inactivo: no se le pueden asignar relaciones.`;
+      if (!efP.rol) { mensaje = `${def.colPropietario} inexistente: "${f.propietario}".`; columna = def.colPropietario; }
+      else if (efP.rol !== def.rolPropietario) { mensaje = `${f.propietario} no tiene rol "${def.rolPropietario}" (relación jerárquica inválida; tiene "${efP.rol}").`; columna = def.colPropietario; }
+      else if (efP.activo === false) { mensaje = `${f.propietario} quedará inactivo: no se le pueden asignar relaciones.`; columna = def.colPropietario; }
     }
     if (!mensaje) {
       const efR = rolEfectivo(relacionado, usuariosPorEmail, ctx);
-      if (!efR.rol) mensaje = `${def.colRelacionado} inexistente: "${f.relacionado}".`;
-      else if (efR.rol !== def.rolRelacionado) mensaje = `${f.relacionado} no tiene rol "${def.rolRelacionado}" (relación jerárquica inválida; tiene "${efR.rol}").`;
-      else if (efR.activo === false) mensaje = `${f.relacionado} quedará inactivo: no se le pueden asignar relaciones.`;
+      if (!efR.rol) { mensaje = `${def.colRelacionado} inexistente: "${f.relacionado}".`; columna = def.colRelacionado; }
+      else if (efR.rol !== def.rolRelacionado) { mensaje = `${f.relacionado} no tiene rol "${def.rolRelacionado}" (relación jerárquica inválida; tiene "${efR.rol}").`; columna = def.colRelacionado; }
+      else if (efR.activo === false) { mensaje = `${f.relacionado} quedará inactivo: no se le pueden asignar relaciones.`; columna = def.colRelacionado; }
     }
-    return { hoja: f.hoja, fila: f.fila, accion: '', email: f.propietario, rol: '', valor: f.relacionado, estado: mensaje ? 'ERROR' : 'VALIDO', mensaje: mensaje || 'OK' } as PreviewItem;
+    return { hoja: f.hoja, fila: f.fila, accion: '', email: f.propietario, rol: '', valor: f.relacionado, columna, estado: mensaje ? 'ERROR' : 'VALIDO', mensaje: mensaje || 'OK' } as PreviewItem;
   });
 };
 
@@ -740,25 +749,29 @@ const validarFilasPaisZona = (
   const vistos = new Set<string>();
   return filas.map((f) => {
     const email = normEmail(f.email);
-    let mensaje = '';
-    if (!email) mensaje = `${colEmail} es obligatorio.`;
-    else if (!f.pais.trim()) mensaje = 'PAIS es obligatorio.';
-    else if (!f.zona.trim()) mensaje = 'ZONA es obligatorio.';
+    let mensaje = ''; let columna = '';
+    if (!email) { mensaje = `${colEmail} es obligatorio.`; columna = colEmail; }
+    else if (!f.pais.trim()) { mensaje = 'PAIS es obligatorio.'; columna = 'PAIS'; }
+    else if (!f.zona.trim()) { mensaje = 'ZONA es obligatorio.'; columna = 'ZONA'; }
     if (!mensaje) {
       const key = `${email}||${paisZonaKey(f.pais, f.zona)}`;
-      if (vistos.has(key)) mensaje = 'Fila duplicada.';
+      if (vistos.has(key)) { mensaje = 'Fila duplicada.'; columna = 'PAIS/ZONA'; }
       vistos.add(key);
     }
     if (!mensaje && !ctx.carteraPaisZona.has(paisZonaKey(f.pais, f.zona))) {
+      // Cubre los 3 casos: Zona inexistente en ningún país, Zona que pertenece
+      // EXCLUSIVAMENTE a otro país, o Zona genuinamente inexistente en cartera:
+      // en los 3, el PAR exacto (País+Zona) no existe en carteraPaisZona.
       mensaje = `Combinación País-Zona inexistente en cartera: "${f.pais} / ${f.zona}".`;
+      columna = 'PAIS/ZONA';
     }
     if (!mensaje) {
       const ef = rolEfectivo(email, usuariosPorEmail, ctx);
-      if (!ef.rol) mensaje = `${colEmail} inexistente: "${f.email}".`;
-      else if (ef.rol !== rolEsperado) mensaje = `${f.email} no tiene rol "${rolEsperado}" (relación jerárquica inválida; tiene "${ef.rol}").`;
-      else if (ef.activo === false) mensaje = `${f.email} quedará inactivo: no se le pueden asignar relaciones.`;
+      if (!ef.rol) { mensaje = `${colEmail} inexistente: "${f.email}".`; columna = colEmail; }
+      else if (ef.rol !== rolEsperado) { mensaje = `${f.email} no tiene rol "${rolEsperado}" (relación jerárquica inválida; tiene "${ef.rol}").`; columna = colEmail; }
+      else if (ef.activo === false) { mensaje = `${f.email} quedará inactivo: no se le pueden asignar relaciones.`; columna = colEmail; }
     }
-    return { hoja: f.hoja, fila: f.fila, accion: '', email: f.email, rol: '', valor: `${f.pais} / ${f.zona}`, estado: mensaje ? 'ERROR' : 'VALIDO', mensaje: mensaje || 'OK' } as PreviewItem;
+    return { hoja: f.hoja, fila: f.fila, accion: '', email: f.email, rol: '', valor: `${f.pais} / ${f.zona}`, columna, estado: mensaje ? 'ERROR' : 'VALIDO', mensaje: mensaje || 'OK' } as PreviewItem;
   });
 };
 
@@ -770,10 +783,10 @@ const validarTodo = async (parsed: ParsedWorkbook): Promise<{ ctx: ContextoMasiv
 
   const vistos = new Set<string>();
   const itemsUsuarios: PreviewItem[] = parsed.usuarios.map((f) => {
-    const mensaje = validarFilaUsuario(f, ctx, vistos);
+    const { mensaje, columna } = validarFilaUsuario(f, ctx, vistos);
     const email = normEmail(f.email);
     if (email) vistos.add(email);
-    return { hoja: SHEET_USUARIOS, fila: f.fila, accion: f.accion.toUpperCase(), email: f.email.trim(), rol: f.rol, estado: mensaje ? 'ERROR' : 'VALIDO', mensaje: mensaje || 'OK' } as PreviewItem;
+    return { hoja: SHEET_USUARIOS, fila: f.fila, accion: f.accion.toUpperCase(), email: f.email.trim(), rol: f.rol, columna, estado: mensaje ? 'ERROR' : 'VALIDO', mensaje: mensaje || 'OK' } as PreviewItem;
   });
 
   return {
@@ -1021,7 +1034,7 @@ export const aplicarWorkbook = async (
     const filaOriginal = parsed.usuarios.find((f) => f.fila === item.fila);
     const base = {
       hoja: item.hoja, fila: item.fila, accion: item.accion, email: item.email, rol: item.rol,
-      nombre: filaOriginal?.nombre.trim() ?? '', apellido: filaOriginal?.apellido.trim() ?? ''
+      nombre: filaOriginal?.nombre.trim() ?? '', apellido: filaOriginal?.apellido.trim() ?? '', columna: item.columna
     };
     if (item.estado === 'ERROR') {
       resultados.push({ ...base, resultado: 'ERROR', password: '', mensaje: item.mensaje });
@@ -1041,7 +1054,7 @@ export const aplicarWorkbook = async (
   // Resultados de las hojas de RELACIÓN (informativos: se reflejan al sincronizar más abajo).
   const pushRelacion = (items: PreviewItem[]) => {
     items.forEach((it) => resultados.push({
-      hoja: it.hoja, fila: it.fila, accion: it.accion, email: it.email, rol: it.rol,
+      hoja: it.hoja, fila: it.fila, accion: it.accion, email: it.email, rol: it.rol, columna: it.columna,
       resultado: it.estado === 'VALIDO' ? 'OK' : 'ERROR', password: '', mensaje: it.mensaje
     }));
   };
