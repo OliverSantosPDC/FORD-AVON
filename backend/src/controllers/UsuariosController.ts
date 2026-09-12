@@ -7,14 +7,14 @@ import {
   actualizarUsuario,
   restablecerPassword,
   eliminarUsuario,
-  validarImportacion,
-  aplicarImportacion,
+  validarWorkbook,
+  aplicarWorkbook,
   obtenerResumenAlcance,
   UsuariosError,
   type CrearUsuarioInput,
   type ActualizarUsuarioInput
 } from '../services/UsuariosService';
-import { generarPlantilla, parsearUsuarios } from '../utils/usuariosExcel';
+import { generarPlantilla, parsearWorkbook } from '../utils/usuariosExcel';
 import { registrarAuditoria } from '../services/AuditoriaService';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -124,27 +124,27 @@ export class UsuariosController {
     }
   }
 
-  /** POST /api/usuarios/importar/validar — valida el archivo SIN modificar la BD. */
+  /** POST /api/usuarios/importar/validar — valida el archivo (todas las hojas) SIN modificar la BD. */
   async importarValidar(req: Request, res: Response): Promise<Response> {
     try {
       if (!req.file?.buffer) return res.status(400).json({ error: 'Debes adjuntar un archivo .xlsx.' });
-      const filas = await parsearUsuarios(req.file.buffer);
-      if (filas.length === 0) return res.status(400).json({ error: 'El archivo no contiene filas para procesar.' });
-      return res.json(await validarImportacion(filas));
+      const parsed = await parsearWorkbook(req.file.buffer);
+      if (parsed.usuarios.length === 0) return res.status(400).json({ error: 'El archivo no contiene filas para procesar en la hoja USUARIOS.' });
+      return res.json(await validarWorkbook(parsed));
     } catch (error) {
       return this.fail(res, error, 'No se pudo validar el archivo.');
     }
   }
 
-  /** POST /api/usuarios/importar/aplicar — procesa las filas (reutiliza UsuariosService). */
+  /** POST /api/usuarios/importar/aplicar — procesa el workbook completo (usuarios + relaciones). */
   async importarAplicar(req: Request, res: Response): Promise<Response> {
     try {
       if (!req.file?.buffer) return res.status(400).json({ error: 'Debes adjuntar un archivo .xlsx.' });
       const soloValidas = String((req.body as { soloValidas?: string } | undefined)?.soloValidas ?? 'true') !== 'false';
-      const filas = await parsearUsuarios(req.file.buffer);
-      if (filas.length === 0) return res.status(400).json({ error: 'El archivo no contiene filas para procesar.' });
+      const parsed = await parsearWorkbook(req.file.buffer);
+      if (parsed.usuarios.length === 0) return res.status(400).json({ error: 'El archivo no contiene filas para procesar en la hoja USUARIOS.' });
       const actorId = req.auth?.userId ?? null;
-      return res.json(await aplicarImportacion(filas, soloValidas, actorId));
+      return res.json(await aplicarWorkbook(parsed, soloValidas, actorId));
     } catch (error) {
       return this.fail(res, error, 'No se pudo procesar el archivo.');
     }

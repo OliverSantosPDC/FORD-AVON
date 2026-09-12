@@ -89,6 +89,7 @@ interface FormState {
   roleId: string;
   activo: boolean;
   gestorIds: string[];
+  gerenteZonaIds: string[];
   supervisorIds: string[];
   paisZonaKeys: string[];
   gestorPaisZonaKeys: string[];
@@ -104,6 +105,7 @@ const EMPTY_FORM: FormState = {
   roleId: '',
   activo: true,
   gestorIds: [],
+  gerenteZonaIds: [],
   supervisorIds: [],
   paisZonaKeys: [],
   gestorPaisZonaKeys: [],
@@ -268,6 +270,7 @@ const UsuariosPage = () => {
         roleId: u.roleId ?? '',
         activo: u.activo,
         gestorIds: u.gestorIds ?? [],
+        gerenteZonaIds: u.gerenteZonaIds ?? [],
         supervisorIds: u.supervisorIds ?? [],
         paisZonaKeys: (u.paisZona ?? []).map((p) => pzKey(p.zonaId, p.pais)),
         gestorPaisZonaKeys: (u.gestorPaisZona ?? []).map((p) => pzKey(p.zonaId, p.pais)),
@@ -303,7 +306,7 @@ const UsuariosPage = () => {
     }
     // La asignación de cartera es semimanual (módulo Asignación); Usuarios ya no define
     // nombre_cartera. Grupos y Niveles SÍ define las relaciones de alcance por rol.
-    if (selectedRoleClave === 'supervisor') payload.gestorIds = form.gestorIds;
+    if (selectedRoleClave === 'supervisor') { payload.gestorIds = form.gestorIds; payload.gerenteZonaIds = form.gerenteZonaIds; }
     if (selectedRoleClave === 'liderazgo') payload.supervisorIds = form.supervisorIds;
     if (selectedRoleClave === 'gerente_zona') payload.paisZona = form.paisZonaKeys.map(pzFromKey);
     if (selectedRoleClave === 'gestor') payload.gestorPaisZona = form.gestorPaisZonaKeys.map(pzFromKey);
@@ -770,7 +773,7 @@ const UsuariosPage = () => {
               select
               label="Rol / Nivel"
               value={form.roleId}
-              onChange={(e) => setForm((f) => ({ ...f, roleId: e.target.value, gestorIds: [], supervisorIds: [], paisZonaKeys: [], gestorPaisZonaKeys: [] }))}
+              onChange={(e) => setForm((f) => ({ ...f, roleId: e.target.value, gestorIds: [], gerenteZonaIds: [], supervisorIds: [], paisZonaKeys: [], gestorPaisZonaKeys: [] }))}
               size="small"
               fullWidth
             >
@@ -855,6 +858,32 @@ const UsuariosPage = () => {
                     <MenuItem key={g.id} value={g.id}>
                       <Checkbox checked={form.gestorIds.includes(g.id)} size="small" />
                       <ListItemText primary={g.nombreCartera ?? g.id} />
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
+
+            {selectedRoleClave === 'supervisor' && (
+              <FormControl size="small" fullWidth>
+                <InputLabel id="sup-gerentes-zona">Gerentes de zona supervisados</InputLabel>
+                <Select
+                  labelId="sup-gerentes-zona"
+                  multiple
+                  value={form.gerenteZonaIds}
+                  onChange={(e) => setForm((f) => ({ ...f, gerenteZonaIds: e.target.value as string[] }))}
+                  input={<OutlinedInput label="Gerentes de zona supervisados" />}
+                  renderValue={(sel) =>
+                    (catalogos?.gerentesZona ?? [])
+                      .filter((g) => (sel as string[]).includes(g.id))
+                      .map((g) => [g.nombre, g.apellido].filter(Boolean).join(' '))
+                      .join(', ')
+                  }
+                >
+                  {(catalogos?.gerentesZona ?? []).map((g) => (
+                    <MenuItem key={g.id} value={g.id}>
+                      <Checkbox checked={form.gerenteZonaIds.includes(g.id)} size="small" />
+                      <ListItemText primary={[g.nombre, g.apellido].filter(Boolean).join(' ')} />
                     </MenuItem>
                   ))}
                 </Select>

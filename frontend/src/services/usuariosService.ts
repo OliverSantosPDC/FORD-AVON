@@ -24,6 +24,8 @@ export interface UsuarioDetalle extends UsuarioListItem {
   nombreCartera: string | null;
   /** Supervisor -> Gestores asignados (Nivel 3 -> Nivel 4). */
   gestorIds: string[];
+  /** Supervisor -> Gerentes de zona asignados (Nivel 3 -> Nivel 5). */
+  gerenteZonaIds: string[];
   /** Liderazgo -> Supervisores asignados (Nivel 2 -> Nivel 3). */
   supervisorIds: string[];
   /** Gerente de zona -> zonas (compat). */
@@ -41,6 +43,8 @@ export interface Catalogos {
   carteraGestores: string[];
   /** Perfiles con rol supervisor, para asignar Liderazgo -> Supervisor. */
   supervisores: Array<{ id: string; nombre: string; apellido: string | null }>;
+  /** Perfiles con rol gerente_zona, para asignar Supervisor -> Gerente de zona. */
+  gerentesZona: Array<{ id: string; nombre: string; apellido: string | null }>;
   /** Pares País/Zona REALES existentes en cartera (nunca inventados). */
   carteraPaisZona: PaisZona[];
 }
@@ -57,6 +61,8 @@ export interface UsuarioPayload {
   nombreCartera?: string | null;
   /** Supervisor -> Gestores asignados. */
   gestorIds?: string[];
+  /** Supervisor -> Gerentes de zona asignados (Nivel 3 -> Nivel 5). */
+  gerenteZonaIds?: string[];
   /** Liderazgo -> Supervisores asignados. */
   supervisorIds?: string[];
   /** Gerente de zona -> zonas (compat; se ignora si viene `paisZona`). */
@@ -150,10 +156,13 @@ export const resetPasswordUsuario = async (id: string, password: string): Promis
 /* ===== Carga masiva de usuarios (módulo Repositorio) ===== */
 
 export interface PreviewItem {
+  hoja: string;
   fila: number;
   accion: string;
   email: string;
   rol: string;
+  /** Valor relacionado (relación simple) o "PAIS / ZONA" (hojas País-Zona). Ausente en USUARIOS. */
+  valor?: string;
   estado: 'VALIDO' | 'ERROR';
   mensaje: string;
 }
@@ -166,14 +175,18 @@ export interface ResumenImport {
   actualizaciones: number;
   activaciones: number;
   desactivaciones: number;
+  relacionesCreadas: number;
+  relacionesVigentes: number;
+  relacionesEliminadas: number;
 }
 
 export interface ResultadoAplicarItem {
+  hoja: string;
   fila: number;
   accion: string;
   email: string;
-  nombre: string;
-  apellido: string;
+  nombre?: string;
+  apellido?: string;
   rol: string;
   resultado: 'OK' | 'ERROR';
   password: string;

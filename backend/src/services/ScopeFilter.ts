@@ -52,12 +52,13 @@ interface ActiveDimension<T> {
 
 /**
  * ¿El scope es vacío para un usuario NO global?
- * (Ninguna de las tres listas de alcance tiene valores.)
+ * (Ninguna dimensión base ni concesión de País-Zona tiene valores.)
  */
 export const isScopeEmpty = (context: ScopeContext): boolean =>
   context.scope.gestores.length === 0 &&
   context.scope.zonas.length === 0 &&
-  context.scope.paises.length === 0;
+  context.scope.paises.length === 0 &&
+  (context.scope.paisZonaGrant ?? []).length === 0;
 
 /**
  * Aplica el alcance de seguridad sobre `rows`.
@@ -93,13 +94,26 @@ export const applyScope = <T>(rows: T[], context: ScopeContext, options: ApplySc
     dimensions.push({ field: options.paisField, allowed: toNormalizedSet(context.scope.paises) });
   }
 
-  // 3) Scope vacío (sin dimensiones activas) ⇒ CERO filas. Nunca "todos".
-  if (dimensions.length === 0) return [];
+  // 3.b) Concesión adicional (OR, no AND): País-Zona EXACTOS de un Gerente de
+  //    zona propio, o heredados transitivamente por un Supervisor/Liderazgo que
+  //    lo supervisa. Es una fuente de acceso INDEPENDIENTE (no restringe la
+  //    dimensión base ni es restringida por ella).
+  const grant = context.scope.paisZonaGrant ?? [];
+  const grantSet = grant.length > 0 && options.paisField && options.zonaField
+    ? new Set(grant.map((p) => `${normalizeScopeValue(p.pais)}||${normalizeScopeValue(p.zona)}`))
+    : null;
 
-  // 4) Conservar la fila si coincide con al menos una dimensión activa.
-  let result = rows.filter((row) =>
-    dimensions.some((dimension) => dimension.allowed.has(normalizeScopeValue(row[dimension.field])))
-  );
+  // 3.c) Scope vacío (ni dimensiones activas ni concesión) ⇒ CERO filas. Nunca "todos".
+  if (dimensions.length === 0 && !grantSet) return [];
+
+  // 4) Conservar la fila si coincide con al menos una dimensión activa O con la concesión País-Zona.
+  let result = rows.filter((row) => {
+    if (dimensions.some((dimension) => dimension.allowed.has(normalizeScopeValue(row[dimension.field])))) return true;
+    if (grantSet && options.paisField && options.zonaField) {
+      return grantSet.has(`${normalizeScopeValue(row[options.paisField])}||${normalizeScopeValue(row[options.zonaField])}`);
+    }
+    return false;
+  });
 
   // 5) Narrowing ADICIONAL (AND, no OR): País/Zona EXACTOS asignados
   //    explícitamente (Grupos y Niveles — gestor/gerente_zona). Solo se aplica

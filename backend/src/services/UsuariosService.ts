@@ -2,7 +2,11 @@ import { getSupabaseClient } from '../config/supabaseClient';
 import { SUPABASE_CARTERA_TABLE } from '../config/env';
 import { registrarAuditoria } from './AuditoriaService';
 import { generarPasswordTemporal } from '../utils/password';
-import type { FilaImport } from '../utils/usuariosExcel';
+import {
+  SHEET_USUARIOS, SHEET_LIDERAZGO_SUPERVISOR, SHEET_SUPERVISOR_GESTOR, SHEET_SUPERVISOR_GERENTE,
+  SHEET_GESTOR_PAIS_ZONA, SHEET_GERENTE_PAIS_ZONA,
+  type ParsedWorkbook, type FilaUsuarioImport, type FilaRelacionImport, type FilaPaisZonaImport
+} from '../utils/usuariosExcel';
 
 /**
  * FASE 1 — Módulo Usuarios (administración global).
@@ -41,6 +45,8 @@ export interface UsuarioDetalle extends UsuarioListItem {
   nombreCartera: string | null;
   /** Para rol supervisor: ids de gestores.id supervisados (Nivel 3 -> Nivel 4). */
   gestorIds: string[];
+  /** Para rol supervisor: ids de profiles.id (gerentes de zona) supervisados (Nivel 3 -> Nivel 5). */
+  gerenteZonaIds: string[];
   /** Para rol liderazgo: ids de profiles.id (supervisores) asignados (Nivel 2 -> Nivel 3). */
   supervisorIds: string[];
   /** Para rol gerente_zona: ids de zonas.id asignadas (compat). */
@@ -59,6 +65,8 @@ export interface Catalogos {
   carteraGestores: string[];
   /** Perfiles con rol supervisor (activos), para asignar Liderazgo -> Supervisor. */
   supervisores: Array<{ id: string; nombre: string; apellido: string | null }>;
+  /** Perfiles con rol gerente_zona (activos), para asignar Supervisor -> Gerente de zona. */
+  gerentesZona: Array<{ id: string; nombre: string; apellido: string | null }>;
   /** Pares País/Zona REALES existentes en cartera (nunca inventados), con su zonas.id. */
   carteraPaisZona: PaisZona[];
 }
@@ -79,6 +87,8 @@ export interface CrearUsuarioInput {
   nombreCartera?: string | null;
   /** Supervisor -> Gestores asignados. */
   gestorIds?: string[];
+  /** Supervisor -> Gerentes de zona asignados (Nivel 3 -> Nivel 5). */
+  gerenteZonaIds?: string[];
   /** Liderazgo -> Supervisores asignados. */
   supervisorIds?: string[];
   /** Gerente de zona -> zonas (compat; se ignora si viene `paisZona`). */
@@ -159,6 +169,7 @@ export const obtenerUsuario = async (id: string): Promise<UsuarioDetalle | null>
   const { data: gestorRow } = await client.from('gestores').select('id, nombre_cartera').eq('usuario_id', id).eq('activo', true).limit(1);
   const gestorId = ((gestorRow ?? [])[0] as { id?: string } | undefined)?.id ?? null;
   const { data: supRows } = await client.from('supervisor_gestor').select('gestor_id').eq('supervisor_id', id).eq('activo', true);
+  const { data: supGerRows } = await client.from('supervisor_gerente_zona').select('gerente_zona_id').eq('supervisor_id', id).eq('activo', true);
   const { data: liderRows } = await client.from('liderazgo_supervisor').select('supervisor_id').eq('liderazgo_id', id).eq('activo', true);
   const { data: gerRows } = await client.from('gerente_zona_zona').select('zona_id, pais, zonas ( nombre )').eq('usuario_id', id).eq('activo', true);
   const { data: gestorZonaRows } = gestorId
@@ -175,6 +186,7 @@ export const obtenerUsuario = async (id: string): Promise<UsuarioDetalle | null>
     ...base,
     nombreCartera: ((gestorRow ?? [])[0] as { nombre_cartera?: string } | undefined)?.nombre_cartera ?? null,
     gestorIds: ((supRows ?? []) as Array<{ gestor_id: string }>).map((r) => r.gestor_id),
+    gerenteZonaIds: ((supGerRows ?? []) as Array<{ gerente_zona_id: string }>).map((r) => r.gerente_zona_id),
     supervisorIds: ((liderRows ?? []) as Array<{ supervisor_id: string }>).map((r) => r.supervisor_id),
     zonaIds: ((gerRows ?? []) as Array<{ zona_id: string }>).map((r) => r.zona_id),
     paisZona: paisZonaDe(gerRows ?? []),
@@ -237,20 +249,23 @@ const distinctCarteraPaisZona = async (): Promise<PaisZona[]> => {
 export const obtenerCatalogos = async (): Promise<Catalogos> => {
   const client = getSupabaseClient();
 
-  const [{ data: roles, error: rErr }, { data: zonas, error: zErr }, { data: gestores, error: gErr }, carteraGestores, carteraPaisZona, { data: supervisores, error: sErr }] =
+  const [{ data: roles, error: rErr }, { data: zonas, error: zErr }, { data: gestores, error: gErr }, carteraGestores, carteraPaisZona,
+    { data: supervisores, error: sErr }, { data: gerentesZona, error: gzErr }] =
     await Promise.all([
       client.from('roles').select('id, clave, nombre, nivel').order('nivel', { ascending: true, nullsFirst: false }),
       client.from('zonas').select('id, nombre, codigo').eq('activo', true).order('nombre', { ascending: true }),
       client.from('gestores').select('id, nombre_cartera, usuario_id').eq('activo', true),
       distinctCarteraGestores(),
       distinctCarteraPaisZona(),
-      client.from('profiles').select('id, nombre, apellido, roles!inner ( clave )').eq('activo', true).eq('roles.clave', 'supervisor')
+      client.from('profiles').select('id, nombre, apellido, roles!inner ( clave )').eq('activo', true).eq('roles.clave', 'supervisor'),
+      client.from('profiles').select('id, nombre, apellido, roles!inner ( clave )').eq('activo', true).eq('roles.clave', 'gerente_zona')
     ]);
 
   if (rErr) throw new UsuariosError(`No se pudieron leer los roles: ${rErr.message}`);
   if (zErr) throw new UsuariosError(`No se pudieron leer las zonas: ${zErr.message}`);
   if (gErr) throw new UsuariosError(`No se pudieron leer los gestores: ${gErr.message}`);
   if (sErr) throw new UsuariosError(`No se pudieron leer los supervisores: ${sErr.message}`);
+  if (gzErr) throw new UsuariosError(`No se pudieron leer los gerentes de zona: ${gzErr.message}`);
 
   return {
     roles: ((roles ?? []) as Array<Record<string, unknown>>).map((r) => ({ id: String(r.id), clave: String(r.clave), nombre: String(r.nombre), nivel: (r.nivel as number | null) ?? null })),
@@ -258,7 +273,8 @@ export const obtenerCatalogos = async (): Promise<Catalogos> => {
     gestores: ((gestores ?? []) as Array<Record<string, unknown>>).map((g) => ({ id: String(g.id), nombreCartera: (g.nombre_cartera as string | null) ?? null, usuarioId: (g.usuario_id as string | null) ?? null })),
     carteraGestores,
     carteraPaisZona,
-    supervisores: ((supervisores ?? []) as Array<Record<string, unknown>>).map((s) => ({ id: String(s.id), nombre: String(s.nombre ?? ''), apellido: (s.apellido as string | null) ?? null }))
+    supervisores: ((supervisores ?? []) as Array<Record<string, unknown>>).map((s) => ({ id: String(s.id), nombre: String(s.nombre ?? ''), apellido: (s.apellido as string | null) ?? null })),
+    gerentesZona: ((gerentesZona ?? []) as Array<Record<string, unknown>>).map((s) => ({ id: String(s.id), nombre: String(s.nombre ?? ''), apellido: (s.apellido as string | null) ?? null }))
   };
 };
 
@@ -280,6 +296,7 @@ const limpiarRelacionesAjenas = async (userId: string, roleClave: string | null)
   }
   if (roleClave !== 'supervisor') {
     await client.from('supervisor_gestor').update({ activo: false }).eq('supervisor_id', userId);
+    await client.from('supervisor_gerente_zona').update({ activo: false }).eq('supervisor_id', userId);
   }
   if (roleClave !== 'liderazgo') {
     await client.from('liderazgo_supervisor').update({ activo: false }).eq('liderazgo_id', userId);
@@ -296,6 +313,7 @@ const sincronizarRelaciones = async (
   input: {
     nombreCartera?: string | null;
     gestorIds?: string[];
+    gerenteZonaIds?: string[];
     supervisorIds?: string[];
     zonaIds?: string[];
     paisZona?: Array<{ zonaId: string; pais: string }>;
@@ -340,6 +358,16 @@ const sincronizarRelaciones = async (
       const rows = input.gestorIds.map((gestorId) => ({ supervisor_id: userId, gestor_id: gestorId, fecha_inicio: hoy(), fecha_fin: null, activo: true }));
       const { error } = await client.from('supervisor_gestor').insert(rows);
       if (error) throw new UsuariosError(`No se pudieron asignar los gestores del supervisor: ${error.message}`);
+    }
+  }
+
+  // supervisor → supervisor_gerente_zona (reemplaza asignaciones vigentes)
+  if (roleClave === 'supervisor' && input.gerenteZonaIds) {
+    await client.from('supervisor_gerente_zona').delete().eq('supervisor_id', userId);
+    if (input.gerenteZonaIds.length > 0) {
+      const rows = input.gerenteZonaIds.map((gerenteZonaId) => ({ supervisor_id: userId, gerente_zona_id: gerenteZonaId, fecha_inicio: hoy(), fecha_fin: null, activo: true }));
+      const { error } = await client.from('supervisor_gerente_zona').insert(rows);
+      if (error) throw new UsuariosError(`No se pudieron asignar los gerentes de zona del supervisor: ${error.message}`);
     }
   }
 
@@ -471,6 +499,8 @@ export const eliminarUsuario = async (id: string, actorId: string | null): Promi
   // 1) Limpia relaciones de alcance para que no quede acceso residual.
   await client.from('gestores').update({ usuario_id: null }).eq('usuario_id', id);
   await client.from('supervisor_gestor').delete().eq('supervisor_id', id);
+  await client.from('supervisor_gerente_zona').delete().or(`supervisor_id.eq.${id},gerente_zona_id.eq.${id}`);
+  await client.from('liderazgo_supervisor').delete().or(`liderazgo_id.eq.${id},supervisor_id.eq.${id}`);
   await client.from('gerente_zona_zona').delete().eq('usuario_id', id);
 
   // 2) Elimina de Supabase Auth (Admin API).
@@ -486,25 +516,26 @@ export const eliminarUsuario = async (id: string, actorId: string | null): Promi
 };
 
 /* ============================================================================
- * CARGA MASIVA DE USUARIOS (módulo Repositorio)
- * Reutiliza crearUsuario/actualizarUsuario; no duplica la lógica de alta.
+ * CARGA MASIVA DE USUARIOS + GRUPOS Y NIVELES (módulo Repositorio)
+ * Reutiliza crearUsuario/actualizarUsuario (Fase 1: identidad/perfil) y agrega
+ * una Fase 2 que sincroniza por completo las relaciones de alcance desde las
+ * hojas normalizadas (liderazgo_supervisor, supervisor_gestor,
+ * supervisor_gerente_zona, gestor_pais_zona, gerente_zona_zona). NUNCA usa
+ * ASIGNACION: las relaciones alimentan directamente a ScopeService.
  * ========================================================================== */
 
 const ACCIONES_VALIDAS = ['CREAR', 'ACTUALIZAR', 'ACTIVAR', 'DESACTIVAR'];
-/** Administrador es el único rol sin relación de alcance (Nivel 1, sin dependencia). */
-const ROLES_SIN_RELACION = ['administrador'];
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-const splitMulti = (value: string): string[] =>
-  value.split(';').map((v) => v.trim()).filter(Boolean);
-
 const normEmail = (email: string): string => email.trim().toLowerCase();
+const paisZonaKey = (pais: string, zona: string): string => `${pais.trim().toLowerCase()}||${zona.trim().toLowerCase()}`;
 
 export interface PreviewItem {
+  hoja: string;
   fila: number;
   accion: string;
   email: string;
   rol: string;
+  valor?: string;
   estado: 'VALIDO' | 'ERROR';
   mensaje: string;
 }
@@ -517,118 +548,252 @@ export interface ResumenImport {
   actualizaciones: number;
   activaciones: number;
   desactivaciones: number;
+  relacionesCreadas: number;
+  relacionesVigentes: number;
+  relacionesEliminadas: number;
 }
 
 export interface ResultadoAplicarItem {
+  hoja: string;
   fila: number;
   accion: string;
   email: string;
-  nombre: string;
-  apellido: string;
+  /** Solo disponibles para filas de la hoja USUARIOS; ausentes en filas de relación. */
+  nombre?: string;
+  apellido?: string;
   rol: string;
   resultado: 'OK' | 'ERROR';
-  /** Solo para CREAR; vacío en ACTUALIZAR/ACTIVAR/DESACTIVAR. No se persiste. */
+  /** Solo para CREAR; vacío en el resto. No se persiste. */
   password: string;
   mensaje: string;
 }
 
-interface ContextoValidacion {
-  rolesPorClave: Map<string, string>; // clave -> id
-  carteraGestores: Set<string>; // valores reales de cartera.gestor (lower)
-  zonas: Set<string>; // nombre/codigo (lower)
-  emailsExistentes: Set<string>; // profiles.email (lower)
+interface PerfilExistente { id: string; roleClave: string | null; activo: boolean; }
+
+interface ContextoMasivo {
+  rolesPorClave: Map<string, { id: string; nivel: number | null }>;
+  carteraGestores: Set<string>;
+  carteraPaisZona: Set<string>;
+  zonaIdPorNombre: Map<string, string>;
+  perfilesPorEmail: Map<string, PerfilExistente>;
 }
 
-const cargarContexto = async (): Promise<ContextoValidacion> => {
+/** Carga TODO el contexto necesario para validar y aplicar el workbook completo
+ *  en consultas por lote (evita N+1): roles, catálogo real de cartera
+ *  (gestores y pares País-Zona) y los perfiles YA EXISTENTES para cada email
+ *  referenciado en cualquier hoja (usuarios o relaciones). */
+const cargarContextoMasivo = async (parsed: ParsedWorkbook): Promise<ContextoMasivo> => {
   const client = getSupabaseClient();
   const catalogos = await obtenerCatalogos();
 
-  const { data: perfiles, error } = await client.from('profiles').select('email');
-  if (error) throw new UsuariosError(`No se pudieron leer los usuarios existentes: ${error.message}`);
+  const emails = new Set<string>();
+  const add = (v: string) => { const e = normEmail(v); if (e) emails.add(e); };
+  parsed.usuarios.forEach((f) => add(f.email));
+  parsed.liderazgoSupervisor.forEach((f) => { add(f.propietario); add(f.relacionado); });
+  parsed.supervisorGestor.forEach((f) => { add(f.propietario); add(f.relacionado); });
+  parsed.supervisorGerente.forEach((f) => { add(f.propietario); add(f.relacionado); });
+  parsed.gestorPaisZona.forEach((f) => add(f.email));
+  parsed.gerentePaisZona.forEach((f) => add(f.email));
 
-  const zonasSet = new Set<string>();
-  for (const z of catalogos.zonas) {
-    zonasSet.add(z.nombre.trim().toLowerCase());
-    if (z.codigo) zonasSet.add(z.codigo.trim().toLowerCase());
+  const perfilesPorEmail = new Map<string, PerfilExistente>();
+  if (emails.size > 0) {
+    const { data, error } = await client.from('profiles').select('id, email, activo, roles ( clave )').in('email', Array.from(emails));
+    if (error) throw new UsuariosError(`No se pudieron leer los usuarios existentes: ${error.message}`);
+    ((data ?? []) as Array<Record<string, unknown>>).forEach((p) => {
+      perfilesPorEmail.set(normEmail(String(p.email ?? '')), { id: String(p.id), roleClave: roleRefOf(p.roles)?.clave ?? null, activo: Boolean(p.activo) });
+    });
   }
 
+  const zonaIdPorNombre = new Map<string, string>();
+  catalogos.zonas.forEach((z) => zonaIdPorNombre.set(z.nombre.trim().toLowerCase(), z.id));
+
   return {
-    rolesPorClave: new Map(catalogos.roles.map((r) => [r.clave, r.id])),
+    rolesPorClave: new Map(catalogos.roles.map((r) => [r.clave, { id: r.id, nivel: r.nivel }])),
     carteraGestores: new Set(catalogos.carteraGestores.map((g) => g.toLowerCase())),
-    zonas: zonasSet,
-    emailsExistentes: new Set(((perfiles ?? []) as Array<{ email?: string }>).map((p) => normEmail(String(p.email ?? ''))).filter(Boolean))
+    carteraPaisZona: new Set(catalogos.carteraPaisZona.map((pz) => paisZonaKey(pz.pais, pz.zona))),
+    zonaIdPorNombre,
+    perfilesPorEmail
   };
 };
 
-/** Valida una fila SIN tocar la BD y devuelve su mensaje de error (o '' si es válida). */
-const validarFila = (fila: FilaImport, ctx: ContextoValidacion, vistosEnExcel: Set<string>): string => {
+/** Rol/estado EFECTIVO de un email tras aplicar (hipotéticamente) el archivo:
+ *  prioriza lo declarado en la hoja USUARIOS (si el email aparece ahí) sobre
+ *  lo que ya existe en Supabase. `rol=null` ⇒ el email no existe en ningún lado
+ *  (ni en el archivo ni en la base) — error de referencia inexistente. */
+const rolEfectivo = (
+  email: string,
+  usuariosPorEmail: Map<string, FilaUsuarioImport>,
+  ctx: ContextoMasivo
+): { rol: string | null; activo: boolean | null } => {
+  const fila = usuariosPorEmail.get(email);
+  const existente = ctx.perfilesPorEmail.get(email);
+  if (fila) {
+    const accion = fila.accion.toUpperCase();
+    const activoDeclarado = fila.activo ? fila.activo.toUpperCase() !== 'NO' : undefined;
+    if (accion === 'CREAR' || accion === 'ACTUALIZAR') {
+      const rol = fila.rol || existente?.roleClave || null;
+      const activo = activoDeclarado !== undefined ? activoDeclarado : (accion === 'CREAR' ? true : (existente?.activo ?? true));
+      return { rol, activo };
+    }
+    if (accion === 'ACTIVAR') return { rol: existente?.roleClave ?? null, activo: true };
+    if (accion === 'DESACTIVAR') return { rol: existente?.roleClave ?? null, activo: false };
+  }
+  if (existente) return { rol: existente.roleClave, activo: existente.activo };
+  return { rol: null, activo: null };
+};
+
+const validarNivel = (fila: FilaUsuarioImport, rolInfo: { nivel: number | null }): string => {
+  if (!fila.nivel.trim()) return '';
+  const n = Number(fila.nivel);
+  if (!Number.isFinite(n)) return `NIVEL inválido: "${fila.nivel}".`;
+  if (rolInfo.nivel !== null && n !== rolInfo.nivel) return `NIVEL (${n}) no corresponde al ROL "${fila.rol}" (Nivel oficial ${rolInfo.nivel}).`;
+  return '';
+};
+
+/** Valida una fila de la hoja USUARIOS SIN tocar la BD. */
+const validarFilaUsuario = (fila: FilaUsuarioImport, ctx: ContextoMasivo, vistos: Set<string>): string => {
   const accion = fila.accion.toUpperCase();
-  if (!ACCIONES_VALIDAS.includes(accion)) return `Acción no válida: "${fila.accion}".`;
+  if (!ACCIONES_VALIDAS.includes(accion)) return `ACCION no válida: "${fila.accion}".`;
 
   const email = normEmail(fila.email);
   if (!email) return 'EMAIL es obligatorio.';
   if (!EMAIL_RE.test(email)) return 'EMAIL inválido.';
-  if (vistosEnExcel.has(email)) return 'EMAIL duplicado dentro del archivo.';
+  if (vistos.has(email)) return 'EMAIL duplicado dentro de la hoja USUARIOS.';
 
-  const existe = ctx.emailsExistentes.has(email);
+  const existente = ctx.perfilesPorEmail.get(email);
 
   if (accion === 'CREAR') {
-    if (existe) return 'El usuario ya existe (email duplicado).';
+    if (existente) return 'El usuario ya existe (email duplicado).';
     if (!fila.nombre.trim()) return 'NOMBRE es obligatorio.';
     if (!fila.apellido.trim()) return 'APELLIDO es obligatorio.';
     if (!fila.rol) return 'ROL es obligatorio.';
-    if (!ctx.rolesPorClave.has(fila.rol)) return `ROL no válido: "${fila.rol}".`;
-    const relError = validarRelacion(fila, ctx);
-    if (relError) return relError;
+    const rolInfo = ctx.rolesPorClave.get(fila.rol);
+    if (!rolInfo) return `ROL no válido: "${fila.rol}".`;
+    const nivelErr = validarNivel(fila, rolInfo);
+    if (nivelErr) return nivelErr;
+    if (fila.rol === 'gestor') {
+      if (!fila.nombreCartera.trim()) return 'NOMBRE_CARTERA es obligatorio para ROL=gestor.';
+      if (!ctx.carteraGestores.has(fila.nombreCartera.trim().toLowerCase())) return `NOMBRE_CARTERA no existe en cartera.gestor: "${fila.nombreCartera}".`;
+    }
     return '';
   }
 
-  // ACTUALIZAR / ACTIVAR / DESACTIVAR requieren usuario existente.
-  if (!existe) return 'Usuario no encontrado.';
-
+  if (!existente) return 'Usuario no encontrado.';
   if (accion === 'ACTUALIZAR' && fila.rol) {
-    if (!ctx.rolesPorClave.has(fila.rol)) return `ROL no válido: "${fila.rol}".`;
-    const relError = validarRelacion(fila, ctx);
-    if (relError) return relError;
+    const rolInfo = ctx.rolesPorClave.get(fila.rol);
+    if (!rolInfo) return `ROL no válido: "${fila.rol}".`;
+    const nivelErr = validarNivel(fila, rolInfo);
+    if (nivelErr) return nivelErr;
+    if (fila.rol === 'gestor' && fila.nombreCartera.trim() && !ctx.carteraGestores.has(fila.nombreCartera.trim().toLowerCase())) {
+      return `NOMBRE_CARTERA no existe en cartera.gestor: "${fila.nombreCartera}".`;
+    }
   }
   return '';
 };
 
-/** Valida las relaciones exigidas por el rol (cartera/zonas). */
-const validarRelacion = (fila: FilaImport, ctx: ContextoValidacion): string => {
-  if (fila.rol === 'gestor') {
-    if (!fila.nombreCartera.trim()) return 'NOMBRE_CARTERA es obligatorio para gestor.';
-    if (!ctx.carteraGestores.has(fila.nombreCartera.trim().toLowerCase())) {
-      return `NOMBRE_CARTERA no existe en cartera: "${fila.nombreCartera}".`;
+interface RelacionDef { hoja: string; colPropietario: string; colRelacionado: string; rolPropietario: string; rolRelacionado: string; }
+const DEF_LIDERAZGO_SUPERVISOR: RelacionDef = { hoja: SHEET_LIDERAZGO_SUPERVISOR, colPropietario: 'LIDERAZGO_EMAIL', colRelacionado: 'SUPERVISOR_EMAIL', rolPropietario: 'liderazgo', rolRelacionado: 'supervisor' };
+const DEF_SUPERVISOR_GESTOR: RelacionDef = { hoja: SHEET_SUPERVISOR_GESTOR, colPropietario: 'SUPERVISOR_EMAIL', colRelacionado: 'GESTOR_EMAIL', rolPropietario: 'supervisor', rolRelacionado: 'gestor' };
+const DEF_SUPERVISOR_GERENTE: RelacionDef = { hoja: SHEET_SUPERVISOR_GERENTE, colPropietario: 'SUPERVISOR_EMAIL', colRelacionado: 'GERENTE_ZONA_EMAIL', rolPropietario: 'supervisor', rolRelacionado: 'gerente_zona' };
+
+/** Valida una hoja de relación simple (1 fila = 1 par propietario/relacionado). */
+const validarFilasRelacion = (
+  filas: FilaRelacionImport[], def: RelacionDef, ctx: ContextoMasivo, usuariosPorEmail: Map<string, FilaUsuarioImport>
+): PreviewItem[] => {
+  const vistos = new Set<string>();
+  return filas.map((f) => {
+    const propietario = normEmail(f.propietario);
+    const relacionado = normEmail(f.relacionado);
+    let mensaje = '';
+    if (!propietario) mensaje = `${def.colPropietario} es obligatorio.`;
+    else if (!relacionado) mensaje = `${def.colRelacionado} es obligatorio.`;
+    else if (propietario === relacionado) mensaje = 'Referencia circular: un usuario no puede asignarse a sí mismo.';
+    if (!mensaje) {
+      const key = `${propietario}||${relacionado}`;
+      if (vistos.has(key)) mensaje = 'Fila duplicada.';
+      vistos.add(key);
     }
-  }
-  if (fila.rol === 'supervisor' && fila.nombreCartera.trim()) {
-    for (const g of splitMulti(fila.nombreCartera)) {
-      if (!ctx.carteraGestores.has(g.toLowerCase())) return `Gestor no existe en cartera: "${g}".`;
+    if (!mensaje) {
+      const efP = rolEfectivo(propietario, usuariosPorEmail, ctx);
+      if (!efP.rol) mensaje = `${def.colPropietario} inexistente: "${f.propietario}".`;
+      else if (efP.rol !== def.rolPropietario) mensaje = `${f.propietario} no tiene rol "${def.rolPropietario}" (relación jerárquica inválida; tiene "${efP.rol}").`;
+      else if (efP.activo === false) mensaje = `${f.propietario} quedará inactivo: no se le pueden asignar relaciones.`;
     }
-  }
-  if (fila.rol === 'gerente_zona' && fila.zona.trim()) {
-    for (const z of splitMulti(fila.zona)) {
-      if (!ctx.zonas.has(z.toLowerCase())) return `Zona no encontrada: "${z}".`;
+    if (!mensaje) {
+      const efR = rolEfectivo(relacionado, usuariosPorEmail, ctx);
+      if (!efR.rol) mensaje = `${def.colRelacionado} inexistente: "${f.relacionado}".`;
+      else if (efR.rol !== def.rolRelacionado) mensaje = `${f.relacionado} no tiene rol "${def.rolRelacionado}" (relación jerárquica inválida; tiene "${efR.rol}").`;
+      else if (efR.activo === false) mensaje = `${f.relacionado} quedará inactivo: no se le pueden asignar relaciones.`;
     }
-  }
-  if (ROLES_SIN_RELACION.includes(fila.rol)) {
-    // Sin relaciones requeridas; se ignoran NOMBRE_CARTERA/ZONA si vinieran.
-    return '';
-  }
-  return '';
+    return { hoja: f.hoja, fila: f.fila, accion: '', email: f.propietario, rol: '', valor: f.relacionado, estado: mensaje ? 'ERROR' : 'VALIDO', mensaje: mensaje || 'OK' } as PreviewItem;
+  });
 };
 
-const contarResumen = (items: PreviewItem[], filas: FilaImport[]): ResumenImport => {
-  const resumen: ResumenImport = { total: filas.length, validas: 0, errores: 0, creaciones: 0, actualizaciones: 0, activaciones: 0, desactivaciones: 0 };
-  items.forEach((it) => {
+/** Valida una hoja de País-Zona (Gestor o Gerente de zona): PAR obligatorio, nunca listas cruzadas. */
+const validarFilasPaisZona = (
+  filas: FilaPaisZonaImport[], colEmail: string, rolEsperado: string, ctx: ContextoMasivo, usuariosPorEmail: Map<string, FilaUsuarioImport>
+): PreviewItem[] => {
+  const vistos = new Set<string>();
+  return filas.map((f) => {
+    const email = normEmail(f.email);
+    let mensaje = '';
+    if (!email) mensaje = `${colEmail} es obligatorio.`;
+    else if (!f.pais.trim()) mensaje = 'PAIS es obligatorio.';
+    else if (!f.zona.trim()) mensaje = 'ZONA es obligatorio.';
+    if (!mensaje) {
+      const key = `${email}||${paisZonaKey(f.pais, f.zona)}`;
+      if (vistos.has(key)) mensaje = 'Fila duplicada.';
+      vistos.add(key);
+    }
+    if (!mensaje && !ctx.carteraPaisZona.has(paisZonaKey(f.pais, f.zona))) {
+      mensaje = `Combinación País-Zona inexistente en cartera: "${f.pais} / ${f.zona}".`;
+    }
+    if (!mensaje) {
+      const ef = rolEfectivo(email, usuariosPorEmail, ctx);
+      if (!ef.rol) mensaje = `${colEmail} inexistente: "${f.email}".`;
+      else if (ef.rol !== rolEsperado) mensaje = `${f.email} no tiene rol "${rolEsperado}" (relación jerárquica inválida; tiene "${ef.rol}").`;
+      else if (ef.activo === false) mensaje = `${f.email} quedará inactivo: no se le pueden asignar relaciones.`;
+    }
+    return { hoja: f.hoja, fila: f.fila, accion: '', email: f.email, rol: '', valor: `${f.pais} / ${f.zona}`, estado: mensaje ? 'ERROR' : 'VALIDO', mensaje: mensaje || 'OK' } as PreviewItem;
+  });
+};
+
+/** Valida TODAS las hojas presentes en el workbook (sin tocar la BD). */
+const validarTodo = async (parsed: ParsedWorkbook): Promise<{ ctx: ContextoMasivo; usuariosPorEmail: Map<string, FilaUsuarioImport>; itemsUsuarios: PreviewItem[]; itemsLid: PreviewItem[]; itemsSupGes: PreviewItem[]; itemsSupGer: PreviewItem[]; itemsGesPz: PreviewItem[]; itemsGerPz: PreviewItem[]; }> => {
+  const ctx = await cargarContextoMasivo(parsed);
+  const usuariosPorEmail = new Map<string, FilaUsuarioImport>();
+  parsed.usuarios.forEach((f) => { const e = normEmail(f.email); if (e) usuariosPorEmail.set(e, f); });
+
+  const vistos = new Set<string>();
+  const itemsUsuarios: PreviewItem[] = parsed.usuarios.map((f) => {
+    const mensaje = validarFilaUsuario(f, ctx, vistos);
+    const email = normEmail(f.email);
+    if (email) vistos.add(email);
+    return { hoja: SHEET_USUARIOS, fila: f.fila, accion: f.accion.toUpperCase(), email: f.email.trim(), rol: f.rol, estado: mensaje ? 'ERROR' : 'VALIDO', mensaje: mensaje || 'OK' } as PreviewItem;
+  });
+
+  return {
+    ctx, usuariosPorEmail, itemsUsuarios,
+    itemsLid: parsed.hojasPresentes.has(SHEET_LIDERAZGO_SUPERVISOR) ? validarFilasRelacion(parsed.liderazgoSupervisor, DEF_LIDERAZGO_SUPERVISOR, ctx, usuariosPorEmail) : [],
+    itemsSupGes: parsed.hojasPresentes.has(SHEET_SUPERVISOR_GESTOR) ? validarFilasRelacion(parsed.supervisorGestor, DEF_SUPERVISOR_GESTOR, ctx, usuariosPorEmail) : [],
+    itemsSupGer: parsed.hojasPresentes.has(SHEET_SUPERVISOR_GERENTE) ? validarFilasRelacion(parsed.supervisorGerente, DEF_SUPERVISOR_GERENTE, ctx, usuariosPorEmail) : [],
+    itemsGesPz: parsed.hojasPresentes.has(SHEET_GESTOR_PAIS_ZONA) ? validarFilasPaisZona(parsed.gestorPaisZona, 'GESTOR_EMAIL', 'gestor', ctx, usuariosPorEmail) : [],
+    itemsGerPz: parsed.hojasPresentes.has(SHEET_GERENTE_PAIS_ZONA) ? validarFilasPaisZona(parsed.gerentePaisZona, 'GERENTE_ZONA_EMAIL', 'gerente_zona', ctx, usuariosPorEmail) : []
+  };
+};
+
+const contarResumen = (grupos: PreviewItem[][]): ResumenImport => {
+  const resumen: ResumenImport = { total: 0, validas: 0, errores: 0, creaciones: 0, actualizaciones: 0, activaciones: 0, desactivaciones: 0, relacionesCreadas: 0, relacionesVigentes: 0, relacionesEliminadas: 0 };
+  grupos.flat().forEach((it) => {
+    resumen.total += 1;
     if (it.estado === 'VALIDO') {
       resumen.validas += 1;
-      const a = it.accion.toUpperCase();
-      if (a === 'CREAR') resumen.creaciones += 1;
-      else if (a === 'ACTUALIZAR') resumen.actualizaciones += 1;
-      else if (a === 'ACTIVAR') resumen.activaciones += 1;
-      else if (a === 'DESACTIVAR') resumen.desactivaciones += 1;
+      if (it.hoja === SHEET_USUARIOS) {
+        if (it.accion === 'CREAR') resumen.creaciones += 1;
+        else if (it.accion === 'ACTUALIZAR') resumen.actualizaciones += 1;
+        else if (it.accion === 'ACTIVAR') resumen.activaciones += 1;
+        else if (it.accion === 'DESACTIVAR') resumen.desactivaciones += 1;
+      }
     } else {
       resumen.errores += 1;
     }
@@ -636,104 +801,318 @@ const contarResumen = (items: PreviewItem[], filas: FilaImport[]): ResumenImport
   return resumen;
 };
 
-export const validarImportacion = async (filas: FilaImport[]): Promise<{ items: PreviewItem[]; resumen: ResumenImport }> => {
-  const ctx = await cargarContexto();
-  const vistos = new Set<string>();
-  const items: PreviewItem[] = filas.map((fila) => {
-    const mensaje = validarFila(fila, ctx, vistos);
-    const email = normEmail(fila.email);
-    if (email) vistos.add(email);
-    return {
-      fila: fila.fila,
-      accion: fila.accion.toUpperCase(),
-      email: fila.email.trim(),
-      rol: fila.rol,
-      estado: mensaje ? 'ERROR' : 'VALIDO',
-      mensaje: mensaje || 'OK'
-    };
-  });
-  return { items, resumen: contarResumen(items, filas) };
+/** Valida el archivo completo SIN modificar Supabase (Sección 7). */
+export const validarWorkbook = async (parsed: ParsedWorkbook): Promise<{ items: PreviewItem[]; resumen: ResumenImport }> => {
+  const r = await validarTodo(parsed);
+  const grupos = [r.itemsUsuarios, r.itemsLid, r.itemsSupGes, r.itemsSupGer, r.itemsGesPz, r.itemsGerPz];
+  return { items: grupos.flat(), resumen: contarResumen(grupos) };
 };
 
-/** Asegura filas en `gestores` para los nombre_cartera dados y devuelve sus ids. */
-const resolverGestorIds = async (nombres: string[]): Promise<string[]> => {
-  const client = getSupabaseClient();
-  const ids: string[] = [];
-  for (const nombre of nombres) {
-    const { data } = await client.from('gestores').select('id').eq('nombre_cartera', nombre).limit(1);
-    const row = (data ?? [])[0] as { id?: string } | undefined;
-    if (row?.id) {
-      ids.push(row.id);
-    } else {
-      const { data: inserted, error } = await client.from('gestores').insert({ nombre_cartera: nombre, activo: true }).select('id').single();
-      if (error) throw new UsuariosError(`No se pudo registrar el gestor "${nombre}": ${error.message}`);
-      ids.push(String((inserted as { id: string }).id));
-    }
-  }
-  return ids;
-};
-
-/** Resuelve ids de zona por nombre o código (sin inventar zonas). */
-const resolverZonaIds = async (nombres: string[]): Promise<string[]> => {
-  const client = getSupabaseClient();
-  const ids: string[] = [];
-  for (const nombre of nombres) {
-    const { data } = await client.from('zonas').select('id, nombre, codigo').eq('activo', true);
-    const match = ((data ?? []) as Array<{ id: string; nombre: string; codigo: string | null }>).find(
-      (z) => z.nombre.trim().toLowerCase() === nombre.toLowerCase() || (z.codigo ?? '').trim().toLowerCase() === nombre.toLowerCase()
-    );
-    if (!match) throw new UsuariosError(`Zona no encontrada: "${nombre}".`);
-    ids.push(match.id);
-  }
-  return ids;
-};
-
-/** Ejecuta una sola fila válida reutilizando crearUsuario/actualizarUsuario.
- *  Devuelve la contraseña temporal SOLO para CREAR (vacío en el resto). */
-const aplicarFila = async (fila: FilaImport, ctx: ContextoValidacion): Promise<string> => {
+/** Aplica una sola fila de USUARIOS (Fase 1: identidad/perfil). Las relaciones
+ *  se sincronizan aparte, en Fase 2 (`sincronizarRelacionesWorkbook`). */
+const aplicarFilaUsuario = async (fila: FilaUsuarioImport, ctx: ContextoMasivo): Promise<string> => {
   const accion = fila.accion.toUpperCase();
   const email = normEmail(fila.email);
-  const roleId = fila.rol ? ctx.rolesPorClave.get(fila.rol) : undefined;
+  const rolInfo = fila.rol ? ctx.rolesPorClave.get(fila.rol) : undefined;
   const activoFlag = fila.activo ? fila.activo.toUpperCase() === 'SI' : undefined;
 
-  const relaciones = async () => {
-    const out: { nombreCartera?: string | null; gestorIds?: string[]; zonaIds?: string[] } = {};
-    if (fila.rol === 'gestor') out.nombreCartera = fila.nombreCartera.trim() || null;
-    if (fila.rol === 'supervisor') out.gestorIds = await resolverGestorIds(splitMulti(fila.nombreCartera));
-    if (fila.rol === 'gerente_zona') out.zonaIds = await resolverZonaIds(splitMulti(fila.zona));
-    return out;
-  };
-
   if (accion === 'CREAR') {
-    if (!roleId) throw new UsuariosError('Rol no resuelto.');
-    const rel = await relaciones();
-    const { password } = await crearUsuario({ email, nombre: fila.nombre, apellido: fila.apellido, roleId, activo: activoFlag ?? true, ...rel });
+    if (!rolInfo) throw new UsuariosError('Rol no resuelto.');
+    const nombreCartera = fila.rol === 'gestor' ? (fila.nombreCartera.trim() || null) : undefined;
+    const { password } = await crearUsuario({ email, nombre: fila.nombre, apellido: fila.apellido, roleId: rolInfo.id, activo: activoFlag ?? true, nombreCartera });
     return password;
   }
 
-  // Localiza el usuario existente por email.
   const perfil = await buscarPerfilPorEmail(email);
   if (!perfil) throw new UsuariosError('Usuario no encontrado.');
 
-  if (accion === 'ACTIVAR') {
-    await actualizarUsuario(perfil.id, { activo: true });
-    return '';
-  }
-  if (accion === 'DESACTIVAR') {
-    await actualizarUsuario(perfil.id, { activo: false });
-    return '';
-  }
+  if (accion === 'ACTIVAR') { await actualizarUsuario(perfil.id, { activo: true }); return ''; }
+  if (accion === 'DESACTIVAR') { await actualizarUsuario(perfil.id, { activo: false }); return ''; }
 
   // ACTUALIZAR
   const patch: ActualizarUsuarioInput = {};
   if (fila.nombre.trim()) patch.nombre = fila.nombre.trim();
   if (fila.apellido.trim()) patch.apellido = fila.apellido.trim();
-  if (roleId) patch.roleId = roleId;
+  if (rolInfo) patch.roleId = rolInfo.id;
   if (activoFlag !== undefined) patch.activo = activoFlag;
-  const rel = await relaciones();
-  Object.assign(patch, rel);
+  if (fila.rol === 'gestor' && fila.nombreCartera.trim()) patch.nombreCartera = fila.nombreCartera.trim();
   await actualizarUsuario(perfil.id, patch);
   return '';
+};
+
+/** Sincroniza una tabla de relación simple (owner_id, target_id) por completo
+ *  para un propietario dado: reemplaza sus filas activas exactamente por
+ *  `targetIds`. Devuelve el desglose creadas/vigentes(sin cambio)/eliminadas
+ *  (Sección 16). */
+const syncSimpleRelation = async (
+  table: string, ownerField: string, targetField: string, ownerId: string, targetIds: string[]
+): Promise<{ creadas: number; eliminadas: number; vigentes: number }> => {
+  const client = getSupabaseClient();
+  const { data: previos, error: pErr } = await client.from(table).select(targetField).eq(ownerField, ownerId).eq('activo', true);
+  if (pErr) throw new UsuariosError(`No se pudo leer ${table}: ${pErr.message}`);
+  const previosIds = new Set(((previos ?? []) as unknown as Array<Record<string, unknown>>).map((r) => String(r[targetField])));
+  const nuevosIds = new Set(targetIds);
+  const creadas = targetIds.filter((id) => !previosIds.has(id)).length;
+  const vigentes = targetIds.filter((id) => previosIds.has(id)).length;
+  const eliminadas = [...previosIds].filter((id) => !nuevosIds.has(id)).length;
+
+  const { error: delErr } = await client.from(table).delete().eq(ownerField, ownerId);
+  if (delErr) throw new UsuariosError(`No se pudo sincronizar ${table}: ${delErr.message}`);
+  if (targetIds.length > 0) {
+    const rows = targetIds.map((id) => ({ [ownerField]: ownerId, [targetField]: id, fecha_inicio: hoy(), fecha_fin: null, activo: true }));
+    const { error } = await client.from(table).insert(rows);
+    if (error) throw new UsuariosError(`No se pudo sincronizar ${table}: ${error.message}`);
+  }
+  return { creadas, eliminadas, vigentes };
+};
+
+/** Igual que `syncSimpleRelation` pero para relaciones País-Zona (par exacto,
+ *  no listas independientes — ver Sección 6). */
+const syncPaisZonaRelation = async (
+  table: string, ownerField: string, ownerId: string, pares: Array<{ zonaId: string; pais: string }>
+): Promise<{ creadas: number; eliminadas: number; vigentes: number }> => {
+  const client = getSupabaseClient();
+  const key = (zonaId: string, pais: string) => `${zonaId}||${pais.toLowerCase()}`;
+  const { data: previos, error: pErr } = await client.from(table).select('zona_id, pais').eq(ownerField, ownerId).eq('activo', true);
+  if (pErr) throw new UsuariosError(`No se pudo leer ${table}: ${pErr.message}`);
+  const previosSet = new Set(((previos ?? []) as Array<{ zona_id: string; pais: string | null }>).map((r) => key(r.zona_id, r.pais ?? '')));
+  const nuevosSet = new Set(pares.map((p) => key(p.zonaId, p.pais)));
+  const creadas = pares.filter((p) => !previosSet.has(key(p.zonaId, p.pais))).length;
+  const vigentes = pares.filter((p) => previosSet.has(key(p.zonaId, p.pais))).length;
+  const eliminadas = [...previosSet].filter((k) => !nuevosSet.has(k)).length;
+
+  const { error: delErr } = await client.from(table).delete().eq(ownerField, ownerId);
+  if (delErr) throw new UsuariosError(`No se pudo sincronizar ${table}: ${delErr.message}`);
+  if (pares.length > 0) {
+    const rows = pares.map((p) => ({ [ownerField]: ownerId, zona_id: p.zonaId, pais: p.pais, fecha_inicio: hoy(), fecha_fin: null, activo: true }));
+    const { error } = await client.from(table).insert(rows);
+    if (error) throw new UsuariosError(`No se pudo sincronizar ${table}: ${error.message}`);
+  }
+  return { creadas, eliminadas, vigentes };
+};
+
+/** Solo las filas cuyo `PreviewItem` paralelo (mismo índice) resultó VALIDO. */
+const filasValidas = <F>(filas: F[], items: PreviewItem[]): F[] => filas.filter((_, i) => items[i]?.estado === 'VALIDO');
+
+/** Releer en frío profiles.id y (si aplica) gestores.id vigente para un
+ *  conjunto de emails, DESPUÉS de aplicar la hoja USUARIOS: evita operar con
+ *  ids obsoletos de altas o cambios de rol ocurridos en esta misma carga. */
+const resolverIdsFrescos = async (
+  emails: Set<string>
+): Promise<{ idPorEmail: Map<string, string>; gestorIdPorEmail: Map<string, string> }> => {
+  const idPorEmail = new Map<string, string>();
+  const gestorIdPorEmail = new Map<string, string>();
+  if (emails.size === 0) return { idPorEmail, gestorIdPorEmail };
+  const client = getSupabaseClient();
+  const { data: perfiles, error } = await client.from('profiles').select('id, email').in('email', Array.from(emails));
+  if (error) throw new UsuariosError(`No se pudieron releer los usuarios: ${error.message}`);
+  ((perfiles ?? []) as Array<{ id: string; email: string }>).forEach((p) => idPorEmail.set(normEmail(p.email), p.id));
+  const profileIds = Array.from(idPorEmail.values());
+  if (profileIds.length > 0) {
+    const { data: gestoresRows, error: gErr } = await client.from('gestores').select('id, usuario_id').in('usuario_id', profileIds).eq('activo', true);
+    if (gErr) throw new UsuariosError(`No se pudieron releer los gestores: ${gErr.message}`);
+    const gestorIdPorProfileId = new Map<string, string>();
+    ((gestoresRows ?? []) as Array<{ id: string; usuario_id: string }>).forEach((g) => gestorIdPorProfileId.set(g.usuario_id, g.id));
+    idPorEmail.forEach((profileId, email) => {
+      const gid = gestorIdPorProfileId.get(profileId);
+      if (gid) gestorIdPorEmail.set(email, gid);
+    });
+  }
+  return { idPorEmail, gestorIdPorEmail };
+};
+
+/** Sincroniza un tipo de relación simple (1 propietario -> N relacionados)
+ *  para TODOS los propietarios "vigentes" en este archivo: la UNIÓN de (a) los
+ *  propietarios con al menos una fila VÁLIDA en la hoja de relación y (b) los
+ *  usuarios de la hoja USUARIOS con el rol propietario, aplicados con éxito en
+ *  esta misma carga. Un propietario vigente sin filas válidas en la hoja de
+ *  relación queda con CERO relaciones activas (se eliminan las anteriores):
+ *  el archivo representa el estado completo vigente para todo propietario que
+ *  menciona. Un propietario que NO aparece en ningún lado del archivo no se toca. */
+const sincronizarTipoRelacion = async (
+  filas: FilaRelacionImport[], items: PreviewItem[],
+  usuarios: FilaUsuarioImport[], usuariosOk: Set<string>, rolPropietario: string,
+  table: string, ownerField: string, targetField: string,
+  idPorEmail: Map<string, string>, resolverTargetId: (email: string) => string | undefined
+): Promise<{ creadas: number; vigentes: number; eliminadas: number }> => {
+  const validas = filasValidas(filas, items);
+  const propietarios = new Set<string>(validas.map((f) => normEmail(f.propietario)));
+  usuarios.forEach((f) => { if (f.rol === rolPropietario && usuariosOk.has(normEmail(f.email))) propietarios.add(normEmail(f.email)); });
+
+  const targetsPorPropietario = new Map<string, string[]>();
+  validas.forEach((f) => {
+    const owner = normEmail(f.propietario);
+    const targetId = resolverTargetId(normEmail(f.relacionado));
+    if (!targetId) return;
+    const arr = targetsPorPropietario.get(owner) ?? [];
+    arr.push(targetId);
+    targetsPorPropietario.set(owner, arr);
+  });
+
+  let creadas = 0; let vigentes = 0; let eliminadas = 0;
+  for (const email of propietarios) {
+    const ownerId = idPorEmail.get(email);
+    if (!ownerId) continue;
+    const r = await syncSimpleRelation(table, ownerField, targetField, ownerId, targetsPorPropietario.get(email) ?? []);
+    creadas += r.creadas; vigentes += r.vigentes; eliminadas += r.eliminadas;
+  }
+  return { creadas, vigentes, eliminadas };
+};
+
+/** Igual que `sincronizarTipoRelacion` pero para hojas País-Zona (Gestor o
+ *  Gerente de zona): el PAR completo, nunca listas independientes. */
+const sincronizarTipoPaisZona = async (
+  filas: FilaPaisZonaImport[], items: PreviewItem[],
+  usuarios: FilaUsuarioImport[], usuariosOk: Set<string>, rolPropietario: string,
+  table: string, ownerField: string,
+  ownerIdPorEmail: Map<string, string>, zonaIdPorNombre: Map<string, string>
+): Promise<{ creadas: number; vigentes: number; eliminadas: number }> => {
+  const validas = filasValidas(filas, items);
+  const propietarios = new Set<string>(validas.map((f) => normEmail(f.email)));
+  usuarios.forEach((f) => { if (f.rol === rolPropietario && usuariosOk.has(normEmail(f.email))) propietarios.add(normEmail(f.email)); });
+
+  const paresPorPropietario = new Map<string, Array<{ zonaId: string; pais: string }>>();
+  validas.forEach((f) => {
+    const owner = normEmail(f.email);
+    const zonaId = zonaIdPorNombre.get(f.zona.trim().toLowerCase());
+    if (!zonaId) return;
+    const arr = paresPorPropietario.get(owner) ?? [];
+    arr.push({ zonaId, pais: f.pais.trim() });
+    paresPorPropietario.set(owner, arr);
+  });
+
+  let creadas = 0; let vigentes = 0; let eliminadas = 0;
+  for (const email of propietarios) {
+    const ownerId = ownerIdPorEmail.get(email);
+    if (!ownerId) continue;
+    const r = await syncPaisZonaRelation(table, ownerField, ownerId, paresPorPropietario.get(email) ?? []);
+    creadas += r.creadas; vigentes += r.vigentes; eliminadas += r.eliminadas;
+  }
+  return { creadas, vigentes, eliminadas };
+};
+
+/** Aplica el workbook completo (Sección 8-11): re-valida en el servidor (nunca
+ *  confía en el cliente), aplica FASE 1 (USUARIOS: identidad/perfil) y luego
+ *  FASE 2 (las 5 relaciones de Grupos y Niveles, sincronizadas por completo
+ *  para cada propietario vigente, con ids releídos en frío). Registra
+ *  auditoría reutilizando `IMPORTACION_USUARIOS` (sin duplicar historial). */
+export const aplicarWorkbook = async (
+  parsed: ParsedWorkbook,
+  soloValidas: boolean,
+  actorId: string | null
+): Promise<{ resultados: ResultadoAplicarItem[]; resumen: ResumenImport }> => {
+  const v = await validarTodo(parsed);
+  const grupos = [v.itemsUsuarios, v.itemsLid, v.itemsSupGes, v.itemsSupGer, v.itemsGesPz, v.itemsGerPz];
+  const hayErrores = grupos.some((g) => g.some((it) => it.estado === 'ERROR'));
+  if (hayErrores && !soloValidas) {
+    throw new UsuariosError('El archivo tiene filas con error. Corrígelas o usa "Procesar solo válidas".');
+  }
+
+  const resumen = contarResumen(grupos);
+  const resultados: ResultadoAplicarItem[] = [];
+
+  // FASE 1 — USUARIOS (identidad/perfil).
+  const usuariosOk = new Set<string>();
+  for (const item of v.itemsUsuarios) {
+    const filaOriginal = parsed.usuarios.find((f) => f.fila === item.fila);
+    const base = {
+      hoja: item.hoja, fila: item.fila, accion: item.accion, email: item.email, rol: item.rol,
+      nombre: filaOriginal?.nombre.trim() ?? '', apellido: filaOriginal?.apellido.trim() ?? ''
+    };
+    if (item.estado === 'ERROR') {
+      resultados.push({ ...base, resultado: 'ERROR', password: '', mensaje: item.mensaje });
+      continue;
+    }
+    if (!filaOriginal) continue;
+    try {
+      const password = await aplicarFilaUsuario(filaOriginal, v.ctx);
+      resultados.push({ ...base, resultado: 'OK', password, mensaje: 'Procesado correctamente.' });
+      usuariosOk.add(normEmail(filaOriginal.email));
+    } catch (error) {
+      const mensaje = error instanceof Error ? error.message : 'Error al procesar la fila.';
+      resultados.push({ ...base, resultado: 'ERROR', password: '', mensaje });
+    }
+  }
+
+  // Resultados de las hojas de RELACIÓN (informativos: se reflejan al sincronizar más abajo).
+  const pushRelacion = (items: PreviewItem[]) => {
+    items.forEach((it) => resultados.push({
+      hoja: it.hoja, fila: it.fila, accion: it.accion, email: it.email, rol: it.rol,
+      resultado: it.estado === 'VALIDO' ? 'OK' : 'ERROR', password: '', mensaje: it.mensaje
+    }));
+  };
+  pushRelacion(v.itemsLid); pushRelacion(v.itemsSupGes); pushRelacion(v.itemsSupGer);
+  pushRelacion(v.itemsGesPz); pushRelacion(v.itemsGerPz);
+
+  // FASE 2 — RELACIONES (Grupos y Niveles), con ids releídos en frío.
+  const emailsRelevantes = new Set<string>();
+  const addAll = (arr: string[]) => arr.forEach((e) => { const n = normEmail(e); if (n) emailsRelevantes.add(n); });
+  addAll(parsed.liderazgoSupervisor.flatMap((f) => [f.propietario, f.relacionado]));
+  addAll(parsed.supervisorGestor.flatMap((f) => [f.propietario, f.relacionado]));
+  addAll(parsed.supervisorGerente.flatMap((f) => [f.propietario, f.relacionado]));
+  addAll(parsed.gestorPaisZona.map((f) => f.email));
+  addAll(parsed.gerentePaisZona.map((f) => f.email));
+  addAll(parsed.usuarios.map((f) => f.email));
+
+  const { idPorEmail, gestorIdPorEmail } = await resolverIdsFrescos(emailsRelevantes);
+
+  let relacionesCreadas = 0;
+  let relacionesVigentes = 0;
+  let relacionesEliminadas = 0;
+  const acumular = (r: { creadas: number; vigentes: number; eliminadas: number }) => {
+    relacionesCreadas += r.creadas; relacionesVigentes += r.vigentes; relacionesEliminadas += r.eliminadas;
+  };
+
+  if (parsed.hojasPresentes.has(SHEET_LIDERAZGO_SUPERVISOR)) {
+    acumular(await sincronizarTipoRelacion(
+      parsed.liderazgoSupervisor, v.itemsLid, parsed.usuarios, usuariosOk, 'liderazgo',
+      'liderazgo_supervisor', 'liderazgo_id', 'supervisor_id', idPorEmail, (email) => idPorEmail.get(email)
+    ));
+  }
+  if (parsed.hojasPresentes.has(SHEET_SUPERVISOR_GESTOR)) {
+    acumular(await sincronizarTipoRelacion(
+      parsed.supervisorGestor, v.itemsSupGes, parsed.usuarios, usuariosOk, 'supervisor',
+      'supervisor_gestor', 'supervisor_id', 'gestor_id', idPorEmail, (email) => gestorIdPorEmail.get(email)
+    ));
+  }
+  if (parsed.hojasPresentes.has(SHEET_SUPERVISOR_GERENTE)) {
+    acumular(await sincronizarTipoRelacion(
+      parsed.supervisorGerente, v.itemsSupGer, parsed.usuarios, usuariosOk, 'supervisor',
+      'supervisor_gerente_zona', 'supervisor_id', 'gerente_zona_id', idPorEmail, (email) => idPorEmail.get(email)
+    ));
+  }
+  if (parsed.hojasPresentes.has(SHEET_GESTOR_PAIS_ZONA)) {
+    acumular(await sincronizarTipoPaisZona(
+      parsed.gestorPaisZona, v.itemsGesPz, parsed.usuarios, usuariosOk, 'gestor',
+      'gestor_pais_zona', 'gestor_id', gestorIdPorEmail, v.ctx.zonaIdPorNombre
+    ));
+  }
+  if (parsed.hojasPresentes.has(SHEET_GERENTE_PAIS_ZONA)) {
+    acumular(await sincronizarTipoPaisZona(
+      parsed.gerentePaisZona, v.itemsGerPz, parsed.usuarios, usuariosOk, 'gerente_zona',
+      'gerente_zona_zona', 'usuario_id', idPorEmail, v.ctx.zonaIdPorNombre
+    ));
+  }
+
+  resumen.relacionesCreadas = relacionesCreadas;
+  resumen.relacionesVigentes = relacionesVigentes;
+  resumen.relacionesEliminadas = relacionesEliminadas;
+
+  await registrarAuditoria(actorId, 'IMPORTACION_USUARIOS', 'usuarios', null, {
+    total: resumen.total,
+    validas: resumen.validas,
+    errores: resumen.errores,
+    creados: resumen.creaciones,
+    actualizados: resumen.actualizaciones,
+    activados: resumen.activaciones,
+    desactivados: resumen.desactivaciones,
+    relacionesCreadas,
+    relacionesVigentes,
+    relacionesEliminadas,
+    soloValidas
+  });
+
+  return { resultados, resumen };
 };
 
 /* ============================================================================
@@ -784,7 +1163,8 @@ export const obtenerResumenAlcance = async (): Promise<{ totalUsuarios: number; 
   const client = getSupabaseClient();
 
   const [{ data: perfiles, error: pErr }, { data: gestores, error: gErr }, { data: supGes, error: sgErr },
-    { data: lidSup, error: lsErr }, { data: gerZona, error: gzErr }, { data: gesPZ, error: gpzErr }, cartera] =
+    { data: lidSup, error: lsErr }, { data: gerZona, error: gzErr }, { data: gesPZ, error: gpzErr },
+    { data: supGerZona, error: sgzErr }, cartera] =
     await Promise.all([
       client.from('profiles').select('id, activo, role_id, roles ( clave, nivel )'),
       client.from('gestores').select('id, usuario_id, nombre_cartera').eq('activo', true),
@@ -792,6 +1172,7 @@ export const obtenerResumenAlcance = async (): Promise<{ totalUsuarios: number; 
       client.from('liderazgo_supervisor').select('liderazgo_id, supervisor_id').eq('activo', true),
       client.from('gerente_zona_zona').select('usuario_id, zona_id, pais, zonas ( nombre )').eq('activo', true),
       client.from('gestor_pais_zona').select('gestor_id, pais, zonas ( nombre )').eq('activo', true),
+      client.from('supervisor_gerente_zona').select('supervisor_id, gerente_zona_id').eq('activo', true),
       cargarCarteraResumen()
     ]);
 
@@ -801,6 +1182,7 @@ export const obtenerResumenAlcance = async (): Promise<{ totalUsuarios: number; 
   if (lsErr) throw new UsuariosError(`No se pudo leer liderazgo_supervisor: ${lsErr.message}`);
   if (gzErr) throw new UsuariosError(`No se pudo leer gerente_zona_zona: ${gzErr.message}`);
   if (gpzErr) throw new UsuariosError(`No se pudo leer gestor_pais_zona: ${gpzErr.message}`);
+  if (sgzErr) throw new UsuariosError(`No se pudo leer supervisor_gerente_zona: ${sgzErr.message}`);
 
   const perfilRows = (perfiles ?? []) as Array<{ id: string; activo: boolean; roles: { clave?: string; nivel?: number | null } | { clave?: string; nivel?: number | null }[] | null }>;
   const totalUsuarios = perfilRows.length;
@@ -845,6 +1227,14 @@ export const obtenerResumenAlcance = async (): Promise<{ totalUsuarios: number; 
     list.push({ pais: r.pais ?? '', zona: z?.nombre ?? '' });
     zonasPorGestorId.set(r.gestor_id, list);
   }
+  const gerentesPorSupervisor = new Map<string, string[]>();
+  for (const r of (supGerZona ?? []) as Array<{ supervisor_id: string; gerente_zona_id: string }>) {
+    const list = gerentesPorSupervisor.get(r.supervisor_id) ?? [];
+    list.push(r.gerente_zona_id);
+    gerentesPorSupervisor.set(r.supervisor_id, list);
+  }
+  /** País/Zona asignados a un gerente de zona (profiles.id), para heredar hacia arriba. */
+  const paisZonaDeGerente = (gerenteUserId: string): Array<{ pais: string; zona: string }> => zonasPorGerente.get(gerenteUserId) ?? [];
 
   const items: AlcanceResumenItem[] = perfilRows.map((p) => {
     const roleRaw = Array.isArray(p.roles) ? p.roles[0] : p.roles;
@@ -857,13 +1247,25 @@ export const obtenerResumenAlcance = async (): Promise<{ totalUsuarios: number; 
       const gestorIds = uniq(supervisorIds.flatMap((sid) => gestoresPorSupervisor.get(sid) ?? []));
       const nombres = gestorIds.map((gid) => nombrePorGestorId.get(gid) ?? '').filter(Boolean);
       const filas = carteraDe(nombres);
-      return { ...base, totalSupervisores: supervisorIds.length, totalGestores: gestorIds.length, paises: uniq(filas.map((f) => f.pais)), zonas: uniq(filas.map((f) => f.zona)) };
+      const gerenteIds = uniq(supervisorIds.flatMap((sid) => gerentesPorSupervisor.get(sid) ?? []));
+      const pzGerentes = gerenteIds.flatMap((gid) => paisZonaDeGerente(gid));
+      return {
+        ...base, totalSupervisores: supervisorIds.length, totalGestores: gestorIds.length,
+        paises: uniq([...filas.map((f) => f.pais), ...pzGerentes.map((z) => z.pais)]),
+        zonas: uniq([...filas.map((f) => f.zona), ...pzGerentes.map((z) => z.zona)])
+      };
     }
     if (roleClave === 'supervisor') {
       const gestorIds = uniq(gestoresPorSupervisor.get(p.id) ?? []);
       const nombres = gestorIds.map((gid) => nombrePorGestorId.get(gid) ?? '').filter(Boolean);
       const filas = carteraDe(nombres);
-      return { ...base, totalGestores: gestorIds.length, paises: uniq(filas.map((f) => f.pais)), zonas: uniq(filas.map((f) => f.zona)) };
+      const gerenteIds = uniq(gerentesPorSupervisor.get(p.id) ?? []);
+      const pzGerentes = gerenteIds.flatMap((gid) => paisZonaDeGerente(gid));
+      return {
+        ...base, totalGestores: gestorIds.length,
+        paises: uniq([...filas.map((f) => f.pais), ...pzGerentes.map((z) => z.pais)]),
+        zonas: uniq([...filas.map((f) => f.zona), ...pzGerentes.map((z) => z.zona)])
+      };
     }
     if (roleClave === 'gestor') {
       const gestorId = gestorIdPorUsuario.get(p.id);
@@ -898,69 +1300,3 @@ export const buscarPerfilPorEmail = async (email: string): Promise<{ id: string;
   return { id: String(row.id), roleId: (row.role_id as string | null) ?? null, roleClave: roleRefOf(row.roles)?.clave ?? null };
 };
 
-export const aplicarImportacion = async (
-  filas: FilaImport[],
-  soloValidas: boolean,
-  actorId: string | null
-): Promise<{ resultados: ResultadoAplicarItem[]; resumen: ResumenImport }> => {
-  const ctx = await cargarContexto();
-  const vistos = new Set<string>();
-
-  // Re-validación (fuente de verdad del servidor; nunca confía en el cliente).
-  const validaciones = filas.map((fila) => {
-    const mensaje = validarFila(fila, ctx, vistos);
-    const email = normEmail(fila.email);
-    if (email) vistos.add(email);
-    return { fila, valido: !mensaje, mensaje };
-  });
-
-  const hayErrores = validaciones.some((v) => !v.valido);
-  if (hayErrores && !soloValidas) {
-    throw new UsuariosError('El archivo tiene filas con error. Corrígelas o usa "Procesar solo válidas".');
-  }
-
-  const resultados: ResultadoAplicarItem[] = [];
-  const resumen: ResumenImport = { total: filas.length, validas: 0, errores: 0, creaciones: 0, actualizaciones: 0, activaciones: 0, desactivaciones: 0 };
-
-  for (const v of validaciones) {
-    const base = {
-      fila: v.fila.fila,
-      accion: v.fila.accion.toUpperCase(),
-      email: v.fila.email.trim(),
-      nombre: v.fila.nombre.trim(),
-      apellido: v.fila.apellido.trim(),
-      rol: v.fila.rol
-    };
-    if (!v.valido) {
-      resultados.push({ ...base, resultado: 'ERROR', password: '', mensaje: v.mensaje });
-      resumen.errores += 1;
-      continue;
-    }
-    try {
-      const password = await aplicarFila(v.fila, ctx);
-      resultados.push({ ...base, resultado: 'OK', password, mensaje: 'Procesado correctamente.' });
-      resumen.validas += 1;
-      const a = base.accion;
-      if (a === 'CREAR') resumen.creaciones += 1;
-      else if (a === 'ACTUALIZAR') resumen.actualizaciones += 1;
-      else if (a === 'ACTIVAR') resumen.activaciones += 1;
-      else if (a === 'DESACTIVAR') resumen.desactivaciones += 1;
-    } catch (error) {
-      const mensaje = error instanceof Error ? error.message : 'Error al procesar la fila.';
-      resultados.push({ ...base, resultado: 'ERROR', password: '', mensaje });
-      resumen.errores += 1;
-    }
-  }
-
-  await registrarAuditoria(actorId, 'IMPORTACION_USUARIOS', 'usuarios', null, {
-    total: resumen.total,
-    creados: resumen.creaciones,
-    actualizados: resumen.actualizaciones,
-    activados: resumen.activaciones,
-    desactivados: resumen.desactivaciones,
-    errores: resumen.errores,
-    soloValidas
-  });
-
-  return { resultados, resumen };
-};

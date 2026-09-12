@@ -130,6 +130,74 @@ const paisZonaDeGestores = async (gestorIds: string[]): Promise<Array<{ pais: st
     .filter((p) => p.pais && p.zona);
 };
 
+/** País/Zona explícitos de uno o varios Gerentes de zona (por `profiles.id`), vigentes. */
+const paisZonaDeGerentes = async (gerenteUserIds: string[]): Promise<Array<{ pais: string; zona: string }>> => {
+  if (gerenteUserIds.length === 0) return [];
+  const today = serverDate();
+  const client = getSupabaseClient();
+  const { data: rel, error: relError } = await client
+    .from('gerente_zona_zona')
+    .select('zona_id, pais')
+    .in('usuario_id', gerenteUserIds)
+    .eq('activo', true)
+    .lte('fecha_inicio', today)
+    .or(`fecha_fin.is.null,fecha_fin.gte.${today}`);
+  if (relError) throw new ScopeResolutionError(`No se pudieron leer las zonas de los gerentes de zona: ${relError.message}`);
+  const rows = (rel ?? []) as Array<{ zona_id: string; pais: string | null }>;
+  if (rows.length === 0) return [];
+
+  const zonaIds = uniq(rows.map((r) => r.zona_id));
+  const { data: zonas, error: zError } = await client.from('zonas').select('id, nombre').in('id', zonaIds).eq('activo', true);
+  if (zError) throw new ScopeResolutionError(`No se pudieron leer las zonas: ${zError.message}`);
+  const nombrePorId = new Map(((zonas ?? []) as Array<{ id: string; nombre: string }>).map((z) => [z.id, z.nombre]));
+
+  return rows
+    .map((r) => ({ pais: r.pais ?? '', zona: nombrePorId.get(r.zona_id) ?? '' }))
+    .filter((p) => p.pais && p.zona);
+};
+
+/** Filtra una lista de `profiles.id`, devolviendo solo los que siguen activos.
+ *  Defensivo: evita que un Supervisor/Gerente de zona DESACTIVADO siga
+ *  aportando alcance a quien lo supervisa transitivamente (Liderazgo). */
+const activeProfileIds = async (ids: string[]): Promise<string[]> => {
+  if (ids.length === 0) return [];
+  const { data, error } = await getSupabaseClient().from('profiles').select('id').in('id', ids).eq('activo', true);
+  if (error) throw new ScopeResolutionError(`No se pudieron verificar perfiles activos: ${error.message}`);
+  return ((data ?? []) as Array<{ id: string }>).map((p) => p.id);
+};
+
+/** Gerentes de zona (profiles.id, activos) asignados a uno o varios Supervisores,
+ *  vía `supervisor_gerente_zona` (Nivel 3 -> Nivel 5, rama paralela a Gestor). */
+const gerentesDeSupervisores = async (supervisorIds: string[]): Promise<string[]> => {
+  if (supervisorIds.length === 0) return [];
+  const today = serverDate();
+  const client = getSupabaseClient();
+  const { data: rel, error: relError } = await client
+    .from('supervisor_gerente_zona')
+    .select('gerente_zona_id')
+    .in('supervisor_id', supervisorIds)
+    .eq('activo', true)
+    .lte('fecha_inicio', today)
+    .or(`fecha_fin.is.null,fecha_fin.gte.${today}`);
+  if (relError) throw new ScopeResolutionError(`No se pudieron leer los gerentes de zona de los supervisores: ${relError.message}`);
+  const ids = uniq(((rel ?? []) as Array<{ gerente_zona_id: string | null }>).map((r) => r.gerente_zona_id));
+  return activeProfileIds(ids);
+};
+
+/** Une dos listas de pares País-Zona sin duplicados (por la combinación exacta). */
+const mergePairs = (
+  a: Array<{ pais: string; zona: string }>,
+  b: Array<{ pais: string; zona: string }>
+): Array<{ pais: string; zona: string }> => {
+  const seen = new Set<string>();
+  const out: Array<{ pais: string; zona: string }> = [];
+  for (const p of [...a, ...b]) {
+    const key = `${p.pais.toLowerCase()}||${p.zona.toLowerCase()}`;
+    if (!seen.has(key)) { seen.add(key); out.push(p); }
+  }
+  return out;
+};
+
 /** Resuelve el scope de un GESTOR: sus propios registros activos en `gestores`,
  *  narrowed opcionalmente por País/Zona explícitos (`gestor_pais_zona`). Si no
  *  tiene País/Zona asignados, el alcance es exactamente el de hoy (por nombre). */
@@ -152,8 +220,12 @@ const resolveGestorScope = async (ctx: ScopeContext): Promise<ScopeContext> => {
 };
 
 /**
- * Resuelve el scope de un SUPERVISOR: gestores asignados en `supervisor_gestor`
- * (activos y vigentes) que además estén activos en `gestores`.
+ * Resuelve el scope de un SUPERVISOR (Nivel 3): UNIÓN de dos ramas paralelas —
+ * (a) sus Gestores asignados en `supervisor_gestor` (dimensión "gestor", como
+ * antes) y (b) sus Gerentes de zona asignados en `supervisor_gerente_zona`,
+ * cuyo alcance (País-Zona) se hereda como CONCESIÓN independiente
+ * (`paisZonaGrant`, ver ScopeFilter) — nunca restringe la rama de gestores.
+ * Sin ninguna de las dos asignaciones ⇒ scope vacío (NO global).
  */
 const resolveSupervisorScope = async (ctx: ScopeContext): Promise<ScopeContext> => {
   const today = serverDate();
@@ -172,21 +244,26 @@ const resolveSupervisorScope = async (ctx: ScopeContext): Promise<ScopeContext> 
   }
 
   const gestorIds = uniq(((rel ?? []) as Array<{ gestor_id: string | null }>).map((r) => r.gestor_id));
-  if (gestorIds.length === 0) {
-    // Sin asignaciones vigentes ⇒ scope vacío (NO global).
-    return ctx;
+  if (gestorIds.length > 0) {
+    const rows = await gestoresPorIds(gestorIds);
+    ctx.gestorIds = uniq(rows.map((r) => r.id));
+    ctx.scope.gestores = uniq(rows.map((r) => r.nombre_cartera));
   }
 
-  const rows = await gestoresPorIds(gestorIds);
-  ctx.gestorIds = uniq(rows.map((r) => r.id));
-  ctx.scope.gestores = uniq(rows.map((r) => r.nombre_cartera));
+  const gerenteIds = await gerentesDeSupervisores([ctx.userId]);
+  ctx.scope.paisZonaGrant = mergePairs(ctx.scope.paisZonaGrant ?? [], await paisZonaDeGerentes(gerenteIds));
+
   return ctx;
 };
 
 /**
- * Resuelve el scope de un LIDERAZGO (Nivel 2): UNIÓN del alcance de todos sus
- * Supervisores asignados en `liderazgo_supervisor` (activos y vigentes). Sin
- * supervisores asignados ⇒ scope vacío (fail-closed; ya NO es un rol global).
+ * Resuelve el scope de un LIDERAZGO (Nivel 2): UNIÓN transitiva del alcance de
+ * todos sus Supervisores asignados en `liderazgo_supervisor` (activos,
+ * vigentes y con perfil activo — defensivo: un supervisor desactivado deja de
+ * aportar alcance) — tanto sus Gestores (`supervisor_gestor`) como sus
+ * Gerentes de zona (`supervisor_gerente_zona`, heredados como concesión
+ * `paisZonaGrant`). Sin supervisores asignados ⇒ scope vacío (fail-closed; ya
+ * NO es un rol global).
  */
 const resolveLiderazgoScope = async (ctx: ScopeContext): Promise<ScopeContext> => {
   const today = serverDate();
@@ -204,9 +281,10 @@ const resolveLiderazgoScope = async (ctx: ScopeContext): Promise<ScopeContext> =
     throw new ScopeResolutionError(`No se pudieron leer los supervisores del liderazgo: ${relError.message}`);
   }
 
-  const supervisorIds = uniq(((rel ?? []) as Array<{ supervisor_id: string | null }>).map((r) => r.supervisor_id));
+  const supervisorIdsRaw = uniq(((rel ?? []) as Array<{ supervisor_id: string | null }>).map((r) => r.supervisor_id));
+  const supervisorIds = await activeProfileIds(supervisorIdsRaw);
   if (supervisorIds.length === 0) {
-    return ctx; // Sin supervisores vigentes ⇒ scope vacío (NO global).
+    return ctx; // Sin supervisores vigentes (o todos inactivos) ⇒ scope vacío (NO global).
   }
 
   const { data: relGestores, error: gRelError } = await client
@@ -221,59 +299,44 @@ const resolveLiderazgoScope = async (ctx: ScopeContext): Promise<ScopeContext> =
   }
 
   const gestorIds = uniq(((relGestores ?? []) as Array<{ gestor_id: string | null }>).map((r) => r.gestor_id));
-  const rows = await gestoresPorIds(gestorIds);
-  ctx.gestorIds = uniq(rows.map((r) => r.id));
-  ctx.scope.gestores = uniq(rows.map((r) => r.nombre_cartera));
+  if (gestorIds.length > 0) {
+    const rows = await gestoresPorIds(gestorIds);
+    ctx.gestorIds = uniq(rows.map((r) => r.id));
+    ctx.scope.gestores = uniq(rows.map((r) => r.nombre_cartera));
+  }
+
+  const gerenteIds = await gerentesDeSupervisores(supervisorIds);
+  ctx.scope.paisZonaGrant = mergePairs(ctx.scope.paisZonaGrant ?? [], await paisZonaDeGerentes(gerenteIds));
+
   return ctx;
 };
 
 /**
- * Resuelve el scope de un GERENTE DE ZONA: País/Zona asignados en
- * `gerente_zona_zona` (activos y vigentes, con `pais` explícito — una misma
- * zona/código puede repetirse entre países en `cartera`, por lo que zona sola
- * es ambigua). `scope.zonas`/`scope.paises` quedan como superset (para activar
- * las dimensiones base de `applyScope`); `paisZonaPairs` exige la combinación
- * EXACTA.
+ * Resuelve el scope de un GERENTE DE ZONA (Nivel 5): País/Zona EXACTOS
+ * asignados en `gerente_zona_zona` (activos, vigentes, con `pais` explícito —
+ * una misma zona/código puede repetirse entre países en `cartera`, por lo que
+ * zona sola es ambigua). Se expone como `paisZonaGrant` (concesión OR,
+ * independiente): su única fuente de alcance. `zonaIds` se conserva para
+ * consumidores operativos por id.
  */
 const resolveGerenteZonaScope = async (ctx: ScopeContext): Promise<ScopeContext> => {
-  const today = serverDate();
-  const client = getSupabaseClient();
+  const pares = await paisZonaDeGerentes([ctx.userId]);
+  if (pares.length === 0) {
+    return ctx; // Sin País/Zona vigentes ⇒ scope vacío (NO global).
+  }
+  ctx.scope.paisZonaGrant = pares;
 
-  const { data: rel, error: relError } = await client
+  const today = serverDate();
+  const { data: rel, error: relError } = await getSupabaseClient()
     .from('gerente_zona_zona')
-    .select('zona_id, pais')
+    .select('zona_id')
     .eq('usuario_id', ctx.userId)
     .eq('activo', true)
     .lte('fecha_inicio', today)
     .or(`fecha_fin.is.null,fecha_fin.gte.${today}`);
+  if (relError) throw new ScopeResolutionError(`No se pudieron leer las asignaciones del gerente de zona: ${relError.message}`);
+  ctx.zonaIds = uniq(((rel ?? []) as Array<{ zona_id: string | null }>).map((r) => r.zona_id));
 
-  if (relError) {
-    throw new ScopeResolutionError(`No se pudieron leer las asignaciones del gerente de zona: ${relError.message}`);
-  }
-
-  const relRows = (rel ?? []) as Array<{ zona_id: string | null; pais: string | null }>;
-  const zonaIds = uniq(relRows.map((r) => r.zona_id));
-  if (zonaIds.length === 0) {
-    return ctx; // Sin zonas vigentes ⇒ scope vacío (NO global).
-  }
-
-  const { data: zonas, error: zError } = await client
-    .from('zonas')
-    .select('id, nombre')
-    .in('id', zonaIds)
-    .eq('activo', true);
-
-  if (zError) {
-    throw new ScopeResolutionError(`No se pudieron leer las zonas del gerente: ${zError.message}`);
-  }
-
-  const nombrePorId = new Map(((zonas ?? []) as Array<{ id: string; nombre: string }>).map((z) => [z.id, z.nombre]));
-  ctx.zonaIds = uniq(Array.from(nombrePorId.keys()));
-  ctx.scope.zonas = uniq(Array.from(nombrePorId.values()));
-  ctx.scope.paises = uniq(relRows.map((r) => r.pais));
-  ctx.scope.paisZonaPairs = relRows
-    .map((r) => ({ pais: r.pais ?? '', zona: nombrePorId.get(r.zona_id ?? '') ?? '' }))
-    .filter((p) => p.pais && p.zona);
   return ctx;
 };
 
