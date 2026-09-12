@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link as RouterLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   AppBar,
@@ -23,7 +23,9 @@ import {
 } from '@mui/material';
 import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone';
 import MenuOpenIcon from '@mui/icons-material/MenuOpen';
-import SidebarNav from '../components/layout/SidebarNav';
+import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
+import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
+import SidebarNav, { type SidebarNavHandle } from '../components/layout/SidebarNav';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import LogoutIcon from '@mui/icons-material/Logout';
@@ -71,6 +73,20 @@ const RootLayout = () => {
     });
   const drawerWidth = sidebarCollapsed ? COLLAPSED_WIDTH : EXPANDED_WIDTH;
 
+  // Botón global de menús (repliega/despliega TODOS los menús y submenús del sidebar).
+  // Controla únicamente el estado de expansión interno de SidebarNav (openNodes, vía ref);
+  // NO oculta el sidebar (eso lo sigue haciendo, sin cambios, toggleSidebar/sidebarCollapsed
+  // arriba). `menusExpanded` solo decide qué acción dispara el PRÓXIMO clic: no intenta
+  // reflejar en vivo cada apertura/cierre manual individual (eso seguiría funcionando igual
+  // aunque este estado quedara desincronizado con la realidad de cada nodo).
+  const sidebarNavRef = useRef<SidebarNavHandle>(null);
+  const [menusExpanded, setMenusExpanded] = useState(true);
+  const toggleAllMenus = () => {
+    if (menusExpanded) sidebarNavRef.current?.collapseAll();
+    else sidebarNavRef.current?.expandAll();
+    setMenusExpanded((prev) => !prev);
+  };
+
   const updateDate = useMemo(
     () => new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date()),
     []
@@ -108,33 +124,47 @@ const RootLayout = () => {
         '&::-webkit-scrollbar': { display: 'none', width: 0, height: 0 }
       }}
     >
-      <Toolbar sx={{ px: 1, py: 1.25, minHeight: 52, display: 'flex', alignItems: 'center', justifyContent: sidebarCollapsed ? 'center' : 'space-between', gap: 0.5 }}>
-        {!sidebarCollapsed && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Box component="img" src={pdcLogo} alt="Logo PDC" sx={{ width: 54, height: 16 }} />
-            <Box component="img" src={avonLogo} alt="Logo AVON" sx={{ width: 54, height: 16 }} />
+      {/* Encabezado fijo del sidebar: logo + botón ocultar/mostrar sidebar + botón global
+          replegar/desplegar menús, y el punto de anclaje de FILTROS. Todo el bloque es
+          position:sticky (no un offset fijo) para que, si el listado de módulos es lo
+          bastante largo como para requerir scroll dentro del propio sidebar, ninguno de
+          estos elementos se desplace fuera de vista: se ancla al tope del contenedor con
+          scroll (el propio sidebar), en vez de flotar sobre el contenido de la página. */}
+      <Box sx={{ position: 'sticky', top: 0, zIndex: 2, bgcolor: mode === 'light' ? '#F6F8FB' : '#111827' }}>
+        <Toolbar sx={{ px: 1, py: 1.25, minHeight: 52, display: 'flex', alignItems: 'center', justifyContent: sidebarCollapsed ? 'center' : 'space-between', gap: 0.5 }}>
+          {!sidebarCollapsed && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box component="img" src={pdcLogo} alt="Logo PDC" sx={{ width: 54, height: 16 }} />
+              <Box component="img" src={avonLogo} alt="Logo AVON" sx={{ width: 54, height: 16 }} />
+            </Box>
+          )}
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+            <Tooltip title={sidebarCollapsed ? t('nav.expand') : t('nav.collapse')} placement="right" arrow>
+              <IconButton size="small" onClick={toggleSidebar} aria-label="toggle sidebar">
+                <MenuOpenIcon fontSize="small" sx={{ transform: sidebarCollapsed ? 'rotate(180deg)' : 'none', transition: 'transform 200ms ease' }} />
+              </IconButton>
+            </Tooltip>
+            {/* Botón global: SOLO replica/despliega los menús y submenús (openNodes de
+                SidebarNav vía ref); nunca oculta el sidebar. No aplica en modo colapsado
+                (rail de iconos), donde SidebarNav no tiene menús/submenús que expandir. */}
+            {!sidebarCollapsed && (
+              <Tooltip title={menusExpanded ? 'Replegar menús' : 'Desplegar menús'} placement="right" arrow>
+                <IconButton size="small" onClick={toggleAllMenus} aria-label="replegar o desplegar todos los menús">
+                  {menusExpanded ? <UnfoldLessIcon fontSize="small" /> : <UnfoldMoreIcon fontSize="small" />}
+                </IconButton>
+              </Tooltip>
+            )}
           </Box>
-        )}
-        <Tooltip title={sidebarCollapsed ? t('nav.expand') : t('nav.collapse')} placement="right" arrow>
-          <IconButton size="small" onClick={toggleSidebar} aria-label="toggle sidebar">
-            <MenuOpenIcon fontSize="small" sx={{ transform: sidebarCollapsed ? 'rotate(180deg)' : 'none', transition: 'transform 200ms ease' }} />
-          </IconButton>
-        </Tooltip>
-      </Toolbar>
-      <Divider sx={{ mb: 1.25, borderColor: mode === 'light' ? '#E5E7EB' : '#17233F' }} />
-      {/* Punto de anclaje: aquí se porta (via portal) el botón "FILTROS" de los módulos de
-          Análisis/Operación (Dashboard, Gestión, Control Operativo, Centro de Inteligencia),
-          justo antes del listado de módulos, para que quede integrado al sidebar. Se marca
-          position:sticky (no un offset fijo) para que, si el listado de módulos es lo bastante
-          largo como para requerir scroll dentro del propio sidebar, el botón no se desplace
-          fuera de vista: se ancla al tope del contenedor con scroll (el propio sidebar), en vez
-          de flotar sobre el contenido de la página. Cuando ningún módulo porta el botón (por
-          ejemplo, en Configuración), el contenedor queda vacío (altura 0) y no ocupa espacio. */}
-      <Box
-        id="sidebar-filtros-slot"
-        sx={{ position: 'sticky', top: 0, zIndex: 1, bgcolor: mode === 'light' ? '#F6F8FB' : '#111827' }}
-      />
-      <SidebarNav collapsed={sidebarCollapsed} />
+        </Toolbar>
+        <Divider sx={{ mb: 1.25, borderColor: mode === 'light' ? '#E5E7EB' : '#17233F' }} />
+        {/* Punto de anclaje: aquí se porta (via portal) el botón "FILTROS" de los módulos de
+            Análisis/Operación (Dashboard, Gestión, Control Operativo, Centro de Inteligencia).
+            Cuando ningún módulo porta el botón (por ejemplo, en Configuración), el contenedor
+            queda vacío (altura 0) y no ocupa espacio. Ya no necesita su propio position:sticky:
+            al ser hijo del bloque fijo de arriba, se mantiene fijo junto con él. */}
+        <Box id="sidebar-filtros-slot" />
+      </Box>
+      <SidebarNav ref={sidebarNavRef} collapsed={sidebarCollapsed} />
       <Box sx={{ p: 1.75 }}>
         <Typography variant="caption" sx={{ color: mode === 'light' ? '#6B7280' : '#94A3B8', fontSize: 10 }}>
           FORD-AVON · v1.0.0

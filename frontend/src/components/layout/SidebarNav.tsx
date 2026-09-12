@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
 import { Box, Collapse, List, ListItemButton, ListItemIcon, ListItemText, Tooltip } from '@mui/material';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
@@ -9,12 +9,24 @@ import { NAVIGATION, nodeHasVisibleLeaf, firstLeafPath, railItems, type NavItem,
 
 interface Props { collapsed: boolean; onNavigate?: () => void; }
 
+/** Handle imperativo para el botón global del sidebar (repliegue/despliegue de TODOS los
+ *  menús y submenús). El estado `openNodes` sigue siendo el único estado de expansión
+ *  (no se duplica): este handle solo lo reemplaza en bloque, por lo que la apertura/cierre
+ *  manual individual posterior sigue funcionando exactamente igual. */
+export interface SidebarNavHandle { collapseAll: () => void; expandAll: () => void; }
+
 const splitPath = (path: string): { base: string; tab: string | null } => {
   const [base, q] = path.split('?');
   return { base, tab: q ? new URLSearchParams(q).get('tab') : null };
 };
 
-const SidebarNav = ({ collapsed, onNavigate }: Props) => {
+/** Todas las claves de nodo (módulo + submenús, a cualquier profundidad) del árbol de
+ *  navegación completo — no depende de qué esté visible/permitido para el usuario actual,
+ *  por lo que "desplegar todos" abre cualquier submenú al que el usuario tenga acceso. */
+const allNodeKeys = (items: NavItem[]): string[] =>
+  items.flatMap((it) => (it.kind === 'node' ? [it.key, ...allNodeKeys(it.children)] : []));
+
+const SidebarNav = forwardRef<SidebarNavHandle, Props>(({ collapsed, onNavigate }, ref) => {
   const { hasPermission } = useAuth();
   const { t, lang } = useI18n();
   const location = useLocation();
@@ -61,6 +73,11 @@ const SidebarNav = ({ collapsed, onNavigate }: Props) => {
     if (next.has(key)) next.delete(key); else next.add(key);
     return next;
   });
+
+  useImperativeHandle(ref, () => ({
+    collapseAll: () => setOpenNodes(new Set()),
+    expandAll: () => setOpenNodes(new Set(allNodeKeys(NAVIGATION)))
+  }), []);
 
   // Después de la carga inicial, un cambio de ruta abre los ancestros necesarios.
   // Esto conserva la vista inicial tipo "módulos abiertos / menús cerrados" y mantiene
@@ -137,6 +154,8 @@ const SidebarNav = ({ collapsed, onNavigate }: Props) => {
   };
 
   return <List sx={{ flexGrow: 1, py: 0.25 }}>{NAVIGATION.map((node) => renderNode(node, 0))}</List>;
-};
+});
+
+SidebarNav.displayName = 'SidebarNav';
 
 export default SidebarNav;

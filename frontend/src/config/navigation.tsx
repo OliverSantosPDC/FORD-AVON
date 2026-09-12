@@ -113,7 +113,12 @@ export const NAVIGATION: NavNode[] = [
           leaf('config-apariencia', 'nav.configuracion.apariencia', 'Apariencia', '/configuracion?tab=3', 'configuracion.ver', PaletteIcon),
           leaf('config-plantillas', 'nav.configuracion.plantillas', 'Plantillas', '/configuracion?tab=4', 'configuracion.ver', DescriptionIcon),
           leaf('config-variables', 'nav.configuracion.variables', 'Variables', '/configuracion?tab=5', 'configuracion.ver', DataObjectIcon),
-          leaf('config-auditoria', 'nav.configuracion.auditoria', 'Auditoría', '/configuracion?tab=6', 'configuracion.ver', FactCheckIcon)
+          leaf('config-auditoria', 'nav.configuracion.auditoria', 'Auditoría', '/configuracion?tab=6', 'configuracion.ver', FactCheckIcon),
+          // Ruta a la ruta AUTÓNOMA /usuarios (no a /configuracion?tab=8): esa ruta anidada
+          // exige además `configuracion.ver`, permiso que "supervisor" no tiene aunque SÍ
+          // tenga `modulo.usuarios` — con /configuracion?tab=8 este rol nunca podría entrar.
+          // /usuarios solo exige `modulo.usuarios`, que es el permiso real del módulo.
+          leaf('config-usuarios', 'nav.configuracion.usuarios', 'Usuarios', '/usuarios', 'modulo.usuarios', GroupIcon)
         ]
       },
       {
