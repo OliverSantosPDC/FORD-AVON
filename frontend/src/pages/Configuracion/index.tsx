@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  Alert, Box, Button, Checkbox, Chip, CircularProgress, Collapse, Divider, FormControlLabel, Grid, IconButton,
+  Alert, Box, Button, Chip, CircularProgress, Divider, FormControlLabel, Grid, IconButton,
   MenuItem, Paper, Snackbar, Stack, Switch, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Tabs, TextField, Typography
 } from '@mui/material';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
-import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
-import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import { TablePagination } from '@mui/material';
@@ -17,9 +15,9 @@ import { MODULES } from '../../config/modules';
 import UsuariosPage from '../Usuarios';
 import {
   getGeneral, putGeneral, getCatalogos, crearCatalogo, actualizarCatalogo,
-  getVariables, crearVariable, actualizarVariable, getRoles, putRolPermisos, getPlantillas, subirPlantilla, descargarPlantilla, subirAsset,
+  getVariables, crearVariable, actualizarVariable, getPlantillas, subirPlantilla, descargarPlantilla, subirAsset,
   getAuditoria, getTasasConversion, actualizarTasaConversion, getMetaGlobal, guardarMetaGlobal,
-  type Catalogo, type Variable, type Plantilla, type RolesData, type AuditoriaRow, type TasaConversion, type MetaGlobal
+  type Catalogo, type Variable, type Plantilla, type AuditoriaRow, type TasaConversion, type MetaGlobal
 } from '../../services/configuracionService';
 import { simboloMoneda } from '../../utils/monedaOptions';
 
@@ -63,12 +61,6 @@ const ConfiguracionPage = () => {
   const [catSel, setCatSel] = useState('tipificaciones');
   const [catSearch, setCatSearch] = useState('');
   const [nuevoCat, setNuevoCat] = useState('');
-  // Roles
-  const [rolesData, setRolesData] = useState<RolesData | null>(null);
-  const [roleSel, setRoleSel] = useState('');
-  const [permSel, setPermSel] = useState<Set<string>>(new Set());
-  const [permSearch, setPermSearch] = useState('');
-  const [grpOpen, setGrpOpen] = useState<Set<string>>(new Set());
   // Variables
   const [variables, setVariables] = useState<Variable[]>([]);
   const [nuevaVar, setNuevaVar] = useState({ nombre: '', valor: '', tipo: 'texto', descripcion: '' });
@@ -98,12 +90,11 @@ const ConfiguracionPage = () => {
   useEffect(() => {
     (async () => {
       try {
-        const [g, c, r, v, p, tc, mc] = await Promise.all([getGeneral(), getCatalogos(), getRoles(), getVariables(), getPlantillas(), getTasasConversion(), getMetaGlobal()]);
-        setGeneral2(g); setCatalogos(c); setRolesData(r); setVariables(v); setPlantillas(p); setTasas(tc);
+        const [g, c, v, p, tc, mc] = await Promise.all([getGeneral(), getCatalogos(), getVariables(), getPlantillas(), getTasasConversion(), getMetaGlobal()]);
+        setGeneral2(g); setCatalogos(c); setVariables(v); setPlantillas(p); setTasas(tc);
         setMetaCfg(mc);
         setMetaTipo(mc.tipo ?? 'MONTO');
         setMetaDraft(mc.tipo === 'PORCENTAJE' ? String(Math.round((mc.porcentaje ?? 0) * 1e6) / 1e4) : mc.tipo === 'MONTO' ? String(Math.round((mc.montoUsdGlobal ?? 0) * 100) / 100) : '');
-        if (r.roles[0]) setRoleSel(r.roles[0].id);
         const guardado = (g.orden_modulos ?? '').split(',').map((x) => x.trim()).filter(Boolean);
         const keys = MODULES.map((m) => m.key);
         setOrden([...guardado.filter((k) => keys.includes(k)), ...keys.filter((k) => !guardado.includes(k))]);
@@ -111,12 +102,6 @@ const ConfiguracionPage = () => {
       finally { setLoading(false); }
     })();
   }, []);
-
-  // Selección de permisos al cambiar de rol
-  useEffect(() => {
-    if (!rolesData || !roleSel) return;
-    setPermSel(new Set(rolesData.asignaciones.filter((a) => a.role_id === roleSel).map((a) => a.permission_id)));
-  }, [roleSel, rolesData]);
 
   const gv = (k: string) => general[k] ?? '';
   const sgv = (k: string, v: string) => setGeneral2((s) => ({ ...s, [k]: v }));
@@ -127,18 +112,6 @@ const ConfiguracionPage = () => {
   const recargarCat = async () => setCatalogos(await getCatalogos());
   const catList = useMemo(() => catalogos.filter((c) => c.catalogo === catSel && c.nombre.toLowerCase().includes(catSearch.toLowerCase())), [catalogos, catSel, catSearch]);
   const catalogosDistintos = useMemo(() => [...new Set([...CATALOGOS_FIJOS, ...catalogos.map((c) => c.catalogo)])], [catalogos]);
-
-  const permisosGrupos = useMemo(() => {
-    const m = new Map<string, Array<{ id: string; clave: string; descripcion: string | null }>>();
-    (rolesData?.permisos ?? []).filter((p) => p.clave.toLowerCase().includes(permSearch.toLowerCase()) || (p.descripcion ?? '').toLowerCase().includes(permSearch.toLowerCase()))
-      .forEach((p) => { const g = p.clave.split('.')[0]; if (!m.has(g)) m.set(g, []); m.get(g)!.push(p); });
-    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [rolesData, permSearch]);
-
-  const togglePerm = (id: string) => setPermSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const guardarPermisos = async () => { try { await putRolPermisos(roleSel, [...permSel]); setToast('Permisos guardados.'); setRolesData(await getRoles()); } catch (e) { setToast(e instanceof Error ? e.message : 'Error.'); } };
-  const allPermIds = () => (rolesData?.permisos ?? []).map((p) => p.id);
-  const restaurarPermisos = () => { if (rolesData) setPermSel(new Set(rolesData.asignaciones.filter((a) => a.role_id === roleSel).map((a) => a.permission_id))); };
 
   const varList = useMemo(() => variables.filter((v) => v.nombre.toLowerCase().includes(varSearch.toLowerCase()) || (v.descripcion ?? '').toLowerCase().includes(varSearch.toLowerCase())), [variables, varSearch]);
   const exportVars = (excel: boolean) => {
@@ -196,7 +169,7 @@ const ConfiguracionPage = () => {
   return (
     <Box sx={{ p: { xs: 1, md: 2 } }}>
       <Tabs value={tab} onChange={(_e, v) => setTab(v)} variant="scrollable" sx={{ mb: 2 }}>
-        {['General', 'Catálogos', 'Roles y permisos', 'Apariencia', 'Plantillas', 'Variables', 'Auditoría', 'Tasas de Conversión'].map((t, i) => <Tab key={t} value={i} label={t} sx={{ textTransform: 'none' }} />)}
+        {([[0, 'General'], [1, 'Catálogos'], [3, 'Apariencia'], [4, 'Plantillas'], [5, 'Variables'], [6, 'Auditoría'], [7, 'Tasas de Conversión']] as Array<[number, string]>).map(([v, t]) => <Tab key={t} value={v} label={t} sx={{ textTransform: 'none' }} />)}
         {canUsuarios && <Tab key="Usuarios" value={TAB_USUARIOS} label="Usuarios" sx={{ textTransform: 'none' }} />}
         <Tab key="Metas" value={TAB_METAS} label="Metas" sx={{ textTransform: 'none' }} />
       </Tabs>
@@ -276,54 +249,6 @@ const ConfiguracionPage = () => {
             </TableContainer>
           </Stack>
         </Paper>
-          </Grid>
-        </Grid>
-      )}
-
-      {/* ROLES Y PERMISOS */}
-      {tab === 2 && rolesData && (
-        <Grid container spacing={2}>
-          <Grid item xs={12} md={3}>
-            <Paper sx={{ p: 1.5, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
-              <Typography sx={{ fontWeight: 700, mb: 1 }}>Roles</Typography>
-              <Stack>
-                {rolesData.roles.map((r) => (
-                  <Button key={r.id} onClick={() => setRoleSel(r.id)} variant={roleSel === r.id ? 'contained' : 'text'} sx={{ justifyContent: 'flex-start', textTransform: 'none' }}>{r.nombre}</Button>
-                ))}
-              </Stack>
-            </Paper>
-          </Grid>
-          <Grid item xs={12} md={9}>
-            <Paper sx={{ p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
-              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1.5, flexWrap: 'wrap' }}>
-                <TextField size="small" label="Buscar permiso" value={permSearch} onChange={(e) => setPermSearch(e.target.value)} />
-                <Button size="small" onClick={() => setGrpOpen(new Set(permisosGrupos.map((g) => g[0])))} sx={{ textTransform: 'none' }}>Expandir todo</Button>
-                <Button size="small" onClick={() => setGrpOpen(new Set())} sx={{ textTransform: 'none' }}>Contraer todo</Button>
-                {canEdit && <Button size="small" onClick={() => setPermSel(new Set(allPermIds()))} sx={{ textTransform: 'none' }}>Seleccionar todo</Button>}
-                {canEdit && <Button size="small" onClick={() => setPermSel(new Set())} sx={{ textTransform: 'none' }}>Deseleccionar todo</Button>}
-                {canEdit && <Button size="small" onClick={restaurarPermisos} sx={{ textTransform: 'none' }}>Restaurar</Button>}
-                <Box sx={{ flex: 1 }} />
-                {canEdit && <Button variant="contained" size="small" onClick={guardarPermisos} sx={{ textTransform: 'none' }}>Guardar cambios</Button>}
-              </Box>
-              <Box sx={{ maxHeight: '60vh', overflowY: 'auto' }}>
-                {permisosGrupos.map(([grupo, permisos]) => (
-                  <Box key={grupo}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }} onClick={() => setGrpOpen((s) => { const n = new Set(s); n.has(grupo) ? n.delete(grupo) : n.add(grupo); return n; })}>
-                      <IconButton size="small">{grpOpen.has(grupo) ? <KeyboardArrowDownIcon fontSize="small" /> : <KeyboardArrowRightIcon fontSize="small" />}</IconButton>
-                      <Typography sx={{ fontWeight: 700, textTransform: 'capitalize' }}>{grupo}</Typography>
-                      <Chip size="small" label={permisos.filter((p) => permSel.has(p.id)).length + '/' + permisos.length} sx={{ ml: 1 }} />
-                    </Box>
-                    <Collapse in={grpOpen.has(grupo)} unmountOnExit>
-                      <Stack sx={{ pl: 5 }}>
-                        {permisos.map((p) => (
-                          <FormControlLabel key={p.id} control={<Checkbox size="small" checked={permSel.has(p.id)} disabled={!canEdit} onChange={() => togglePerm(p.id)} />} label={<Typography sx={{ fontSize: 13 }}>{p.clave} <Typography component="span" sx={{ color: 'text.secondary', fontSize: 12 }}>· {p.descripcion}</Typography></Typography>} />
-                        ))}
-                      </Stack>
-                    </Collapse>
-                  </Box>
-                ))}
-              </Box>
-            </Paper>
           </Grid>
         </Grid>
       )}

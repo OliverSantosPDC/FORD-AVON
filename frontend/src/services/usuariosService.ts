@@ -4,6 +4,8 @@ import { apiFetch } from './apiClient';
 export interface RoleRef {
   clave: string;
   nombre: string;
+  /** Nivel oficial de Grupos y Niveles (1=Administrador ... 5=Gerente de zona). */
+  nivel: number | null;
 }
 
 export interface UsuarioListItem {
@@ -16,17 +18,31 @@ export interface UsuarioListItem {
   role: RoleRef | null;
 }
 
+export interface PaisZona { zonaId: string; zona: string; pais: string; }
+
 export interface UsuarioDetalle extends UsuarioListItem {
   nombreCartera: string | null;
+  /** Supervisor -> Gestores asignados (Nivel 3 -> Nivel 4). */
   gestorIds: string[];
+  /** Liderazgo -> Supervisores asignados (Nivel 2 -> Nivel 3). */
+  supervisorIds: string[];
+  /** Gerente de zona -> zonas (compat). */
   zonaIds: string[];
+  /** Gerente de zona -> País/Zona explícitos (Nivel 5 -> Nivel 6). */
+  paisZona: PaisZona[];
+  /** Gestor -> País/Zona explícitos, narrowing adicional opcional (Nivel 4 -> Nivel 6). */
+  gestorPaisZona: PaisZona[];
 }
 
 export interface Catalogos {
-  roles: Array<{ id: string; clave: string; nombre: string }>;
+  roles: Array<{ id: string; clave: string; nombre: string; nivel: number | null }>;
   zonas: Array<{ id: string; nombre: string; codigo: string | null }>;
   gestores: Array<{ id: string; nombreCartera: string | null; usuarioId: string | null }>;
   carteraGestores: string[];
+  /** Perfiles con rol supervisor, para asignar Liderazgo -> Supervisor. */
+  supervisores: Array<{ id: string; nombre: string; apellido: string | null }>;
+  /** Pares País/Zona REALES existentes en cartera (nunca inventados). */
+  carteraPaisZona: PaisZona[];
 }
 
 export interface UsuarioPayload {
@@ -37,10 +53,31 @@ export interface UsuarioPayload {
   activo?: boolean;
   /** Contraseña inicial (solo al crear). */
   password?: string;
-  // Se conservan por compatibilidad de firma; Usuarios ya no los define (asignación semimanual).
+  // Se conserva por compatibilidad de firma; Usuarios ya no lo define (asignación semimanual).
   nombreCartera?: string | null;
+  /** Supervisor -> Gestores asignados. */
   gestorIds?: string[];
+  /** Liderazgo -> Supervisores asignados. */
+  supervisorIds?: string[];
+  /** Gerente de zona -> zonas (compat; se ignora si viene `paisZona`). */
   zonaIds?: string[];
+  /** Gerente de zona -> País/Zona explícitos (autoritativo). */
+  paisZona?: Array<{ zonaId: string; pais: string }>;
+  /** Gestor -> País/Zona explícitos (narrowing adicional opcional). */
+  gestorPaisZona?: Array<{ zonaId: string; pais: string }>;
+}
+
+/** Visuales de Grupos y Niveles (Sección 10): un renglón por usuario con rol dependiente. */
+export interface AlcanceResumenItem {
+  userId: string;
+  roleClave: string | null;
+  nivel: number | null;
+  totalSupervisores: number | null;
+  totalGestores: number | null;
+  totalZonas: number | null;
+  totalSectores: number | null;
+  paises: string[];
+  zonas: string[];
 }
 
 /** Traducción de errores reutilizando el patrón de mensajes de la app. */
@@ -66,6 +103,13 @@ export const getCatalogos = async (): Promise<Catalogos> => {
 export const getUsuario = async (id: string): Promise<UsuarioDetalle> => {
   const res = await apiFetch(`/api/usuarios/${id}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(await parseError(res, 'No se pudo cargar el usuario.'));
+  return res.json();
+};
+
+/** Visuales de Grupos y Niveles (Sección 10): conteos reales por relación configurada. */
+export const getResumenAlcance = async (): Promise<{ totalUsuarios: number; items: AlcanceResumenItem[] }> => {
+  const res = await apiFetch('/api/usuarios/resumen-alcance', { cache: 'no-store' });
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudo calcular el resumen de alcance.'));
   return res.json();
 };
 

@@ -8,6 +8,10 @@ export interface AuthScope {
   paises: string[];
   zonas: string[];
   gestores: string[];
+  /** Narrowing adicional EXACTO (país+zona): cuando no está vacío, una fila solo
+   *  queda autorizada si además coincide con uno de estos pares (ver ScopeFilter).
+   *  Vacío = sin narrowing adicional (no reduce el alcance ya calculado). */
+  paisZonaPairs?: Array<{ pais: string; zona: string }>;
 }
 
 export interface AuthProfile {

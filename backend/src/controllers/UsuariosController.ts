@@ -9,6 +9,7 @@ import {
   eliminarUsuario,
   validarImportacion,
   aplicarImportacion,
+  obtenerResumenAlcance,
   UsuariosError,
   type CrearUsuarioInput,
   type ActualizarUsuarioInput
@@ -29,6 +30,15 @@ export class UsuariosController {
       return res.json(await listarUsuarios());
     } catch (error) {
       return this.fail(res, error, 'No se pudieron listar los usuarios.');
+    }
+  }
+
+  /** GET /api/usuarios/resumen-alcance — visuales de Grupos y Niveles (Sección 10). */
+  async resumenAlcance(_req: Request, res: Response): Promise<Response> {
+    try {
+      return res.json(await obtenerResumenAlcance());
+    } catch (error) {
+      return this.fail(res, error, 'No se pudo calcular el resumen de alcance.');
     }
   }
 

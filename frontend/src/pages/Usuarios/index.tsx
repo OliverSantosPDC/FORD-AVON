@@ -6,12 +6,14 @@ import {
   Checkbox,
   Chip,
   CircularProgress,
+  Collapse,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   FormControl,
   FormControlLabel,
+  Grid,
   IconButton,
   InputAdornment,
   InputLabel,
@@ -23,12 +25,14 @@ import {
   Snackbar,
   Stack,
   Switch,
+  Tab,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
+  Tabs,
   TextField,
   Typography
 } from '@mui/material';
@@ -38,6 +42,9 @@ import LockResetIcon from '@mui/icons-material/LockReset';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
+import { useAuth } from '../../context/AuthContext';
 import {
   listUsuarios,
   getCatalogos,
@@ -48,11 +55,31 @@ import {
   resetPasswordUsuario,
   getPasswordRequests,
   resolvePasswordRequest,
+  getResumenAlcance,
   type UsuarioListItem,
   type Catalogos,
   type UsuarioPayload,
-  type PasswordRequest
+  type PasswordRequest,
+  type AlcanceResumenItem
 } from '../../services/usuariosService';
+import { getRoles, putRolPermisos, type RolesData } from '../../services/configuracionService';
+
+/** Clave compuesta para las opciones de País/Zona (una misma zona/código puede
+ *  repetirse en más de un país en cartera, así que zonaId por sí solo no es
+ *  una clave única de opción). */
+const pzKey = (zonaId: string, pais: string) => `${zonaId}__${pais}`;
+const pzFromKey = (key: string): { zonaId: string; pais: string } => {
+  const [zonaId, pais] = key.split('__');
+  return { zonaId: zonaId ?? '', pais: pais ?? '' };
+};
+
+const NIVEL_LABEL: Record<number, string> = {
+  1: 'Nivel 1 · Administrador',
+  2: 'Nivel 2 · Liderazgo',
+  3: 'Nivel 3 · Supervisor',
+  4: 'Nivel 4 · Gestor',
+  5: 'Nivel 5 · Gerente de zona'
+};
 
 interface FormState {
   id: string | null;
@@ -62,6 +89,9 @@ interface FormState {
   roleId: string;
   activo: boolean;
   gestorIds: string[];
+  supervisorIds: string[];
+  paisZonaKeys: string[];
+  gestorPaisZonaKeys: string[];
   password: string;
   passwordConfirm: string;
 }
@@ -74,13 +104,27 @@ const EMPTY_FORM: FormState = {
   roleId: '',
   activo: true,
   gestorIds: [],
+  supervisorIds: [],
+  paisZonaKeys: [],
+  gestorPaisZonaKeys: [],
   password: '',
   passwordConfirm: ''
 };
 
+const TAB_GESTION = 0;
+const TAB_GRUPOS_NIVELES = 1;
+const TAB_ROLES = 2;
+
 const UsuariosPage = () => {
+  const { hasPermission } = useAuth();
+  const canAdminGlobal = hasPermission('usuarios.administrar_global');
+  const canEditRoles = hasPermission('configuracion.editar');
+
+  const [tab, setTab] = useState(TAB_GESTION);
+
   const [usuarios, setUsuarios] = useState<UsuarioListItem[]>([]);
   const [catalogos, setCatalogos] = useState<Catalogos | null>(null);
+  const [resumen, setResumen] = useState<{ totalUsuarios: number; items: AlcanceResumenItem[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -100,6 +144,13 @@ const UsuariosPage = () => {
   const [pwReqs, setPwReqs] = useState<PasswordRequest[]>([]);
   const [pwTemp, setPwTemp] = useState<{ email: string; password: string } | null>(null);
 
+  // ===== Roles y Permisos (movido desde Configuración; misma lógica/tablas) =====
+  const [rolesData, setRolesData] = useState<RolesData | null>(null);
+  const [roleSel, setRoleSel] = useState('');
+  const [permSel, setPermSel] = useState<Set<string>>(new Set());
+  const [permSearch, setPermSearch] = useState('');
+  const [grpOpen, setGrpOpen] = useState<Set<string>>(new Set());
+
   const loadPwReqs = async () => {
     try { setPwReqs(await getPasswordRequests()); } catch { /* no bloquea la vista */ }
   };
@@ -118,9 +169,10 @@ const UsuariosPage = () => {
     setLoading(true);
     setError(null);
     try {
-      const [u, c] = await Promise.all([listUsuarios(), getCatalogos()]);
+      const [u, c, r] = await Promise.all([listUsuarios(), getCatalogos(), getResumenAlcance()]);
       setUsuarios(u);
       setCatalogos(c);
+      setResumen(r);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No fue posible cargar la información. Intenta nuevamente.');
     } finally {
@@ -128,10 +180,43 @@ const UsuariosPage = () => {
     }
   };
 
+  const loadRoles = async () => {
+    try {
+      const r = await getRoles();
+      setRolesData(r);
+      if (!roleSel && r.roles[0]) setRoleSel(r.roles[0].id);
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'No se pudieron cargar los roles.');
+    }
+  };
+
   useEffect(() => {
     void load();
     void loadPwReqs();
+    void loadRoles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!rolesData || !roleSel) return;
+    setPermSel(new Set(rolesData.asignaciones.filter((a) => a.role_id === roleSel).map((a) => a.permission_id)));
+  }, [roleSel, rolesData]);
+
+  const permisosGrupos = useMemo(() => {
+    const m = new Map<string, Array<{ id: string; clave: string; descripcion: string | null }>>();
+    (rolesData?.permisos ?? [])
+      .filter((p) => p.clave.toLowerCase().includes(permSearch.toLowerCase()) || (p.descripcion ?? '').toLowerCase().includes(permSearch.toLowerCase()))
+      .forEach((p) => { const g = p.clave.split('.')[0]; if (!m.has(g)) m.set(g, []); m.get(g)!.push(p); });
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [rolesData, permSearch]);
+
+  const togglePerm = (id: string) => setPermSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const guardarPermisos = async () => {
+    try { await putRolPermisos(roleSel, [...permSel]); setToast('Permisos guardados.'); setRolesData(await getRoles()); }
+    catch (err) { setToast(err instanceof Error ? err.message : 'No se pudo guardar.'); }
+  };
+  const allPermIds = () => (rolesData?.permisos ?? []).map((p) => p.id);
+  const restaurarPermisos = () => { if (rolesData) setPermSel(new Set(rolesData.asignaciones.filter((a) => a.role_id === roleSel).map((a) => a.permission_id))); };
 
   const roleClaveById = useMemo(() => {
     const map = new Map<string, string>();
@@ -140,6 +225,12 @@ const UsuariosPage = () => {
   }, [catalogos]);
 
   const selectedRoleClave = roleClaveById.get(form.roleId) ?? '';
+
+  const resumenPorUsuario = useMemo(() => {
+    const map = new Map<string, AlcanceResumenItem>();
+    (resumen?.items ?? []).forEach((it) => map.set(it.userId, it));
+    return map;
+  }, [resumen]);
 
   const openCreate = () => {
     setForm(EMPTY_FORM);
@@ -159,6 +250,9 @@ const UsuariosPage = () => {
         roleId: u.roleId ?? '',
         activo: u.activo,
         gestorIds: u.gestorIds ?? [],
+        supervisorIds: u.supervisorIds ?? [],
+        paisZonaKeys: (u.paisZona ?? []).map((p) => pzKey(p.zonaId, p.pais)),
+        gestorPaisZonaKeys: (u.gestorPaisZona ?? []).map((p) => pzKey(p.zonaId, p.pais)),
         password: '',
         passwordConfirm: ''
       });
@@ -190,8 +284,11 @@ const UsuariosPage = () => {
       if (form.password) payload.password = form.password;
     }
     // La asignación de cartera es semimanual (módulo Asignación); Usuarios ya no define
-    // nombre_cartera ni zona. Se conserva la asignación supervisor→gestores.
+    // nombre_cartera. Grupos y Niveles SÍ define las relaciones de alcance por rol.
     if (selectedRoleClave === 'supervisor') payload.gestorIds = form.gestorIds;
+    if (selectedRoleClave === 'liderazgo') payload.supervisorIds = form.supervisorIds;
+    if (selectedRoleClave === 'gerente_zona') payload.paisZona = form.paisZonaKeys.map(pzFromKey);
+    if (selectedRoleClave === 'gestor') payload.gestorPaisZona = form.gestorPaisZonaKeys.map(pzFromKey);
     return payload;
   };
 
@@ -264,6 +361,20 @@ const UsuariosPage = () => {
     }
   };
 
+  /** Texto de "Alcance" para la tabla principal y para Grupos y Niveles: SIEMPRE
+   *  calculado desde las relaciones reales configuradas (nunca desde ASIGNACION). */
+  const alcanceTexto = (u: UsuarioListItem): string => {
+    const clave = u.role?.clave ?? '';
+    const r = resumenPorUsuario.get(u.id);
+    if (!r) return '—';
+    if (clave === 'liderazgo') return `${r.totalSupervisores ?? 0} supervisor(es) · ${r.paises.length} país(es) · ${r.zonas.length} zona(s)`;
+    if (clave === 'supervisor') return `${r.totalGestores ?? 0} gestor(es) · ${r.paises.length} país(es) · ${r.zonas.length} zona(s)`;
+    if (clave === 'gestor') return r.totalZonas ? `${r.totalZonas} zona(s) asignada(s)` : 'Sin restricción adicional';
+    if (clave === 'gerente_zona') return `${r.totalZonas ?? 0} zona(s) · ${r.totalSectores ?? 0} sector(es)`;
+    if (clave === 'administrador') return 'Alcance global';
+    return '—';
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 3 }}>
@@ -283,104 +394,235 @@ const UsuariosPage = () => {
 
   return (
     <Box sx={{ p: { xs: 1, md: 2 } }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1.5, mb: 2 }}>
-        <Box>
-          <Typography sx={{ fontSize: 20, fontWeight: 700 }}>Usuarios</Typography>
-          <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
-            {usuarios.length.toLocaleString('es')} usuario(s). Crea usuarios de prueba y asigna su alcance.
-          </Typography>
-        </Box>
-        <Button variant="contained" startIcon={<PersonAddIcon />} onClick={openCreate} sx={{ textTransform: 'none', borderRadius: 2 }}>
-          Nuevo usuario
-        </Button>
+      <Box sx={{ mb: 1 }}>
+        <Typography sx={{ fontSize: 20, fontWeight: 700 }}>Usuarios</Typography>
+        <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
+          Gestión de usuarios, Grupos y Niveles (jerarquía de alcance) y Roles y Permisos.
+        </Typography>
       </Box>
 
-      {usuarios.length === 0 ? (
-        <Paper sx={{ p: 6, textAlign: 'center', borderRadius: 3 }}>
-          <Typography sx={{ fontWeight: 600 }}>No hay usuarios registrados todavía.</Typography>
-        </Paper>
-      ) : (
-        <Paper sx={{ borderRadius: 2.5, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}>
-          <TableContainer sx={{ maxHeight: '65vh' }}>
-            <Table stickyHeader size="small">
-              <TableHead>
-                <TableRow>
-                  {['Nombre', 'Correo', 'Rol', 'Estado', 'Acciones'].map((h) => (
-                    <TableCell key={h} sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {usuarios.map((u) => (
-                  <TableRow key={u.id} hover>
-                    <TableCell sx={{ whiteSpace: 'nowrap' }}>{[u.nombre, u.apellido].filter(Boolean).join(' ') || '—'}</TableCell>
-                    <TableCell sx={{ whiteSpace: 'nowrap' }}>{u.email}</TableCell>
-                    <TableCell>{u.role ? <Chip size="small" label={u.role.nombre} /> : <Chip size="small" label="Sin rol" variant="outlined" />}</TableCell>
-                    <TableCell>
-                      <FormControlLabel
-                        control={<Switch checked={u.activo} onChange={() => toggleActivo(u)} size="small" />}
-                        label={u.activo ? 'Activo' : 'Inactivo'}
-                        sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: 12 } }}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Button size="small" startIcon={<EditOutlinedIcon fontSize="small" />} onClick={() => openEdit(u.id)} sx={{ textTransform: 'none' }}>
-                        Editar
-                      </Button>
-                      <Button size="small" startIcon={<LockResetIcon fontSize="small" />} onClick={() => { setResetUser({ id: u.id, email: u.email }); setResetPw({ password: '', confirm: '' }); }} sx={{ textTransform: 'none' }}>
-                        Contraseña
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </Paper>
+      <Tabs value={tab} onChange={(_e, v) => setTab(v)} variant="scrollable" sx={{ mb: 2 }}>
+        <Tab value={TAB_GESTION} label="Gestión de usuarios" sx={{ textTransform: 'none' }} />
+        <Tab value={TAB_GRUPOS_NIVELES} label="Grupos y Niveles" sx={{ textTransform: 'none' }} />
+        <Tab value={TAB_ROLES} label="Roles y Permisos" sx={{ textTransform: 'none' }} />
+      </Tabs>
+
+      {/* ===== GESTIÓN DE USUARIOS ===== */}
+      {tab === TAB_GESTION && (
+        <>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1.5, mb: 2 }}>
+            <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
+              {usuarios.length.toLocaleString('es')} usuario(s).
+            </Typography>
+            {canAdminGlobal && (
+              <Button variant="contained" startIcon={<PersonAddIcon />} onClick={openCreate} sx={{ textTransform: 'none', borderRadius: 2 }}>
+                Nuevo usuario
+              </Button>
+            )}
+          </Box>
+
+          {usuarios.length === 0 ? (
+            <Paper sx={{ p: 6, textAlign: 'center', borderRadius: 3 }}>
+              <Typography sx={{ fontWeight: 600 }}>No hay usuarios registrados todavía.</Typography>
+            </Paper>
+          ) : (
+            <Paper sx={{ borderRadius: 2.5, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}>
+              <TableContainer sx={{ maxHeight: '65vh' }}>
+                <Table stickyHeader size="small">
+                  <TableHead>
+                    <TableRow>
+                      {['Nombre', 'Correo', 'Rol / Nivel', 'Alcance', 'Estado', 'Acciones'].map((h) => (
+                        <TableCell key={h} sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</TableCell>
+                      ))}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {usuarios.map((u) => (
+                      <TableRow key={u.id} hover>
+                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{[u.nombre, u.apellido].filter(Boolean).join(' ') || '—'}</TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{u.email}</TableCell>
+                        <TableCell>
+                          {u.role ? <Chip size="small" label={u.role.nivel ? `${u.role.nombre} (N${u.role.nivel})` : u.role.nombre} /> : <Chip size="small" label="Sin rol" variant="outlined" />}
+                        </TableCell>
+                        <TableCell sx={{ fontSize: 12, whiteSpace: 'nowrap' }}>{alcanceTexto(u)}</TableCell>
+                        <TableCell>
+                          <FormControlLabel
+                            control={<Switch checked={u.activo} onChange={() => toggleActivo(u)} size="small" disabled={!canAdminGlobal} />}
+                            label={u.activo ? 'Activo' : 'Inactivo'}
+                            sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: 12 } }}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          {canAdminGlobal ? (
+                            <>
+                              <Button size="small" startIcon={<EditOutlinedIcon fontSize="small" />} onClick={() => openEdit(u.id)} sx={{ textTransform: 'none' }}>
+                                Editar
+                              </Button>
+                              <Button size="small" startIcon={<LockResetIcon fontSize="small" />} onClick={() => { setResetUser({ id: u.id, email: u.email }); setResetPw({ password: '', confirm: '' }); }} sx={{ textTransform: 'none' }}>
+                                Contraseña
+                              </Button>
+                            </>
+                          ) : '—'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Paper>
+          )}
+
+          {canAdminGlobal && (
+            <Paper sx={{ mt: 2, borderRadius: 2.5, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}>
+              <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Typography sx={{ fontWeight: 700 }}>Solicitudes de cambio de contraseña</Typography>
+                <Chip size="small" label={`${pwReqs.filter((r) => r.estado === 'PENDIENTE').length} pendientes`} />
+              </Box>
+              <TableContainer sx={{ maxHeight: '45vh' }}>
+                <Table stickyHeader size="small">
+                  <TableHead>
+                    <TableRow>
+                      {['Correo', 'Fecha solicitud', 'Estado', 'Motivo', 'Resolución', 'Acciones'].map((h) => (
+                        <TableCell key={h} sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</TableCell>
+                      ))}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {pwReqs.length === 0 ? (
+                      <TableRow><TableCell colSpan={6} align="center" sx={{ py: 2, color: 'text.secondary' }}>Sin solicitudes.</TableCell></TableRow>
+                    ) : pwReqs.map((r) => (
+                      <TableRow key={r.id} hover>
+                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{r.email}</TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{r.created_at.slice(0, 16).replace('T', ' ')}</TableCell>
+                        <TableCell>
+                          <Chip size="small" variant={r.estado === 'PENDIENTE' ? 'filled' : 'outlined'}
+                            color={r.estado === 'COMPLETADA' ? 'success' : r.estado === 'RECHAZADA' ? 'error' : r.estado === 'PENDIENTE' ? 'warning' : 'default'}
+                            label={r.estado} />
+                        </TableCell>
+                        <TableCell sx={{ fontSize: 12, maxWidth: 200 }}>{r.motivo || '—'}</TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap', fontSize: 12 }}>{r.resolved_at ? r.resolved_at.slice(0, 16).replace('T', ' ') : '—'}</TableCell>
+                        <TableCell>
+                          {r.estado === 'PENDIENTE' ? (
+                            <Stack direction="row" spacing={0.5}>
+                              <Button size="small" color="success" variant="outlined" onClick={() => resolverPwReq(r.id, 'aprobar', r.email)} sx={{ textTransform: 'none', minWidth: 0 }}>Aprobar</Button>
+                              <Button size="small" color="error" variant="outlined" onClick={() => resolverPwReq(r.id, 'rechazar', r.email)} sx={{ textTransform: 'none', minWidth: 0 }}>Rechazar</Button>
+                            </Stack>
+                          ) : '—'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Paper>
+          )}
+        </>
       )}
 
-      <Paper sx={{ mt: 2, borderRadius: 2.5, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}>
-        <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Typography sx={{ fontWeight: 700 }}>Solicitudes de cambio de contraseña</Typography>
-          <Chip size="small" label={`${pwReqs.filter((r) => r.estado === 'PENDIENTE').length} pendientes`} />
-        </Box>
-        <TableContainer sx={{ maxHeight: '45vh' }}>
-          <Table stickyHeader size="small">
-            <TableHead>
-              <TableRow>
-                {['Correo', 'Fecha solicitud', 'Estado', 'Motivo', 'Resolución', 'Acciones'].map((h) => (
-                  <TableCell key={h} sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</TableCell>
+      {/* ===== GRUPOS Y NIVELES ===== */}
+      {tab === TAB_GRUPOS_NIVELES && (
+        <Stack spacing={2}>
+          <Paper sx={{ p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
+            <Typography sx={{ fontWeight: 700, mb: 0.5 }}>Jerarquía oficial</Typography>
+            <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+              Administrador (N1) → Liderazgo (N2) → Supervisor (N3) → Gestor (N4) → Gerente de zona (N5) → Zona (dato de cartera, no es un rol).
+              Cada usuario dependiente queda asociado a su Grupo/Nivel mediante las relaciones configuradas abajo (nunca mediante Asignación).
+            </Typography>
+          </Paper>
+
+          <Grid container spacing={1.5}>
+            <Grid item xs={12} sm={4} md={2.4}>
+              <Paper sx={{ p: 1.5, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+                <Typography sx={{ fontSize: 10, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase' }}>Nivel 1 · Administrador</Typography>
+                <Typography sx={{ fontSize: 20, fontWeight: 800 }}>{resumen?.totalUsuarios ?? 0}</Typography>
+                <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>usuarios totales en el sistema</Typography>
+              </Paper>
+            </Grid>
+          </Grid>
+
+          {[2, 3, 4, 5].map((nivel) => {
+            const usuariosNivel = usuarios.filter((u) => u.role?.nivel === nivel);
+            return (
+              <Paper key={nivel} sx={{ borderRadius: 2.5, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
+                <Box sx={{ p: 1.5 }}>
+                  <Typography sx={{ fontWeight: 700 }}>{NIVEL_LABEL[nivel]}</Typography>
+                  <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{usuariosNivel.length} usuario(s) en este nivel</Typography>
+                </Box>
+                <TableContainer sx={{ maxHeight: 320 }}>
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        {['Usuario', 'Dependencia', 'Alcance calculado'].map((h) => <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>)}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {usuariosNivel.length === 0 ? (
+                        <TableRow><TableCell colSpan={3} align="center" sx={{ py: 2, color: 'text.secondary', fontSize: 12 }}>Sin usuarios en este nivel.</TableCell></TableRow>
+                      ) : usuariosNivel.map((u) => (
+                        <TableRow key={u.id} hover>
+                          <TableCell sx={{ fontSize: 12 }}>{[u.nombre, u.apellido].filter(Boolean).join(' ')}</TableCell>
+                          <TableCell sx={{ fontSize: 12, color: 'text.secondary' }}>
+                            {nivel === 2 ? 'Administrador' : nivel === 3 ? 'Liderazgo' : nivel === 4 ? 'Supervisor' : 'Supervisor'}
+                          </TableCell>
+                          <TableCell sx={{ fontSize: 12 }}>{alcanceTexto(u)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Paper>
+            );
+          })}
+        </Stack>
+      )}
+
+      {/* ===== ROLES Y PERMISOS (movido desde Configuración) ===== */}
+      {tab === TAB_ROLES && rolesData && (
+        <Grid container spacing={2}>
+          <Grid item xs={12} md={3}>
+            <Paper sx={{ p: 1.5, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
+              <Typography sx={{ fontWeight: 700, mb: 1 }}>Roles</Typography>
+              <Stack>
+                {rolesData.roles.map((r) => (
+                  <Button key={r.id} onClick={() => setRoleSel(r.id)} variant={roleSel === r.id ? 'contained' : 'text'} sx={{ justifyContent: 'flex-start', textTransform: 'none' }}>{r.nombre}</Button>
                 ))}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {pwReqs.length === 0 ? (
-                <TableRow><TableCell colSpan={6} align="center" sx={{ py: 2, color: 'text.secondary' }}>Sin solicitudes.</TableCell></TableRow>
-              ) : pwReqs.map((r) => (
-                <TableRow key={r.id} hover>
-                  <TableCell sx={{ whiteSpace: 'nowrap' }}>{r.email}</TableCell>
-                  <TableCell sx={{ whiteSpace: 'nowrap' }}>{r.created_at.slice(0, 16).replace('T', ' ')}</TableCell>
-                  <TableCell>
-                    <Chip size="small" variant={r.estado === 'PENDIENTE' ? 'filled' : 'outlined'}
-                      color={r.estado === 'COMPLETADA' ? 'success' : r.estado === 'RECHAZADA' ? 'error' : r.estado === 'PENDIENTE' ? 'warning' : 'default'}
-                      label={r.estado} />
-                  </TableCell>
-                  <TableCell sx={{ fontSize: 12, maxWidth: 200 }}>{r.motivo || '—'}</TableCell>
-                  <TableCell sx={{ whiteSpace: 'nowrap', fontSize: 12 }}>{r.resolved_at ? r.resolved_at.slice(0, 16).replace('T', ' ') : '—'}</TableCell>
-                  <TableCell>
-                    {r.estado === 'PENDIENTE' ? (
-                      <Stack direction="row" spacing={0.5}>
-                        <Button size="small" color="success" variant="outlined" onClick={() => resolverPwReq(r.id, 'aprobar', r.email)} sx={{ textTransform: 'none', minWidth: 0 }}>Aprobar</Button>
-                        <Button size="small" color="error" variant="outlined" onClick={() => resolverPwReq(r.id, 'rechazar', r.email)} sx={{ textTransform: 'none', minWidth: 0 }}>Rechazar</Button>
+              </Stack>
+            </Paper>
+          </Grid>
+          <Grid item xs={12} md={9}>
+            <Paper sx={{ p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1.5, flexWrap: 'wrap' }}>
+                <TextField size="small" label="Buscar permiso" value={permSearch} onChange={(e) => setPermSearch(e.target.value)} />
+                <Button size="small" onClick={() => setGrpOpen(new Set(permisosGrupos.map((g) => g[0])))} sx={{ textTransform: 'none' }}>Expandir todo</Button>
+                <Button size="small" onClick={() => setGrpOpen(new Set())} sx={{ textTransform: 'none' }}>Contraer todo</Button>
+                {canEditRoles && <Button size="small" onClick={() => setPermSel(new Set(allPermIds()))} sx={{ textTransform: 'none' }}>Seleccionar todo</Button>}
+                {canEditRoles && <Button size="small" onClick={() => setPermSel(new Set())} sx={{ textTransform: 'none' }}>Deseleccionar todo</Button>}
+                {canEditRoles && <Button size="small" onClick={restaurarPermisos} sx={{ textTransform: 'none' }}>Restaurar</Button>}
+                <Box sx={{ flex: 1 }} />
+                {canEditRoles && <Button variant="contained" size="small" onClick={guardarPermisos} sx={{ textTransform: 'none' }}>Guardar cambios</Button>}
+              </Box>
+              <Box sx={{ maxHeight: '60vh', overflowY: 'auto' }}>
+                {permisosGrupos.map(([grupo, permisos]) => (
+                  <Box key={grupo}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }} onClick={() => setGrpOpen((s) => { const n = new Set(s); n.has(grupo) ? n.delete(grupo) : n.add(grupo); return n; })}>
+                      <IconButton size="small">{grpOpen.has(grupo) ? <KeyboardArrowDownIcon fontSize="small" /> : <KeyboardArrowRightIcon fontSize="small" />}</IconButton>
+                      <Typography sx={{ fontWeight: 700, textTransform: 'capitalize' }}>{grupo}</Typography>
+                      <Chip size="small" label={permisos.filter((p) => permSel.has(p.id)).length + '/' + permisos.length} sx={{ ml: 1 }} />
+                    </Box>
+                    <Collapse in={grpOpen.has(grupo)} unmountOnExit>
+                      <Stack sx={{ pl: 5 }}>
+                        {permisos.map((p) => (
+                          <FormControlLabel key={p.id} control={<Checkbox size="small" checked={permSel.has(p.id)} disabled={!canEditRoles} onChange={() => togglePerm(p.id)} />} label={<Typography sx={{ fontSize: 13 }}>{p.clave} <Typography component="span" sx={{ color: 'text.secondary', fontSize: 12 }}>· {p.descripcion}</Typography></Typography>} />
+                        ))}
                       </Stack>
-                    ) : '—'}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </Paper>
+                    </Collapse>
+                  </Box>
+                ))}
+              </Box>
+            </Paper>
+          </Grid>
+        </Grid>
+      )}
 
       <Dialog open={Boolean(pwTemp)} onClose={() => setPwTemp(null)} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ fontWeight: 700 }}>Contraseña temporal generada</DialogTitle>
@@ -423,14 +665,14 @@ const UsuariosPage = () => {
 
             <TextField
               select
-              label="Rol"
+              label="Rol / Nivel"
               value={form.roleId}
-              onChange={(e) => setForm((f) => ({ ...f, roleId: e.target.value, gestorIds: [] }))}
+              onChange={(e) => setForm((f) => ({ ...f, roleId: e.target.value, gestorIds: [], supervisorIds: [], paisZonaKeys: [], gestorPaisZonaKeys: [] }))}
               size="small"
               fullWidth
             >
               {(catalogos?.roles ?? []).map((r) => (
-                <MenuItem key={r.id} value={r.id}>{r.nombre}</MenuItem>
+                <MenuItem key={r.id} value={r.id}>{r.nivel ? `${r.nombre} (Nivel ${r.nivel})` : r.nombre}</MenuItem>
               ))}
             </TextField>
 
@@ -464,6 +706,32 @@ const UsuariosPage = () => {
               </Stack>
             )}
 
+            {selectedRoleClave === 'liderazgo' && (
+              <FormControl size="small" fullWidth>
+                <InputLabel id="lid-supervisores">Supervisores asignados</InputLabel>
+                <Select
+                  labelId="lid-supervisores"
+                  multiple
+                  value={form.supervisorIds}
+                  onChange={(e) => setForm((f) => ({ ...f, supervisorIds: e.target.value as string[] }))}
+                  input={<OutlinedInput label="Supervisores asignados" />}
+                  renderValue={(sel) =>
+                    (catalogos?.supervisores ?? [])
+                      .filter((s) => (sel as string[]).includes(s.id))
+                      .map((s) => [s.nombre, s.apellido].filter(Boolean).join(' '))
+                      .join(', ')
+                  }
+                >
+                  {(catalogos?.supervisores ?? []).map((s) => (
+                    <MenuItem key={s.id} value={s.id}>
+                      <Checkbox checked={form.supervisorIds.includes(s.id)} size="small" />
+                      <ListItemText primary={[s.nombre, s.apellido].filter(Boolean).join(' ')} />
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
+
             {selectedRoleClave === 'supervisor' && (
               <FormControl size="small" fullWidth>
                 <InputLabel id="sup-gestores">Gestores supervisados</InputLabel>
@@ -487,6 +755,57 @@ const UsuariosPage = () => {
                     </MenuItem>
                   ))}
                 </Select>
+              </FormControl>
+            )}
+
+            {selectedRoleClave === 'gerente_zona' && (
+              <FormControl size="small" fullWidth>
+                <InputLabel id="ger-paiszona">País - Zona asignados</InputLabel>
+                <Select
+                  labelId="ger-paiszona"
+                  multiple
+                  value={form.paisZonaKeys}
+                  onChange={(e) => setForm((f) => ({ ...f, paisZonaKeys: e.target.value as string[] }))}
+                  input={<OutlinedInput label="País - Zona asignados" />}
+                  renderValue={(sel) => (sel as string[]).length + ' seleccionada(s)'}
+                >
+                  {(catalogos?.carteraPaisZona ?? []).map((pz) => {
+                    const key = pzKey(pz.zonaId, pz.pais);
+                    return (
+                      <MenuItem key={key} value={key}>
+                        <Checkbox checked={form.paisZonaKeys.includes(key)} size="small" />
+                        <ListItemText primary={`${pz.pais} — ${pz.zona}`} />
+                      </MenuItem>
+                    );
+                  })}
+                </Select>
+              </FormControl>
+            )}
+
+            {selectedRoleClave === 'gestor' && (
+              <FormControl size="small" fullWidth>
+                <InputLabel id="ges-paiszona">País - Zona asignados (opcional)</InputLabel>
+                <Select
+                  labelId="ges-paiszona"
+                  multiple
+                  value={form.gestorPaisZonaKeys}
+                  onChange={(e) => setForm((f) => ({ ...f, gestorPaisZonaKeys: e.target.value as string[] }))}
+                  input={<OutlinedInput label="País - Zona asignados (opcional)" />}
+                  renderValue={(sel) => (sel as string[]).length ? (sel as string[]).length + ' seleccionada(s)' : 'Sin restricción adicional'}
+                >
+                  {(catalogos?.carteraPaisZona ?? []).map((pz) => {
+                    const key = pzKey(pz.zonaId, pz.pais);
+                    return (
+                      <MenuItem key={key} value={key}>
+                        <Checkbox checked={form.gestorPaisZonaKeys.includes(key)} size="small" />
+                        <ListItemText primary={`${pz.pais} — ${pz.zona}`} />
+                      </MenuItem>
+                    );
+                  })}
+                </Select>
+                <Typography sx={{ fontSize: 11, color: 'text.secondary', mt: 0.5 }}>
+                  Opcional: si no seleccionas ninguno, el gestor conserva su alcance actual (por nombre en cartera).
+                </Typography>
               </FormControl>
             )}
 

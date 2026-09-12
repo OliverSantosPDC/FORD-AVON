@@ -17,8 +17,11 @@ import type { AuthScope } from './PerfilService';
  * Lee con la SERVICE ROLE (igual que PerfilService), por lo que bypassa RLS.
  */
 
-/** Roles con alcance global permanente (según `roles.clave`). */
-const GLOBAL_ROLES = ['administrador', 'liderazgo'] as const;
+/** Roles con alcance global permanente (según `roles.clave`).
+ *  IMPORTANTE (Grupos y Niveles): `liderazgo` YA NO es global. Nivel 2 depende
+ *  de sus Supervisores asignados (`liderazgo_supervisor`) — si un liderazgo no
+ *  tiene supervisores asignados, su alcance es VACÍO (fail-closed), nunca "todo". */
+const GLOBAL_ROLES = ['administrador'] as const;
 
 export interface ScopeContext {
   userId: string;
@@ -89,7 +92,47 @@ const hasActiveGlobalAccess = async (userId: string): Promise<boolean> => {
   return (data?.length ?? 0) > 0;
 };
 
-/** Resuelve el scope de un GESTOR: sus propios registros activos en `gestores`. */
+/** Gestores activos (id + nombre_cartera) dado un conjunto de `gestores.id`. */
+const gestoresPorIds = async (gestorIds: string[]): Promise<Array<{ id: string; nombre_cartera: string | null }>> => {
+  if (gestorIds.length === 0) return [];
+  const { data, error } = await getSupabaseClient()
+    .from('gestores')
+    .select('id, nombre_cartera')
+    .in('id', gestorIds)
+    .eq('activo', true);
+  if (error) throw new ScopeResolutionError(`No se pudieron leer los gestores: ${error.message}`);
+  return (data ?? []) as Array<{ id: string; nombre_cartera: string | null }>;
+};
+
+/** País/Zona explícitos (narrowing adicional) de uno o varios `gestores.id`, vigentes. */
+const paisZonaDeGestores = async (gestorIds: string[]): Promise<Array<{ pais: string; zona: string }>> => {
+  if (gestorIds.length === 0) return [];
+  const today = serverDate();
+  const client = getSupabaseClient();
+  const { data: rel, error: relError } = await client
+    .from('gestor_pais_zona')
+    .select('zona_id, pais')
+    .in('gestor_id', gestorIds)
+    .eq('activo', true)
+    .lte('fecha_inicio', today)
+    .or(`fecha_fin.is.null,fecha_fin.gte.${today}`);
+  if (relError) throw new ScopeResolutionError(`No se pudieron leer las zonas asignadas del gestor: ${relError.message}`);
+  const rows = (rel ?? []) as Array<{ zona_id: string; pais: string | null }>;
+  if (rows.length === 0) return [];
+
+  const zonaIds = uniq(rows.map((r) => r.zona_id));
+  const { data: zonas, error: zError } = await client.from('zonas').select('id, nombre').in('id', zonaIds).eq('activo', true);
+  if (zError) throw new ScopeResolutionError(`No se pudieron leer las zonas: ${zError.message}`);
+  const nombrePorId = new Map(((zonas ?? []) as Array<{ id: string; nombre: string }>).map((z) => [z.id, z.nombre]));
+
+  return rows
+    .map((r) => ({ pais: r.pais ?? '', zona: nombrePorId.get(r.zona_id) ?? '' }))
+    .filter((p) => p.pais && p.zona);
+};
+
+/** Resuelve el scope de un GESTOR: sus propios registros activos en `gestores`,
+ *  narrowed opcionalmente por País/Zona explícitos (`gestor_pais_zona`). Si no
+ *  tiene País/Zona asignados, el alcance es exactamente el de hoy (por nombre). */
 const resolveGestorScope = async (ctx: ScopeContext): Promise<ScopeContext> => {
   const { data, error } = await getSupabaseClient()
     .from('gestores')
@@ -104,6 +147,7 @@ const resolveGestorScope = async (ctx: ScopeContext): Promise<ScopeContext> => {
   const rows = (data ?? []) as Array<{ id: string; nombre_cartera: string | null }>;
   ctx.gestorIds = uniq(rows.map((r) => r.id));
   ctx.scope.gestores = uniq(rows.map((r) => r.nombre_cartera));
+  ctx.scope.paisZonaPairs = await paisZonaDeGestores(ctx.gestorIds);
   return ctx;
 };
 
@@ -133,26 +177,63 @@ const resolveSupervisorScope = async (ctx: ScopeContext): Promise<ScopeContext> 
     return ctx;
   }
 
-  const { data: gestores, error: gError } = await client
-    .from('gestores')
-    .select('id, nombre_cartera')
-    .in('id', gestorIds)
-    .eq('activo', true);
-
-  if (gError) {
-    throw new ScopeResolutionError(`No se pudieron leer los gestores del supervisor: ${gError.message}`);
-  }
-
-  const rows = (gestores ?? []) as Array<{ id: string; nombre_cartera: string | null }>;
+  const rows = await gestoresPorIds(gestorIds);
   ctx.gestorIds = uniq(rows.map((r) => r.id));
   ctx.scope.gestores = uniq(rows.map((r) => r.nombre_cartera));
   return ctx;
 };
 
 /**
- * Resuelve el scope de un GERENTE DE ZONA: zonas asignadas en `gerente_zona_zona`
- * (activas y vigentes) que además estén activas en `zonas`.
- * NOTA: no se derivan gestores por zona porque `gestores` no tiene `zona_id`.
+ * Resuelve el scope de un LIDERAZGO (Nivel 2): UNIÓN del alcance de todos sus
+ * Supervisores asignados en `liderazgo_supervisor` (activos y vigentes). Sin
+ * supervisores asignados ⇒ scope vacío (fail-closed; ya NO es un rol global).
+ */
+const resolveLiderazgoScope = async (ctx: ScopeContext): Promise<ScopeContext> => {
+  const today = serverDate();
+  const client = getSupabaseClient();
+
+  const { data: rel, error: relError } = await client
+    .from('liderazgo_supervisor')
+    .select('supervisor_id')
+    .eq('liderazgo_id', ctx.userId)
+    .eq('activo', true)
+    .lte('fecha_inicio', today)
+    .or(`fecha_fin.is.null,fecha_fin.gte.${today}`);
+
+  if (relError) {
+    throw new ScopeResolutionError(`No se pudieron leer los supervisores del liderazgo: ${relError.message}`);
+  }
+
+  const supervisorIds = uniq(((rel ?? []) as Array<{ supervisor_id: string | null }>).map((r) => r.supervisor_id));
+  if (supervisorIds.length === 0) {
+    return ctx; // Sin supervisores vigentes ⇒ scope vacío (NO global).
+  }
+
+  const { data: relGestores, error: gRelError } = await client
+    .from('supervisor_gestor')
+    .select('gestor_id')
+    .in('supervisor_id', supervisorIds)
+    .eq('activo', true)
+    .lte('fecha_inicio', today)
+    .or(`fecha_fin.is.null,fecha_fin.gte.${today}`);
+  if (gRelError) {
+    throw new ScopeResolutionError(`No se pudieron leer los gestores de los supervisores del liderazgo: ${gRelError.message}`);
+  }
+
+  const gestorIds = uniq(((relGestores ?? []) as Array<{ gestor_id: string | null }>).map((r) => r.gestor_id));
+  const rows = await gestoresPorIds(gestorIds);
+  ctx.gestorIds = uniq(rows.map((r) => r.id));
+  ctx.scope.gestores = uniq(rows.map((r) => r.nombre_cartera));
+  return ctx;
+};
+
+/**
+ * Resuelve el scope de un GERENTE DE ZONA: País/Zona asignados en
+ * `gerente_zona_zona` (activos y vigentes, con `pais` explícito — una misma
+ * zona/código puede repetirse entre países en `cartera`, por lo que zona sola
+ * es ambigua). `scope.zonas`/`scope.paises` quedan como superset (para activar
+ * las dimensiones base de `applyScope`); `paisZonaPairs` exige la combinación
+ * EXACTA.
  */
 const resolveGerenteZonaScope = async (ctx: ScopeContext): Promise<ScopeContext> => {
   const today = serverDate();
@@ -160,7 +241,7 @@ const resolveGerenteZonaScope = async (ctx: ScopeContext): Promise<ScopeContext>
 
   const { data: rel, error: relError } = await client
     .from('gerente_zona_zona')
-    .select('zona_id')
+    .select('zona_id, pais')
     .eq('usuario_id', ctx.userId)
     .eq('activo', true)
     .lte('fecha_inicio', today)
@@ -170,7 +251,8 @@ const resolveGerenteZonaScope = async (ctx: ScopeContext): Promise<ScopeContext>
     throw new ScopeResolutionError(`No se pudieron leer las asignaciones del gerente de zona: ${relError.message}`);
   }
 
-  const zonaIds = uniq(((rel ?? []) as Array<{ zona_id: string | null }>).map((r) => r.zona_id));
+  const relRows = (rel ?? []) as Array<{ zona_id: string | null; pais: string | null }>;
+  const zonaIds = uniq(relRows.map((r) => r.zona_id));
   if (zonaIds.length === 0) {
     return ctx; // Sin zonas vigentes ⇒ scope vacío (NO global).
   }
@@ -185,9 +267,13 @@ const resolveGerenteZonaScope = async (ctx: ScopeContext): Promise<ScopeContext>
     throw new ScopeResolutionError(`No se pudieron leer las zonas del gerente: ${zError.message}`);
   }
 
-  const rows = (zonas ?? []) as Array<{ id: string; nombre: string | null }>;
-  ctx.zonaIds = uniq(rows.map((r) => r.id));
-  ctx.scope.zonas = uniq(rows.map((r) => r.nombre));
+  const nombrePorId = new Map(((zonas ?? []) as Array<{ id: string; nombre: string }>).map((z) => [z.id, z.nombre]));
+  ctx.zonaIds = uniq(Array.from(nombrePorId.keys()));
+  ctx.scope.zonas = uniq(Array.from(nombrePorId.values()));
+  ctx.scope.paises = uniq(relRows.map((r) => r.pais));
+  ctx.scope.paisZonaPairs = relRows
+    .map((r) => ({ pais: r.pais ?? '', zona: nombrePorId.get(r.zona_id ?? '') ?? '' }))
+    .filter((p) => p.pais && p.zona);
   return ctx;
 };
 
@@ -195,12 +281,15 @@ const resolveGerenteZonaScope = async (ctx: ScopeContext): Promise<ScopeContext>
  * Punto de entrada único: calcula el `ScopeContext` del usuario.
  *
  * Orden de resolución:
- *  1) Roles globales (administrador, liderazgo) ⇒ isGlobal=true.
+ *  1) Rol global (administrador) ⇒ isGlobal=true.
  *  2) Acceso global temporal vigente ⇒ isGlobal=true (sin alterar el scope normal).
- *  3) Scope por rol: gestor | supervisor | gerente_zona.
+ *  3) Scope por rol: gestor | supervisor | liderazgo | gerente_zona.
  *  4) Cualquier otro rol ⇒ isGlobal=false y scope vacío.
  *
- * PAÍSES: se dejan siempre vacíos (no existe relación confirmada perfil/zona→país).
+ * PAÍSES: se poblan cuando el rol tiene País/Zona explícitos asignados
+ * (gerente_zona vía `gerente_zona_zona.pais`); para gestor/supervisor/liderazgo
+ * el alcance sigue siendo por nombre de gestor (con narrowing opcional de
+ * País/Zona para gestor vía `gestor_pais_zona`).
  */
 export const resolveScopeContext = async (input: ResolveScopeInput): Promise<ScopeContext> => {
   const ctx = baseContext(input);
@@ -224,6 +313,8 @@ export const resolveScopeContext = async (input: ResolveScopeInput): Promise<Sco
       return resolveGestorScope(ctx);
     case 'supervisor':
       return resolveSupervisorScope(ctx);
+    case 'liderazgo':
+      return resolveLiderazgoScope(ctx);
     case 'gerente_zona':
       return resolveGerenteZonaScope(ctx);
     default:

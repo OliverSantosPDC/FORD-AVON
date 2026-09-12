@@ -28,7 +28,6 @@ import GroupIcon from '@mui/icons-material/Group';
 import EventNoteOutlinedIcon from '@mui/icons-material/EventNoteOutlined';
 import TuneIcon from '@mui/icons-material/Tune';
 import CategoryIcon from '@mui/icons-material/Category';
-import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined';
 import PaletteIcon from '@mui/icons-material/Palette';
 import DescriptionIcon from '@mui/icons-material/Description';
 import DataObjectIcon from '@mui/icons-material/DataObject';
@@ -109,7 +108,6 @@ export const NAVIGATION: NavNode[] = [
           leaf('config-catalogos', 'nav.configuracion.catalogos', 'Catálogos', '/configuracion?tab=1', 'configuracion.ver', CategoryIcon),
           leaf('config-tasas', 'nav.configuracion.tasas', 'Tasas de Conversión', '/configuracion?tab=7', 'configuracion.ver', CurrencyExchangeIcon),
           leaf('config-metas', 'nav.configuracion.metas', 'Metas', '/configuracion?tab=9', 'configuracion.ver', TrackChangesIcon),
-          leaf('config-roles', 'nav.configuracion.roles', 'Roles y permisos', '/configuracion?tab=2', 'configuracion.ver', AdminPanelSettingsOutlinedIcon),
           leaf('config-apariencia', 'nav.configuracion.apariencia', 'Apariencia', '/configuracion?tab=3', 'configuracion.ver', PaletteIcon),
           leaf('config-plantillas', 'nav.configuracion.plantillas', 'Plantillas', '/configuracion?tab=4', 'configuracion.ver', DescriptionIcon),
           leaf('config-variables', 'nav.configuracion.variables', 'Variables', '/configuracion?tab=5', 'configuracion.ver', DataObjectIcon),

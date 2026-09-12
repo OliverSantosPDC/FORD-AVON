@@ -97,7 +97,24 @@ export const applyScope = <T>(rows: T[], context: ScopeContext, options: ApplySc
   if (dimensions.length === 0) return [];
 
   // 4) Conservar la fila si coincide con al menos una dimensión activa.
-  return rows.filter((row) =>
+  let result = rows.filter((row) =>
     dimensions.some((dimension) => dimension.allowed.has(normalizeScopeValue(row[dimension.field])))
   );
+
+  // 5) Narrowing ADICIONAL (AND, no OR): País/Zona EXACTOS asignados
+  //    explícitamente (Grupos y Niveles — gestor/gerente_zona). Solo se aplica
+  //    si el caller declara ambos campos Y el contexto trae pares; si no hay
+  //    pares configurados, este paso es un no-op y el comportamiento es
+  //    idéntico al de antes de introducir Grupos y Niveles.
+  const pairs = context.scope.paisZonaPairs ?? [];
+  if (pairs.length > 0 && options.paisField && options.zonaField) {
+    const allowedPairs = new Set(pairs.map((p) => `${normalizeScopeValue(p.pais)}||${normalizeScopeValue(p.zona)}`));
+    const paisField = options.paisField;
+    const zonaField = options.zonaField;
+    result = result.filter((row) =>
+      allowedPairs.has(`${normalizeScopeValue(row[paisField])}||${normalizeScopeValue(row[zonaField])}`)
+    );
+  }
+
+  return result;
 };
