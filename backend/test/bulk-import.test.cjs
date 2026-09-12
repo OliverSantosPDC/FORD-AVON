@@ -32,6 +32,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ||
 /* ===== Base de datos en memoria (100% FICTICIA, sin relación con producción) ===== */
 let nextId = 1;
 const genId = (prefix) => `${prefix}-${nextId++}`;
+const carteraQueryLog = [];
 
 const db = {
   roles: [
@@ -164,6 +165,10 @@ class Builder {
     if (!db[this.table]) db[this.table] = [];
     const table = db[this.table];
     if (this.action === 'select') {
+      // Registro de consultas SELECT a `cartera` (Sección 18.5): permite probar
+      // que la carga masiva de USUARIOS ya no consulta cartera.gestor para
+      // validar personas.
+      if (this.table === 'cartera') carteraQueryLog.push({ selectCols: this.selectCols });
       let rows = table.filter((r) => this._match(r));
       if (this.rangeFrom != null) rows = rows.slice(this.rangeFrom, this.rangeTo + 1);
       if (this.limitN != null) rows = rows.slice(0, this.limitN);
@@ -653,8 +658,8 @@ test('Carga masiva — Sección 3: una relación que depende de un CREAR con err
   const buf = await buildWorkbook({
     usuarios: [
       ['CREAR', 'supervisorSec3.qatest@example.com', 'Supervisor', 'Sec3', 'supervisor', 3, '', 'SI'],
-      // NOMBRE_CARTERA no existe en cartera.gestor -> esta fila CREAR fallará: el usuario nunca existirá.
-      ['CREAR', 'gestorSec3.qatest@example.com', 'Gestor', 'Sec3', 'gestor', 4, 'NOMBRE_CARTERA_INEXISTENTE', 'SI']
+      // NIVEL (99) no corresponde al ROL declarado (gestor = Nivel 4) -> esta fila CREAR fallará: el usuario nunca existirá.
+      ['CREAR', 'gestorSec3.qatest@example.com', 'Gestor', 'Sec3', 'gestor', 99, 'GESTOR FICTICIO UNO', 'SI']
     ],
     supervisorGestor: [
       ['supervisorSec3.qatest@example.com', 'gestorSec3.qatest@example.com']
@@ -682,4 +687,69 @@ test('Carga masiva — Sección 3: una relación que depende de un CREAR con err
   assert.equal(findProfile('gestorsec3.qatest@example.com'), undefined);
   const rel = activeRows('supervisor_gestor', 'supervisor_id', sup.id);
   assert.equal(rel.length, 0, 'no debe existir relación supervisor_gestor hacia un gestor que nunca se creó');
+});
+
+test('Carga masiva — NUEVA FUENTE DE VERDAD: un Gestor y un Gerente de zona que NO existen en cartera.gestor se crean igual, sus relaciones y su ID_PAIS_ZONA funcionan, y nunca se consulta cartera.gestor para validarlos', async () => {
+  carteraQueryLog.length = 0;
+
+  const buf = await buildWorkbook({
+    usuarios: [
+      ['CREAR', 'supervisorFuenteVerdad.qatest@example.com', 'Supervisor', 'FuenteVerdad', 'supervisor', 3, '', 'SI'],
+      // "Bryan Rodriguez" NO existe en db.cartera (fixture): antes daba
+      // "NOMBRE_CARTERA no existe en cartera.gestor". Ahora debe crearse igual.
+      ['CREAR', 'bryan.rodriguez.fv@qatest.example.com', 'Bryan', 'Rodriguez', 'gestor', 4, 'Bryan Rodriguez', 'SI'],
+      ['CREAR', 'angie.buch.fv@qatest.example.com', 'Angie', 'Buch', 'gestor', 4, 'Angie Buch', 'SI'],
+      // Un Gerente de zona tampoco depende de cartera.gestor para existir.
+      ['CREAR', 'gerenteFuenteVerdad.qatest@example.com', 'Gerente', 'FuenteVerdad', 'gerente_zona', 5, '', 'SI']
+    ],
+    supervisorGestor: [
+      ['supervisorFuenteVerdad.qatest@example.com', 'bryan.rodriguez.fv@qatest.example.com'],
+      ['supervisorFuenteVerdad.qatest@example.com', 'angie.buch.fv@qatest.example.com']
+    ],
+    supervisorGerente: [
+      ['supervisorFuenteVerdad.qatest@example.com', 'gerenteFuenteVerdad.qatest@example.com']
+    ],
+    gestorPaisZona: [
+      ['bryan.rodriguez.fv@qatest.example.com', '', '', '107GUATEMALA']
+    ],
+    gerentePaisZona: [
+      ['gerenteFuenteVerdad.qatest@example.com', '', '', '107REPUBLICA DOMINICANA']
+    ]
+  });
+
+  const parsed = await parsearWorkbook(buf);
+  const { items, resumen } = await validarWorkbook(parsed);
+  const errores = items.filter((i) => i.estado === 'ERROR');
+  assert.equal(errores.length, 0, `no debía haber errores: ${JSON.stringify(errores)}`);
+  assert.equal(resumen.creaciones, 4);
+
+  // 1-2) Gestor y Gerente de zona AUSENTES de cartera.gestor se crean sin problema.
+  const { resumen: resumenApply } = await aplicarWorkbook(parsed, false, null);
+  assert.equal(resumenApply.errores, 0);
+  const bryan = findProfile('bryan.rodriguez.fv@qatest.example.com');
+  const angie = findProfile('angie.buch.fv@qatest.example.com');
+  const gerente = findProfile('gerentefuenteverdad.qatest@example.com');
+  const sup = findProfile('supervisorfuenteverdad.qatest@example.com');
+  assert.ok(bryan && angie && gerente && sup);
+
+  // 3) Sus relaciones (Supervisor -> Gestor, Supervisor -> Gerente de zona) se crearon.
+  const relGestores = activeRows('supervisor_gestor', 'supervisor_id', sup.id).map((r) => r.gestor_id);
+  const gBryan = db.gestores.find((g) => g.usuario_id === bryan.id);
+  const gAngie = db.gestores.find((g) => g.usuario_id === angie.id);
+  assert.ok(gBryan && relGestores.includes(gBryan.id));
+  assert.ok(gAngie && relGestores.includes(gAngie.id));
+  const relGerentes = activeRows('supervisor_gerente_zona', 'supervisor_id', sup.id).map((r) => r.gerente_zona_id);
+  assert.ok(relGerentes.includes(gerente.id));
+
+  // 4) ID_PAIS_ZONA se resolvió correctamente para ambos (107GUATEMALA / 107REPUBLICA DOMINICANA).
+  const pzBryan = activeRows('gestor_pais_zona', 'gestor_id', gBryan.id);
+  const pzGerente = activeRows('gerente_zona_zona', 'usuario_id', gerente.id);
+  assert.equal(pzBryan[0].pais, 'GUATEMALA');
+  assert.equal(pzGerente[0].pais, 'REPUBLICA DOMINICANA');
+
+  // 5) NUNCA se consultó la columna `gestor` de cartera durante validar+aplicar
+  //    (la única consulta legítima a cartera es pais/zona, dato geográfico operativo).
+  const consultasAGestorDeCartera = carteraQueryLog.filter((q) => /gestor/i.test(q.selectCols));
+  assert.equal(consultasAGestorDeCartera.length, 0, `no debe consultarse cartera.gestor: ${JSON.stringify(carteraQueryLog)}`);
+  assert.ok(carteraQueryLog.length > 0, 'sí debe seguir consultando cartera para País/Zona (dato operativo)');
 });

@@ -229,7 +229,7 @@ export const generarPlantilla = async (
     ['USUARIOS.NOMBRE / APELLIDO', 'Obligatorios al CREAR.'],
     ['USUARIOS.ROL', 'administrador | liderazgo | supervisor | gestor | gerente_zona'],
     ['USUARIOS.NIVEL', 'Informativo (se valida contra el ROL, no se guarda por separado): 1=Administrador, 2=Liderazgo, 3=Supervisor, 4=Gestor, 5=Gerente de zona.'],
-    ['USUARIOS.NOMBRE_CARTERA', 'Solo para ROL=gestor: 1 valor que debe existir en cartera.gestor (vincula al gestor con su cartera real). No aplica a otros roles.'],
+    ['USUARIOS.NOMBRE_CARTERA', 'Obligatorio solo para ROL=gestor. Se guarda tal como se escriba (identifica al gestor ante cartera, dato operativo); NO necesita existir previamente en cartera. No aplica a otros roles.'],
     ['USUARIOS.ACTIVO', 'SI | NO'],
     ['LIDERAZGO_SUPERVISOR', 'Un renglón por cada Supervisor asignado a un Liderazgo (Nivel 2 -> Nivel 3). Varios renglones = varios Supervisores.'],
     ['SUPERVISOR_GESTOR', 'Un renglón por cada Gestor asignado a un Supervisor (Nivel 3 -> Nivel 4). Varios renglones = varios Gestores.'],

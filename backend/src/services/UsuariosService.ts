@@ -17,9 +17,14 @@ import {
  * paralelo de auth/permisos/scope. La creación se hace por invitación de correo
  * con la Admin API de Supabase (service role); nunca se generan contraseñas.
  *
- * Puente de Scope del gestor: `gestores.nombre_cartera` DEBE coincidir con
- * `cartera.gestor`. Por eso el catálogo de `nombre_cartera` proviene de los
- * valores reales de `cartera.gestor` (no texto libre).
+ * Fuente de verdad de personas: USUARIOS + roles/niveles/relaciones (Grupos y
+ * Niveles) en Supabase — NUNCA `cartera`. `nombre_cartera` (rol gestor) se
+ * guarda tal como llega del formulario/Excel, exista o no ese nombre en
+ * `cartera.gestor`: `cartera` es solo dato operativo (saldos, distribución),
+ * no un catálogo de qué Gestor/Gerente de zona es válido. La visibilidad real
+ * de cartera de cada usuario la resuelve ScopeService a partir de sus propias
+ * relaciones (supervisor_gestor, gestor_pais_zona, gerente_zona_zona, etc.),
+ * aplicadas después sobre `cartera` — nunca al revés.
  */
 
 export interface RoleRef {
@@ -62,8 +67,6 @@ export interface Catalogos {
   roles: Array<{ id: string; clave: string; nombre: string; nivel: number | null }>;
   zonas: Array<{ id: string; nombre: string; codigo: string | null }>;
   gestores: Array<{ id: string; nombreCartera: string | null; usuarioId: string | null }>;
-  /** Valores distintos reales de cartera.gestor (para asignar nombre_cartera). */
-  carteraGestores: string[];
   /** Perfiles con rol supervisor (activos), para asignar Liderazgo -> Supervisor. */
   supervisores: Array<{ id: string; nombre: string; apellido: string | null }>;
   /** Perfiles con rol gerente_zona (activos), para asignar Supervisor -> Gerente de zona. */
@@ -195,28 +198,6 @@ export const obtenerUsuario = async (id: string): Promise<UsuarioDetalle | null>
   };
 };
 
-/** Valores distintos de cartera.gestor (paginado, sólo la columna). */
-const distinctCarteraGestores = async (): Promise<string[]> => {
-  const client = getSupabaseClient();
-  const pageSize = 1000;
-  const set = new Set<string>();
-  for (let page = 0; page < 60; page += 1) {
-    const from = page * pageSize;
-    const { data, error } = await client
-      .from(SUPABASE_CARTERA_TABLE)
-      .select('gestor')
-      .range(from, from + pageSize - 1);
-    if (error) throw new UsuariosError(`No se pudo leer el catálogo de gestores de cartera: ${error.message}`);
-    const rows = (data ?? []) as Array<{ gestor?: unknown }>;
-    for (const r of rows) {
-      const g = r.gestor;
-      if (typeof g === 'string' && g.trim()) set.add(g.trim());
-    }
-    if (rows.length < pageSize) break;
-  }
-  return Array.from(set).sort((a, b) => a.localeCompare(b, 'es'));
-};
-
 /** Pares (país, zona) REALES existentes en cartera, resueltos contra zonas.id.
  *  Nunca inventa combinaciones: solo expone lo que efectivamente existe hoy en
  *  cartera (y que además tiene fila en `zonas`, requerido por la FK). */
@@ -250,13 +231,12 @@ const distinctCarteraPaisZona = async (): Promise<PaisZona[]> => {
 export const obtenerCatalogos = async (): Promise<Catalogos> => {
   const client = getSupabaseClient();
 
-  const [{ data: roles, error: rErr }, { data: zonas, error: zErr }, { data: gestores, error: gErr }, carteraGestores, carteraPaisZona,
+  const [{ data: roles, error: rErr }, { data: zonas, error: zErr }, { data: gestores, error: gErr }, carteraPaisZona,
     { data: supervisores, error: sErr }, { data: gerentesZona, error: gzErr }] =
     await Promise.all([
       client.from('roles').select('id, clave, nombre, nivel').order('nivel', { ascending: true, nullsFirst: false }),
       client.from('zonas').select('id, nombre, codigo').eq('activo', true).order('nombre', { ascending: true }),
       client.from('gestores').select('id, nombre_cartera, usuario_id').eq('activo', true),
-      distinctCarteraGestores(),
       distinctCarteraPaisZona(),
       client.from('profiles').select('id, nombre, apellido, roles!inner ( clave )').eq('activo', true).eq('roles.clave', 'supervisor'),
       client.from('profiles').select('id, nombre, apellido, roles!inner ( clave )').eq('activo', true).eq('roles.clave', 'gerente_zona')
@@ -272,7 +252,6 @@ export const obtenerCatalogos = async (): Promise<Catalogos> => {
     roles: ((roles ?? []) as Array<Record<string, unknown>>).map((r) => ({ id: String(r.id), clave: String(r.clave), nombre: String(r.nombre), nivel: (r.nivel as number | null) ?? null })),
     zonas: ((zonas ?? []) as Array<Record<string, unknown>>).map((z) => ({ id: String(z.id), nombre: String(z.nombre), codigo: (z.codigo as string | null) ?? null })),
     gestores: ((gestores ?? []) as Array<Record<string, unknown>>).map((g) => ({ id: String(g.id), nombreCartera: (g.nombre_cartera as string | null) ?? null, usuarioId: (g.usuario_id as string | null) ?? null })),
-    carteraGestores,
     carteraPaisZona,
     supervisores: ((supervisores ?? []) as Array<Record<string, unknown>>).map((s) => ({ id: String(s.id), nombre: String(s.nombre ?? ''), apellido: (s.apellido as string | null) ?? null })),
     gerentesZona: ((gerentesZona ?? []) as Array<Record<string, unknown>>).map((s) => ({ id: String(s.id), nombre: String(s.nombre ?? ''), apellido: (s.apellido as string | null) ?? null }))
@@ -702,7 +681,6 @@ interface PerfilExistente { id: string; roleClave: string | null; activo: boolea
 
 interface ContextoMasivo {
   rolesPorClave: Map<string, { id: string; nivel: number | null }>;
-  carteraGestores: Set<string>;
   carteraPaisZona: Set<string>;
   /** ID_PAIS_ZONA ("102GUATEMALA": ZONA + nombre completo del País, sin
    *  separador ni abreviatura) -> par real (Sección 4-8), construido con la
@@ -747,7 +725,6 @@ const cargarContextoMasivo = async (parsed: ParsedWorkbook): Promise<ContextoMas
 
   return {
     rolesPorClave: new Map(catalogos.roles.map((r) => [r.clave, { id: r.id, nivel: r.nivel }])),
-    carteraGestores: new Set(catalogos.carteraGestores.map((g) => g.toLowerCase())),
     carteraPaisZona: new Set(catalogos.carteraPaisZona.map((pz) => paisZonaKey(pz.pais, pz.zona))),
     paisZonaPorId: new Map(catalogos.carteraPaisZona.map((pz) => [idPaisZonaDe(pz.pais, pz.zona).toUpperCase(), pz])),
     zonaIdPorNombre,
@@ -845,11 +822,12 @@ const validarFilaUsuario = (fila: FilaUsuarioImport, ctx: ContextoMasivo, vistos
     if (!rolInfo) return { mensaje: `ROL no válido: "${fila.rol}".`, columna: 'ROL' };
     const nivelErr = validarNivel(fila, rolInfo);
     if (nivelErr) return { mensaje: nivelErr, columna: 'NIVEL' };
-    if (fila.rol === 'gestor') {
-      if (!fila.nombreCartera.trim()) return { mensaje: 'NOMBRE_CARTERA es obligatorio para ROL=gestor.', columna: 'NOMBRE_CARTERA' };
-      if (!ctx.carteraGestores.has(fila.nombreCartera.trim().toLowerCase())) {
-        return { mensaje: `NOMBRE_CARTERA no existe en cartera.gestor: "${fila.nombreCartera}".`, columna: 'NOMBRE_CARTERA' };
-      }
+    // NOMBRE_CARTERA ya NO se valida contra cartera.gestor (Sección 2 de la
+    // tarea "cambió la fuente de verdad"): USUARIOS + roles/niveles/relaciones
+    // son la fuente de verdad de personas; cartera es solo dato operativo. Un
+    // Gestor se crea con el nombre del Excel tal cual, exista o no en cartera.
+    if (fila.rol === 'gestor' && !fila.nombreCartera.trim()) {
+      return { mensaje: 'NOMBRE_CARTERA es obligatorio para ROL=gestor.', columna: 'NOMBRE_CARTERA' };
     }
     return ok;
   }
@@ -860,9 +838,6 @@ const validarFilaUsuario = (fila: FilaUsuarioImport, ctx: ContextoMasivo, vistos
     if (!rolInfo) return { mensaje: `ROL no válido: "${fila.rol}".`, columna: 'ROL' };
     const nivelErr = validarNivel(fila, rolInfo);
     if (nivelErr) return { mensaje: nivelErr, columna: 'NIVEL' };
-    if (fila.rol === 'gestor' && fila.nombreCartera.trim() && !ctx.carteraGestores.has(fila.nombreCartera.trim().toLowerCase())) {
-      return { mensaje: `NOMBRE_CARTERA no existe en cartera.gestor: "${fila.nombreCartera}".`, columna: 'NOMBRE_CARTERA' };
-    }
   }
   return ok;
 };

@@ -40,7 +40,6 @@ export interface Catalogos {
   roles: Array<{ id: string; clave: string; nombre: string; nivel: number | null }>;
   zonas: Array<{ id: string; nombre: string; codigo: string | null }>;
   gestores: Array<{ id: string; nombreCartera: string | null; usuarioId: string | null }>;
-  carteraGestores: string[];
   /** Perfiles con rol supervisor, para asignar Liderazgo -> Supervisor. */
   supervisores: Array<{ id: string; nombre: string; apellido: string | null }>;
   /** Perfiles con rol gerente_zona, para asignar Supervisor -> Gerente de zona. */
