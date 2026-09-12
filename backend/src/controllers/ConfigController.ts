@@ -5,6 +5,7 @@ import {
   listPlantillas, subirPlantilla, subirAsset, urlPlantilla, listAuditoria,
   listTasasConversion, actualizarTasaConversion, ConfigError
 } from '../services/ConfigService';
+import { getMetaGlobalComputada, guardarMetaGlobal } from '../services/MetasService';
 import { registrarAuditoria } from '../services/AuditoriaService';
 
 export class ConfigController {
@@ -45,6 +46,17 @@ export class ConfigController {
       console.log('[TASAS] PATCH /configuracion/tasas-conversion/' + req.params.id + ' -> error', e instanceof Error ? e.message : e);
       return this.fail(res, e);
     }
+  }
+
+  async metaGlobal(_req: Request, res: Response) {
+    try { return res.json(await getMetaGlobalComputada()); } catch (e) { return this.fail(res, e); }
+  }
+  async guardarMetaGlobal(req: Request, res: Response) {
+    try {
+      await guardarMetaGlobal(req.body ?? {}, req.auth?.userId ?? null);
+      await this.audit(req, 'CONFIG_META_EDITAR', null);
+      return res.json({ ok: true });
+    } catch (e) { return this.fail(res, e); }
   }
 
   async rolesPermisos(_req: Request, res: Response) { try { return res.json(await getRolesPermisos()); } catch (e) { return this.fail(res, e); } }

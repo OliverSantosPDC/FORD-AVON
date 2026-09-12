@@ -42,6 +42,34 @@ const Mini = ({ l, v, sub, color }: { l: string; v: string; sub?: string; color?
   </Paper>
 );
 
+/** Tabla de meta por segmento (país/PD/gestor): réplica en formato TABLA (sin gráficos)
+ *  de la hoja VISUAL del Excel. `montoUsd` llega en USD desde el backend; se convierte
+ *  aquí con la MISMA tasa (useTasasConversion) que usan los KPIs. `pct` nunca se convierte. */
+const MetaTable = ({ titulo, columna, rows, convMoneda, monedaLabel }: {
+  titulo: string; columna: string; rows: Array<{ clave: string; montoUsd: number | null; pct: number | null }>;
+  convMoneda: (v: number | null) => number | null; monedaLabel: string;
+}) => (
+  <>
+    <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 0.5 }}>{titulo}</Typography>
+    <TableContainer sx={{ maxHeight: 280, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+      <Table size="small" stickyHeader>
+        <TableHead><TableRow>{[columna, 'Meta', '%'].map((h) => <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>)}</TableRow></TableHead>
+        <TableBody>
+          {rows.length === 0 ? (
+            <TableRow><TableCell colSpan={3} align="center" sx={{ py: 2, color: 'text.secondary', fontSize: 12 }}>Sin datos disponibles.</TableCell></TableRow>
+          ) : rows.map((r) => (
+            <TableRow key={r.clave} hover>
+              <TableCell sx={{ fontSize: 12 }}>{r.clave}</TableCell>
+              <TableCell align="right" sx={{ fontSize: 12 }}>{money(convMoneda(r.montoUsd), monedaLabel)}</TableCell>
+              <TableCell align="right" sx={{ fontSize: 12 }}>{pctTxt(r.pct)}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </TableContainer>
+  </>
+);
+
 const BarList = <T extends { clave: string; cuentas?: number }>({ title, items, valueOf, code, empty }: {
   title: string; items: T[]; valueOf: (x: T) => number; code: string; empty: string;
 }) => {
@@ -114,6 +142,10 @@ const InteligenciaPage = () => {
     };
   }, [data, tasaActual]);
 
+  // Conversión de moneda para las metas: misma tasa (tasaActual) que ya usan los KPIs.
+  // La META % NUNCA se convierte (es adimensional); solo los montos.
+  const convMoneda = (v: number | null) => (v === null ? null : v * tasaActual);
+
   const hallazgosPorCategoria = useMemo(() => {
     const m = new Map<string, CentroInteligencia['hallazgos']>();
     (data?.hallazgos ?? []).forEach((h) => { const it = m.get(h.categoria) ?? []; it.push(h); m.set(h.categoria, it); });
@@ -157,7 +189,7 @@ const InteligenciaPage = () => {
         {/* 2 · KPIs principales */}
         <KpiCards kpis={kpisDisplay} moneda={monedaLabel} />
         <Grid container spacing={1.5}>
-          <Grid item xs={6} sm={4} md={2}><Mini l="Meta" v={data.meta.definida ? money(data.meta.montoUsd) : 'No definida'} /></Grid>
+          <Grid item xs={6} sm={4} md={2}><Mini l="Meta" v={data.meta.definida ? money(convMoneda(data.meta.montoUsd), monedaLabel) : 'No definida'} sub={data.meta.definida ? `${((data.meta.porcentaje ?? 0) * 100).toFixed(2)}%` : undefined} /></Grid>
           <Grid item xs={6} sm={4} md={2}><Mini l="% Cumplimiento" v={data.cumplimiento.pct === null ? 'Meta no definida' : pctTxt(data.cumplimiento.pct)} /></Grid>
           <Grid item xs={6} sm={4} md={2}><Mini l="Promesado" v={money(data.promesas.totalUsd)} sub={`${data.promesas.cantidad} promesas`} /></Grid>
           <Grid item xs={6} sm={4} md={2}><Mini l="Proyección recup." v={money(data.proyeccion.recuperacionProyectadaUsd)} sub={`ritmo ${money(data.proyeccion.ritmoDiarioUsd)}/día`} /></Grid>
@@ -182,6 +214,36 @@ const InteligenciaPage = () => {
                   </Box>
                 );
               })}
+            </Stack>
+          )}
+        </Paper>
+
+        {/* 3.b · Metas: resumen + tablas por país/PD/gestor (réplica de la hoja VISUAL del Excel,
+            en formato tabla — sin gráficos). La meta % es fija (configurada en Configuración >
+            Metas); el saldo/monto siempre corresponde al universo visible (alcance del usuario +
+            filtros aplicados), y cada fila se distribuye proporcionalmente a su saldo inicial. */}
+        <Paper sx={{ p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
+          <Typography sx={{ fontWeight: 700, mb: 1 }}>Metas</Typography>
+          {!data.meta.definida ? (
+            <Alert severity="info" sx={{ py: 0.5 }}>Meta no definida. Configúrala en Configuración &gt; Metas.</Alert>
+          ) : (
+            <Stack spacing={2}>
+              <Grid container spacing={1.5}>
+                <Grid item xs={12} sm={4}><Mini l="Total Saldo Inicial" v={money(convMoneda(data.meta.totalSaldoInicialUsd), monedaLabel)} /></Grid>
+                <Grid item xs={12} sm={4}><Mini l="Meta %" v={`${((data.meta.porcentaje ?? 0) * 100).toFixed(2)}%`} /></Grid>
+                <Grid item xs={12} sm={4}><Mini l="Meta Monto" v={money(convMoneda(data.meta.montoUsd), monedaLabel)} /></Grid>
+              </Grid>
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={4}>
+                  <MetaTable titulo="Meta por país" columna="País" rows={data.metasPorPais.map((x) => ({ clave: x.pais, montoUsd: x.montoUsd, pct: x.pct }))} convMoneda={convMoneda} monedaLabel={monedaLabel} />
+                </Grid>
+                <Grid item xs={12} md={4}>
+                  <MetaTable titulo="Meta por PD" columna="PD" rows={data.metasPorPD.map((x) => ({ clave: x.pd, montoUsd: x.montoUsd, pct: x.pct }))} convMoneda={convMoneda} monedaLabel={monedaLabel} />
+                </Grid>
+                <Grid item xs={12} md={4}>
+                  <MetaTable titulo="Meta por gestor" columna="Gestor" rows={data.metasPorGestor.map((x) => ({ clave: x.gestor, montoUsd: x.montoUsd, pct: x.pct }))} convMoneda={convMoneda} monedaLabel={monedaLabel} />
+                </Grid>
+              </Grid>
             </Stack>
           )}
         </Paper>

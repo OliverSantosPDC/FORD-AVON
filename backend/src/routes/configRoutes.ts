@@ -25,6 +25,9 @@ router.patch('/configuracion/variables/:id', requireAuth, requirePermission(EDIT
 router.get('/configuracion/tasas-conversion', requireAuth, requirePermission(VER), (req, res) => c.tasasConversion(req, res));
 router.patch('/configuracion/tasas-conversion/:id', requireAuth, requirePermission(EDIT), (req, res) => c.actualizarTasaConversion(req, res));
 
+router.get('/configuracion/metas', requireAuth, requirePermission(VER), (req, res) => c.metaGlobal(req, res));
+router.put('/configuracion/metas', requireAuth, requirePermission(EDIT), (req, res) => c.guardarMetaGlobal(req, res));
+
 router.get('/configuracion/roles', requireAuth, requirePermission(VER), (req, res) => c.rolesPermisos(req, res));
 router.put('/configuracion/roles/:roleId/permisos', requireAuth, requirePermission(EDIT), (req, res) => c.guardarRolPermisos(req, res));
 

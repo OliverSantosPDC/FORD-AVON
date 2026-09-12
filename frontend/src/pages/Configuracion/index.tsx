@@ -18,8 +18,8 @@ import UsuariosPage from '../Usuarios';
 import {
   getGeneral, putGeneral, getCatalogos, crearCatalogo, actualizarCatalogo,
   getVariables, crearVariable, actualizarVariable, getRoles, putRolPermisos, getPlantillas, subirPlantilla, descargarPlantilla, subirAsset,
-  getAuditoria, getTasasConversion, actualizarTasaConversion,
-  type Catalogo, type Variable, type Plantilla, type RolesData, type AuditoriaRow, type TasaConversion
+  getAuditoria, getTasasConversion, actualizarTasaConversion, getMetaGlobal, guardarMetaGlobal,
+  type Catalogo, type Variable, type Plantilla, type RolesData, type AuditoriaRow, type TasaConversion, type MetaGlobal
 } from '../../services/configuracionService';
 import { simboloMoneda } from '../../utils/monedaOptions';
 
@@ -45,13 +45,15 @@ const ConfiguracionPage = () => {
     const raw = searchParams.get('tab');
     if (raw === null) return;
     const n = Number(raw);
-    const maxTab = canUsuarios ? 8 : 7;
+    const maxTab = 9;
     if (Number.isInteger(n) && n >= 0 && n <= maxTab) setTab(n);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, canUsuarios]);
-  // Pestaña "Usuarios" (integra el módulo existente dentro de Configuración) al final,
-  // para no desplazar los índices de los paneles existentes. Índice fijo = 8 cuando aplica.
+  // Pestañas "Usuarios" y "Metas" usan un índice NUMÉRICO FIJO (prop `value` explícita en
+  // cada <Tab>, no la posición en el arreglo de etiquetas) para que su índice nunca cambie
+  // según si "Usuarios" está presente o no (canUsuarios es condicional; Metas siempre existe).
   const TAB_USUARIOS = 8;
+  const TAB_METAS = 9;
   const [toast, setToast] = useState<string | null>(null);
 
   // General
@@ -75,6 +77,11 @@ const ConfiguracionPage = () => {
   // Tasas de conversión
   const [tasas, setTasas] = useState<TasaConversion[]>([]);
   const [tasaDrafts, setTasaDrafts] = useState<Record<string, string>>({});
+  // Metas (configuración global única: % o monto, mutuamente excluyentes)
+  const [metaCfg, setMetaCfg] = useState<MetaGlobal | null>(null);
+  const [metaTipo, setMetaTipo] = useState<'PORCENTAJE' | 'MONTO'>('MONTO');
+  const [metaDraft, setMetaDraft] = useState('');
+  const [metaGuardando, setMetaGuardando] = useState(false);
   // Variables
   const [varSearch, setVarSearch] = useState('');
   // Menú (orden)
@@ -91,8 +98,11 @@ const ConfiguracionPage = () => {
   useEffect(() => {
     (async () => {
       try {
-        const [g, c, r, v, p, tc] = await Promise.all([getGeneral(), getCatalogos(), getRoles(), getVariables(), getPlantillas(), getTasasConversion()]);
+        const [g, c, r, v, p, tc, mc] = await Promise.all([getGeneral(), getCatalogos(), getRoles(), getVariables(), getPlantillas(), getTasasConversion(), getMetaGlobal()]);
         setGeneral2(g); setCatalogos(c); setRolesData(r); setVariables(v); setPlantillas(p); setTasas(tc);
+        setMetaCfg(mc);
+        setMetaTipo(mc.tipo ?? 'MONTO');
+        setMetaDraft(mc.tipo === 'PORCENTAJE' ? String(Math.round((mc.porcentaje ?? 0) * 1e6) / 1e4) : mc.tipo === 'MONTO' ? String(Math.round((mc.montoUsdGlobal ?? 0) * 100) / 100) : '');
         if (r.roles[0]) setRoleSel(r.roles[0].id);
         const guardado = (g.orden_modulos ?? '').split(',').map((x) => x.trim()).filter(Boolean);
         const keys = MODULES.map((m) => m.key);
@@ -155,6 +165,24 @@ const ConfiguracionPage = () => {
   };
   const descargarP = async (clave: string) => { try { const u = await descargarPlantilla(clave); window.open(u, '_blank'); } catch (e) { setToast(e instanceof Error ? e.message : 'Sin archivo.'); } };
 
+  const metaDraftNum = Number(metaDraft);
+  const metaDraftValido = metaDraft.trim() !== '' && Number.isFinite(metaDraftNum) && metaDraftNum > 0;
+  const guardarMeta = async () => {
+    if (!metaDraftValido) return;
+    setMetaGuardando(true);
+    try {
+      await guardarMetaGlobal(
+        metaTipo === 'PORCENTAJE' ? { tipo: 'PORCENTAJE', porcentaje: metaDraftNum / 100 } : { tipo: 'MONTO', montoUsd: metaDraftNum }
+      );
+      const mc = await getMetaGlobal();
+      setMetaCfg(mc);
+      setMetaTipo(mc.tipo ?? 'MONTO');
+      setMetaDraft(mc.tipo === 'PORCENTAJE' ? String(Math.round((mc.porcentaje ?? 0) * 1e6) / 1e4) : String(Math.round((mc.montoUsdGlobal ?? 0) * 100) / 100));
+      setToast('Meta guardada.');
+    } catch (e) { setToast(e instanceof Error ? e.message : 'No se pudo guardar la meta.'); }
+    finally { setMetaGuardando(false); }
+  };
+
   if (loading) return <Box sx={{ display: 'flex', gap: 1.5, p: 3, alignItems: 'center' }}><CircularProgress size={22} /><Typography sx={{ fontSize: 14 }}>Cargando configuración...</Typography></Box>;
 
   const AssetUpload = ({ label, clave }: { label: string; clave: string }) => (
@@ -168,7 +196,9 @@ const ConfiguracionPage = () => {
   return (
     <Box sx={{ p: { xs: 1, md: 2 } }}>
       <Tabs value={tab} onChange={(_e, v) => setTab(v)} variant="scrollable" sx={{ mb: 2 }}>
-        {['General', 'Catálogos', 'Roles y permisos', 'Apariencia', 'Plantillas', 'Variables', 'Auditoría', 'Tasas de Conversión', ...(canUsuarios ? ['Usuarios'] : [])].map((t) => <Tab key={t} label={t} sx={{ textTransform: 'none' }} />)}
+        {['General', 'Catálogos', 'Roles y permisos', 'Apariencia', 'Plantillas', 'Variables', 'Auditoría', 'Tasas de Conversión'].map((t, i) => <Tab key={t} value={i} label={t} sx={{ textTransform: 'none' }} />)}
+        {canUsuarios && <Tab key="Usuarios" value={TAB_USUARIOS} label="Usuarios" sx={{ textTransform: 'none' }} />}
+        <Tab key="Metas" value={TAB_METAS} label="Metas" sx={{ textTransform: 'none' }} />
       </Tabs>
 
       {/* GENERAL */}
@@ -514,6 +544,78 @@ const ConfiguracionPage = () => {
                 </TableBody>
               </Table>
             </TableContainer>
+          </Stack>
+        </Paper>
+      )}
+
+      {/* METAS (configuración global única: % o monto, mutuamente excluyentes) */}
+      {tab === TAB_METAS && (
+        <Paper sx={{ p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
+          <Stack spacing={2} sx={{ maxWidth: 560 }}>
+            <Box>
+              <Typography sx={{ fontWeight: 700 }}>Metas</Typography>
+              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                Configuración global única de meta de recuperación. Define UNA de las dos fuentes;
+                la otra se calcula automáticamente contra el saldo inicial total de la cartera.
+                Centro de Inteligencia distribuye esta meta proporcionalmente por país, PD y gestor.
+              </Typography>
+            </Box>
+            <TextField
+              select
+              label="Meta definida en"
+              size="small"
+              value={metaTipo}
+              disabled={!canEdit}
+              onChange={(e) => {
+                const nuevoTipo = e.target.value as 'PORCENTAJE' | 'MONTO';
+                setMetaTipo(nuevoTipo);
+                setMetaDraft(nuevoTipo === 'PORCENTAJE'
+                  ? String(Math.round((metaCfg?.porcentaje ?? 0) * 1e6) / 1e4)
+                  : String(Math.round((metaCfg?.montoUsdGlobal ?? 0) * 100) / 100));
+              }}
+            >
+              <MenuItem value="PORCENTAJE">Porcentaje (%)</MenuItem>
+              <MenuItem value="MONTO">Monto (USD)</MenuItem>
+            </TextField>
+            <TextField
+              label={metaTipo === 'PORCENTAJE' ? 'Meta %' : 'Meta Monto (USD)'}
+              size="small"
+              type="number"
+              value={metaDraft}
+              error={!metaDraftValido}
+              disabled={!canEdit}
+              inputProps={{ step: metaTipo === 'PORCENTAJE' ? '0.01' : '1', min: '0' }}
+              InputProps={{ endAdornment: metaTipo === 'PORCENTAJE' ? '%' : undefined }}
+              onChange={(e) => setMetaDraft(e.target.value)}
+            />
+            {canEdit && (
+              <Box>
+                <Button variant="contained" disabled={!metaDraftValido || metaGuardando} onClick={guardarMeta} sx={{ textTransform: 'none' }}>
+                  {metaGuardando ? 'Guardando...' : 'Guardar'}
+                </Button>
+              </Box>
+            )}
+            <Divider />
+            <Typography sx={{ fontWeight: 700 }}>Información calculada</Typography>
+            {!metaCfg?.definida ? (
+              <Alert severity="info" sx={{ py: 0.5 }}>Aún no hay una meta configurada.</Alert>
+            ) : (
+              <Grid container spacing={1.5}>
+                <Grid item xs={12} sm={4}>
+                  <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase' }}>Total Saldo Inicial</Typography>
+                  <Typography sx={{ fontSize: 16, fontWeight: 800 }}>${metaCfg.totalSaldoInicialUsd.toLocaleString(undefined, { maximumFractionDigits: 0 })}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase' }}>Meta %</Typography>
+                  <Typography sx={{ fontSize: 16, fontWeight: 800 }}>{((metaCfg.porcentaje ?? 0) * 100).toFixed(2)}%</Typography>
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase' }}>Meta Monto</Typography>
+                  <Typography sx={{ fontSize: 16, fontWeight: 800 }}>${(metaCfg.montoUsdGlobal ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</Typography>
+                </Grid>
+              </Grid>
+            )}
+            {metaCfg?.updatedAt && <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>Última actualización: {String(metaCfg.updatedAt).slice(0, 16).replace('T', ' ')}</Typography>}
           </Stack>
         </Paper>
       )}

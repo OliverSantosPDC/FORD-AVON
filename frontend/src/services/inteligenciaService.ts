@@ -22,9 +22,10 @@ export interface CentroInteligencia {
     saldoAsignadoLocal: number; saldoActualLocal: number; recuperadoLocal: number;
     cuentas: number; pctRecuperacion: number;
   };
-  meta: { definida: boolean; montoUsd: number | null; ambito: string };
-  metasPorPais: Array<{ pais: string; montoUsd: number }>;
-  metasPorPD: Array<{ pd: string; montoUsd: number }>;
+  meta: { definida: boolean; tipo: 'PORCENTAJE' | 'MONTO' | null; porcentaje: number | null; montoUsd: number | null; totalSaldoInicialUsd: number };
+  metasPorPais: Array<{ pais: string; montoUsd: number | null; pct: number | null }>;
+  metasPorPD: Array<{ pd: string; montoUsd: number | null; pct: number | null }>;
+  metasPorGestor: Array<{ gestor: string; montoUsd: number | null; pct: number | null }>;
   cumplimiento: { pct: number | null };
   recuperacion: { porPais: CentroGrupo[]; porPD: CentroGrupo[]; porZona: CentroGrupo[]; porSector: CentroGrupo[]; porRiesgo: CentroGrupo[] };
   promesas: {

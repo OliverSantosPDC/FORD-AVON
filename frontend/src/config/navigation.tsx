@@ -34,6 +34,7 @@ import DescriptionIcon from '@mui/icons-material/Description';
 import DataObjectIcon from '@mui/icons-material/DataObject';
 import FactCheckIcon from '@mui/icons-material/FactCheck';
 import CurrencyExchangeIcon from '@mui/icons-material/CurrencyExchange';
+import TrackChangesIcon from '@mui/icons-material/TrackChanges';
 
 /** Árbol de navegación jerárquico. Las hojas usan únicamente rutas/permisos existentes. */
 export interface NavLeaf {
@@ -107,6 +108,7 @@ export const NAVIGATION: NavNode[] = [
           leaf('config-general', 'nav.configuracion.general', 'General', '/configuracion?tab=0', 'configuracion.ver', TuneIcon, true),
           leaf('config-catalogos', 'nav.configuracion.catalogos', 'Catálogos', '/configuracion?tab=1', 'configuracion.ver', CategoryIcon),
           leaf('config-tasas', 'nav.configuracion.tasas', 'Tasas de Conversión', '/configuracion?tab=7', 'configuracion.ver', CurrencyExchangeIcon),
+          leaf('config-metas', 'nav.configuracion.metas', 'Metas', '/configuracion?tab=9', 'configuracion.ver', TrackChangesIcon),
           leaf('config-roles', 'nav.configuracion.roles', 'Roles y permisos', '/configuracion?tab=2', 'configuracion.ver', AdminPanelSettingsOutlinedIcon),
           leaf('config-apariencia', 'nav.configuracion.apariencia', 'Apariencia', '/configuracion?tab=3', 'configuracion.ver', PaletteIcon),
           leaf('config-plantillas', 'nav.configuracion.plantillas', 'Plantillas', '/configuracion?tab=4', 'configuracion.ver', DescriptionIcon),

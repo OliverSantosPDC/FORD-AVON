@@ -9,6 +9,15 @@ const err = async (r: Response, f: string) => {
 
 export interface Catalogo { id: string; catalogo: string; codigo: string | null; nombre: string; activo: boolean; orden: number; }
 export interface TasaConversion { id: string; codigo: string; nombre: string; tasa: number; updated_at: string | null; updated_by: string | null; }
+export interface MetaGlobal {
+  definida: boolean;
+  tipo: 'PORCENTAJE' | 'MONTO' | null;
+  porcentaje: number | null;
+  montoUsdGlobal: number | null;
+  totalSaldoInicialUsd: number;
+  updatedAt: string | null;
+  updatedBy: string | null;
+}
 export interface Variable { id: string; nombre: string; valor: string | null; tipo: string | null; descripcion: string | null; activo: boolean; }
 export interface Plantilla { id: string; clave: string; nombre: string; url: string | null; version: number | null; updated_at: string | null; updated_by: string | null; }
 export interface AuditoriaRow { id: string; actor_id: string | null; accion: string; entidad: string; entidad_id: string | null; detalle: unknown; created_at: string; }
@@ -28,6 +37,9 @@ export const eliminarCatalogo = async (id: string) => { const r = await apiFetch
 
 export const getTasasConversion = async (): Promise<TasaConversion[]> => { const r = await apiFetch('/api/configuracion/tasas-conversion', { cache: 'no-store' }); if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.')); return r.json(); };
 export const actualizarTasaConversion = async (id: string, tasa: number) => { const r = await apiFetch(`/api/configuracion/tasas-conversion/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tasa }) }); if (!r.ok) throw new Error(await err(r, 'No se pudo actualizar.')); };
+
+export const getMetaGlobal = async (): Promise<MetaGlobal> => { const r = await apiFetch('/api/configuracion/metas', { cache: 'no-store' }); if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.')); return r.json(); };
+export const guardarMetaGlobal = async (b: { tipo: 'PORCENTAJE' | 'MONTO'; porcentaje?: number; montoUsd?: number }) => { const r = await apiFetch('/api/configuracion/metas', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) }); if (!r.ok) throw new Error(await err(r, 'No se pudo guardar.')); };
 
 /** Tasas de conversión oficiales, consumo transversal (sin permiso de Configuración) para el Dashboard. */
 export const getTasasConversionActivas = async (): Promise<Array<{ codigo: string; nombre: string; tasa: number }>> => {

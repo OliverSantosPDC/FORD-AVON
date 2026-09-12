@@ -1,6 +1,7 @@
 import { getSupabaseClient } from '../config/supabaseClient';
 import type { ScopeContext } from './ScopeService';
 import { listarEventos } from './CalendarService';
+import { getMetaGlobalComputada } from './MetasService';
 
 /**
  * Centro de Inteligencia: agrega en el backend (una sola carga) métricas ejecutivas
@@ -68,18 +69,32 @@ export const getCentroInteligencia = async (ctx: ScopeContext, filtros: CentroFi
   const porRiesgo = agrupar(rows, (r) => s(field(r, 'riesgo', 'nivel_riesgo', 'riesgo_pd')));
   const porGestor = agrupar(rows, (r) => s(field(r, 'gestor')));
 
-  // ---- Metas (tabla configurable) ----
-  const { data: metasRaw } = await c().from('metas').select('ambito, clave, monto_meta').eq('periodo', periodo);
-  const metas = (metasRaw ?? []) as Array<{ ambito: string; clave: string | null; monto_meta: number }>;
-  const metaGlobal = metas.find((m) => m.ambito === 'GLOBAL')?.monto_meta ?? null;
-  const metasPorPais = metas.filter((m) => m.ambito === 'PAIS').map((m) => ({ pais: s(m.clave), montoUsd: num(m.monto_meta) }));
-  const metasPorPD = metas.filter((m) => m.ambito === 'PD').map((m) => ({ pd: s(m.clave), montoUsd: num(m.monto_meta) }));
-  const unicoPais = (filtros.pais ?? []).length === 1 ? (filtros.pais as string[])[0] : null;
-  const metaContexto = unicoPais
-    ? (metasPorPais.find((m) => m.pais.toUpperCase() === unicoPais.toUpperCase())?.montoUsd ?? null)
-    : metaGlobal;
-  const meta = { definida: metaContexto !== null && metaContexto !== undefined, montoUsd: metaContexto ?? null, ambito: unicoPais ? 'PAIS' : 'GLOBAL' };
-  const cumplimientoPct = meta.definida && (meta.montoUsd as number) > 0 ? pct(recUsd, meta.montoUsd as number) : null;
+  // ---- Meta global (configuración única en Supabase: % o monto, mutuamente excluyentes) ----
+  // La meta % es un objetivo de NEGOCIO fijo, calculado siempre contra el total REAL de
+  // toda la cartera (getMetaGlobalComputada), sin importar el scope/filtro del usuario que
+  // consulta. Lo que sí varía con el scope y los filtros es el UNIVERSO visible (`asigUsd`,
+  // ya scoped+filtrado más arriba): la meta en monto se recalcula para ESE universo, y los
+  // segmentos (país/PD/gestor) se derivan proporcionalmente a su saldo inicial dentro de él.
+  // No existen metas manuales por segmento: todo se deriva de la única configuración global.
+  const metaGlobalCfg = await getMetaGlobalComputada();
+  const metaPorcentaje = metaGlobalCfg.definida ? metaGlobalCfg.porcentaje : null;
+  const metaMontoUniverso = metaPorcentaje !== null ? round2(asigUsd * metaPorcentaje) : null;
+  const meta = {
+    definida: metaGlobalCfg.definida,
+    tipo: metaGlobalCfg.tipo,
+    porcentaje: metaPorcentaje,
+    montoUsd: metaMontoUniverso,
+    totalSaldoInicialUsd: round2(asigUsd)
+  };
+  const segmentoMeta = (grupos: Grupo[]) => grupos.map((g) => {
+    const montoUsd = metaPorcentaje === null ? null : round2(g.saldoAsignadoUsd * metaPorcentaje);
+    const pctDeMeta = montoUsd === null || !metaMontoUniverso ? null : pct(montoUsd, metaMontoUniverso);
+    return { clave: g.clave, montoUsd, pct: pctDeMeta };
+  });
+  const metasPorPais = segmentoMeta(recPorPais).map(({ clave, montoUsd, pct: p }) => ({ pais: clave, montoUsd, pct: p }));
+  const metasPorPD = segmentoMeta(recPorPD).map(({ clave, montoUsd, pct: p }) => ({ pd: clave, montoUsd, pct: p }));
+  const metasPorGestor = segmentoMeta(porGestor).map(({ clave, montoUsd, pct: p }) => ({ gestor: clave, montoUsd, pct: p }));
+  const cumplimientoPct = metaMontoUniverso && metaMontoUniverso > 0 ? pct(recUsd, metaMontoUniverso) : null;
 
   // ---- Promesas (gestion_promesas ↔ cartera por codigo, respeta scope vía set de codigos) ----
   const codigoInfo = new Map<string, { pais: string; pd: string }>();
@@ -187,6 +202,7 @@ export const getCentroInteligencia = async (ctx: ScopeContext, filtros: CentroFi
     meta,
     metasPorPais,
     metasPorPD,
+    metasPorGestor,
     cumplimiento: { pct: cumplimientoPct },
     recuperacion: { porPais: recPorPais, porPD: recPorPD, porZona, porSector, porRiesgo },
     promesas,
