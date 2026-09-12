@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Box, Button, Chip, CircularProgress, Divider, Grid, MenuItem, Paper, Stack, Table, TableBody,
-  TableCell, TableContainer, TableHead, TableRow, TextField, Tooltip, Typography
+  Alert, Box, Button, Chip, CircularProgress, Divider, Grid, Paper, Stack, Table, TableBody,
+  TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography
 } from '@mui/material';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
@@ -9,7 +9,8 @@ import KpiCards from '../components/Dashboard/KpiCards';
 import DashboardFilters from '../components/Dashboard/DashboardFilters';
 import OnePagePreviewDialog from '../components/Dashboard/OnePagePreviewDialog';
 import { exportRowsToCsv } from '../utils/tableExport';
-import { MONEDA_POR_PAIS } from '../services/gestionService';
+import { useTasasConversion } from '../hooks/useTasasConversion';
+import { MONEDA_OPTIONS } from '../utils/monedaOptions';
 import { getCentroInteligencia, type CentroFiltros, type CentroInteligencia } from '../services/inteligenciaService';
 import type { DashboardKpi, DashboardMultiFilterParams } from '../types/cartera';
 
@@ -72,7 +73,10 @@ const InteligenciaPage = () => {
   const [data, setData] = useState<CentroInteligencia | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [moneda, setMoneda] = useState<'USD' | 'LOCAL'>('USD');
+  // Moneda: mismo campo del MISMO filtro que el Dashboard (DashboardFilters), misma fuente
+  // de tasas oficiales (useTasasConversion) — no un control de moneda aparte.
+  const [monedaFiltro, setMonedaFiltro] = useState<string>('USD');
+  const { tasas, error: tasasError } = useTasasConversion();
   const inteligenciaRootRef = useRef<HTMLDivElement | null>(null);
   const [onePagePreviewOpen, setOnePagePreviewOpen] = useState(false);
 
@@ -90,18 +94,25 @@ const InteligenciaPage = () => {
     pais: data?.filterOptions.pais ?? [], gestor: data?.filterOptions.gestor ?? [], gerente: [] as string[],
     zona: data?.filterOptions.zona ?? [], pd: data?.filterOptions.pd ?? [], campania: [] as string[]
   };
-  const singlePais = filtros.pais.length === 1;
-  const monedaCode = singlePais ? (MONEDA_POR_PAIS[filtros.pais[0].toUpperCase()] ?? 'USD') : 'USD';
-  const monedaSel: 'USD' | 'LOCAL' = singlePais && moneda === 'LOCAL' ? 'LOCAL' : 'USD';
-  const codeMostrar = monedaSel === 'LOCAL' ? monedaCode : 'USD';
+  // Misma lógica del Dashboard: la tasa configurada (Configuración > Tasas de Conversión)
+  // se aplica siempre a la moneda seleccionada, sin excepción para USD.
+  const monedaOption = MONEDA_OPTIONS.find((option) => option.code === monedaFiltro) ?? MONEDA_OPTIONS[0];
+  const monedaCode = monedaOption.code;
+  const monedaLabel = monedaCode;
+  const tasaDisponible = tasas[monedaCode] !== undefined;
+  const tasaActual = tasaDisponible ? tasas[monedaCode] : 1;
 
   const kpisDisplay: DashboardKpi | null = useMemo(() => {
     if (!data) return null;
     const k = data.kpis;
-    return monedaSel === 'LOCAL'
-      ? { saldoAsignado: k.saldoAsignadoLocal, saldoActual: k.saldoActualLocal, recuperado: k.recuperadoLocal, porcentajeRecuperacion: k.pctRecuperacion, totalCuentas: k.cuentas }
-      : { saldoAsignado: k.saldoAsignadoUsd, saldoActual: k.saldoActualUsd, recuperado: k.recuperadoUsd, porcentajeRecuperacion: k.pctRecuperacion, totalCuentas: k.cuentas };
-  }, [data, monedaSel]);
+    return {
+      saldoAsignado: k.saldoAsignadoUsd * tasaActual,
+      saldoActual: k.saldoActualUsd * tasaActual,
+      recuperado: k.recuperadoUsd * tasaActual,
+      porcentajeRecuperacion: k.pctRecuperacion,
+      totalCuentas: k.cuentas
+    };
+  }, [data, tasaActual]);
 
   const hallazgosPorCategoria = useMemo(() => {
     const m = new Map<string, CentroInteligencia['hallazgos']>();
@@ -124,23 +135,27 @@ const InteligenciaPage = () => {
             <Typography sx={{ fontSize: 20, fontWeight: 800 }}>Centro de Inteligencia</Typography>
             <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Período {data.periodo} · {data.dias.transcurridos}/{data.dias.total} días · {data.dias.restantes} restantes</Typography>
           </Box>
-          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-            {singlePais && (
-              <TextField select size="small" label="Moneda" value={moneda} onChange={(e) => setMoneda(e.target.value as 'USD' | 'LOCAL')} sx={{ minWidth: 150 }}>
-                <MenuItem value="USD">USD</MenuItem>
-                <MenuItem value="LOCAL">Moneda Local ({monedaCode})</MenuItem>
-              </TextField>
-            )}
-            <Box data-onepage-skip="true">
-              <Button variant="outlined" startIcon={<DescriptionOutlinedIcon />} onClick={() => setOnePagePreviewOpen(true)} sx={{ textTransform: 'none' }}>Generar OnePage</Button>
-            </Box>
+          <Box data-onepage-skip="true">
+            <Button variant="outlined" startIcon={<DescriptionOutlinedIcon />} onClick={() => setOnePagePreviewOpen(true)} sx={{ textTransform: 'none' }}>Generar OnePage</Button>
           </Box>
         </Box>
 
-        <DashboardFilters filters={filtros} onChange={setFiltros} onClear={() => setFiltros(EMPTY_FILTROS)} options={opts} />
+        <DashboardFilters
+          filters={filtros}
+          onChange={setFiltros}
+          onClear={() => setFiltros(EMPTY_FILTROS)}
+          options={opts}
+          moneda={monedaFiltro}
+          onMonedaChange={setMonedaFiltro}
+        />
+        {(tasasError || !tasaDisponible) && (
+          <Alert severity="warning">
+            No se pudo obtener la tasa oficial de {monedaCode} desde Configuración. Los valores mostrados pueden no reflejar la tasa configurada.
+          </Alert>
+        )}
 
         {/* 2 · KPIs principales */}
-        <KpiCards kpis={kpisDisplay} moneda={codeMostrar} />
+        <KpiCards kpis={kpisDisplay} moneda={monedaLabel} />
         <Grid container spacing={1.5}>
           <Grid item xs={6} sm={4} md={2}><Mini l="Meta" v={data.meta.definida ? money(data.meta.montoUsd) : 'No definida'} /></Grid>
           <Grid item xs={6} sm={4} md={2}><Mini l="% Cumplimiento" v={data.cumplimiento.pct === null ? 'Meta no definida' : pctTxt(data.cumplimiento.pct)} /></Grid>
