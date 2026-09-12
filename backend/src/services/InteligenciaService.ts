@@ -3,6 +3,7 @@ import type { ScopeContext } from './ScopeService';
 import { applyScope } from './ScopeFilter';
 import { listarEventos } from './CalendarService';
 import { getMetaGlobalComputada } from './MetasService';
+import type { PersonaFiltro } from '../utils/carteraAggregations';
 
 /**
  * Centro de Inteligencia: agrega en el backend (una sola carga) métricas ejecutivas
@@ -32,23 +33,71 @@ const coincideFiltro = (r: Row, valores: string[] | undefined, keys: string[]): 
   return false;
 };
 
+const paisZonaKey = (pais: unknown, zona: unknown): string => `${s(pais).trim().toUpperCase()}||${s(zona).trim().toUpperCase()}`;
+
+/**
+ * ¿La fila queda incluida por la selección de Gestor? Coincide por NOMBRE
+ * (cartera.gestor, cuando existe la coincidencia) O porque el País-Zona
+ * EXACTO de la fila está entre los `gestor_pais_zona` de alguna persona
+ * seleccionada — nunca depende de que su nombre exista en cartera (mismo
+ * principio OR que ScopeFilter.applyScope, aplicado a la SELECCIÓN).
+ */
+const coincideFiltroGestor = (r: Row, valores: string[] | undefined, personasPorNombre: Map<string, PersonaFiltro>): boolean => {
+  if (!valores?.length) return true;
+  const seleccionadas = new Set(valores.map((v) => v.toUpperCase()));
+  const rowNombre = s(r.gestor).toUpperCase();
+  if (rowNombre && seleccionadas.has(rowNombre)) return true;
+  const rowPais = s(r.pais); const rowZona = s(r.zona);
+  if (!rowPais || !rowZona) return false;
+  const rowKey = paisZonaKey(rowPais, rowZona);
+  for (const nombre of seleccionadas) {
+    const persona = personasPorNombre.get(nombre);
+    if (persona && persona.paisZona.some((pz) => paisZonaKey(pz.pais, pz.zona) === rowKey)) return true;
+  }
+  return false;
+};
+
+/**
+ * OPCIONES de Gestor: SIEMPRE desde `personasGestor` (usuarios/roles/
+ * gestor_pais_zona — ver ScopeService.gestoresEnAlcance), nunca desde
+ * `uniq(filas, 'gestor')` sobre cartera. Una persona entra si alcanza alguna
+ * de las `filas` (ya acotadas por las demás dimensiones): por nombre o
+ * porque su propio País-Zona intersecta el de esas filas.
+ */
+const opcionesGestor = (filas: Row[], personasGestor: PersonaFiltro[]): string[] => {
+  const paresPresentes = new Set<string>();
+  const nombresPresentes = new Set<string>();
+  filas.forEach((r) => {
+    const nombre = s(r.gestor).toUpperCase();
+    if (nombre) nombresPresentes.add(nombre);
+    const pais = s(r.pais); const zona = s(r.zona);
+    if (pais && zona) paresPresentes.add(paisZonaKey(pais, zona));
+  });
+  return personasGestor
+    .filter((p) => nombresPresentes.has(p.nombre.toUpperCase()) || p.paisZona.some((pz) => paresPresentes.has(paisZonaKey(pz.pais, pz.zona))))
+    .map((p) => p.nombre)
+    .sort();
+};
+
 /**
  * Opciones de filtro EN CASCADA para el Centro de Inteligencia (Sección 6):
  * `scopedRows` ya trae aplicada la frontera de seguridad (ScopeService/
- * applyScope) — nunca depende de cartera.gestor como catálogo de personas.
- * Cada dimensión se calcula excluyéndose a sí misma pero respetando las
- * DEMÁS dimensiones ya seleccionadas (mismo principio que
- * `buildFilterOptions` del Dashboard): País acota Zona/Sector/PD/Riesgo/
- * Gestor, Zona acota Sector/PD, etc. — nunca al revés (nunca amplía).
+ * applyScope). La dimensión Gestor sale de `personasGestor` (usuarios/roles/
+ * relaciones — nunca cartera.gestor como catálogo de personas). Cada
+ * dimensión se calcula excluyéndose a sí misma pero respetando las DEMÁS
+ * dimensiones ya seleccionadas (mismo principio que `buildFilterOptions` del
+ * Dashboard): País acota Zona/Sector/PD/Riesgo/Gestor, Zona acota Sector/PD,
+ * etc. — nunca al revés (nunca amplía).
  */
-export const construirFilterOptionsCentro = (scopedRows: Row[], filtros: CentroFiltros): CentroFilterOptions => {
+export const construirFilterOptionsCentro = (scopedRows: Row[], filtros: CentroFiltros, personasGestor: PersonaFiltro[]): CentroFilterOptions => {
+  const personasPorNombre = new Map(personasGestor.map((p) => [p.nombre.toUpperCase(), p]));
   const filasPara = (excluida: keyof CentroFiltros): Row[] => scopedRows.filter((r) =>
     (excluida === 'pais' || coincideFiltro(r, filtros.pais, ['pais'])) &&
     (excluida === 'zona' || coincideFiltro(r, filtros.zona, ['zona'])) &&
     (excluida === 'sector' || coincideFiltro(r, filtros.sector, ['sector'])) &&
     (excluida === 'pd' || coincideFiltro(r, filtros.pd, ['pd_actual', 'pd'])) &&
     (excluida === 'riesgo' || coincideFiltro(r, filtros.riesgo, ['riesgo', 'nivel_riesgo', 'riesgo_pd'])) &&
-    (excluida === 'gestor' || coincideFiltro(r, filtros.gestor, ['gestor']))
+    (excluida === 'gestor' || coincideFiltroGestor(r, filtros.gestor, personasPorNombre))
   );
   return {
     pais: uniq(filasPara('pais'), 'pais'),
@@ -56,7 +105,7 @@ export const construirFilterOptionsCentro = (scopedRows: Row[], filtros: CentroF
     sector: uniq(filasPara('sector'), 'sector'),
     pd: uniq(filasPara('pd'), 'pd_actual', 'pd'),
     riesgo: uniq(filasPara('riesgo'), 'riesgo', 'nivel_riesgo', 'riesgo_pd'),
-    gestor: uniq(filasPara('gestor'), 'gestor')
+    gestor: opcionesGestor(filasPara('gestor'), personasGestor)
   };
 };
 export interface Hallazgo { categoria: 'Gestión' | 'Cartera' | 'Calendario' | 'Operación'; nivel: 'Crítico' | 'Atención' | 'Informativo' | 'Positivo'; titulo: string; detalle: string; valor?: string; }

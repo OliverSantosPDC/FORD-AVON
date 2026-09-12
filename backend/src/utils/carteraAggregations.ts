@@ -440,57 +440,154 @@ const rowMatchesFilter = (row: CarteraRow, values: string[], keys: string[]): bo
   return normalizedValues.includes(fieldValue);
 };
 
+/**
+ * Persona (Gestor o Gerente de zona) tal como la resuelve ScopeService a
+ * partir de USUARIOS/roles/relaciones — NUNCA de `cartera`. `nombre` es el
+ * valor que ve/selecciona el usuario en el Autocomplete (compatibilidad con
+ * el diseño visual existente, que solo maneja strings); `paisZona` es SU
+ * PROPIO conjunto de País-Zona asignado (gestor_pais_zona / gerente_zona_zona),
+ * la fuente real para encadenar y filtrar, con independencia de que su nombre
+ * exista o no en `cartera.gestor`/`cartera.gerente_zona`.
+ */
+export interface PersonaFiltro {
+  nombre: string;
+  paisZona: Array<{ pais: string; zona: string }>;
+}
+
+export interface PersonasEnAlcance {
+  gestores: PersonaFiltro[];
+  gerentes: PersonaFiltro[];
+}
+
+const paisZonaKey = (pais: unknown, zona: unknown): string =>
+  `${normalizeValue(pais).toLocaleLowerCase()}||${normalizeValue(zona).toLocaleLowerCase()}`;
+
+const personasPorNombre = (personas: PersonaFiltro[]): Map<string, PersonaFiltro> => {
+  const map = new Map<string, PersonaFiltro>();
+  personas.forEach((p) => map.set(p.nombre.trim().toLocaleLowerCase(), p));
+  return map;
+};
+
+/**
+ * ¿La fila queda incluida por la selección de Gestor/Gerente? Coincide si:
+ * (a) el nombre de la fila (cartera.gestor/gerente_zona) es uno de los
+ *     seleccionados — puente de compatibilidad para cuando SÍ coincide —, O
+ * (b) el País-Zona EXACTO de la fila está entre los de alguna persona
+ *     seleccionada (`gestor_pais_zona`/`gerente_zona_zona`), aunque su nombre
+ *     NUNCA exista en `cartera` — mismo principio OR que ScopeFilter.applyScope,
+ *     aplicado ahora a la SELECCIÓN del filtro (nunca `row.gestor === nombre`
+ *     como única condición).
+ */
+const rowMatchesPersonaFilter = (
+  row: CarteraRow,
+  values: string[],
+  nameKeys: string[],
+  personasPorNombreLower: Map<string, PersonaFiltro>
+): boolean => {
+  if (!values.length) return true;
+  const seleccionadas = values.map((v) => v.trim().toLocaleLowerCase());
+  const rowNombre = getFieldValue(row, nameKeys).toLocaleLowerCase();
+  if (rowNombre && seleccionadas.includes(rowNombre)) return true;
+
+  const rowPais = getFieldValue(row, ['pais']);
+  const rowZona = getFieldValue(row, ['zona']);
+  if (!rowPais || !rowZona) return false;
+  const rowKey = paisZonaKey(rowPais, rowZona);
+
+  for (const nombre of seleccionadas) {
+    const persona = personasPorNombreLower.get(nombre);
+    if (persona && persona.paisZona.some((pz) => paisZonaKey(pz.pais, pz.zona) === rowKey)) return true;
+  }
+  return false;
+};
+
 const filterRows = (
   rows: CarteraRow[],
   filters: DashboardMultiFilterParams,
+  personas: PersonasEnAlcance,
   excludeField?: keyof DashboardMultiFilterParams
-): CarteraRow[] =>
-  rows.filter((row) => {
+): CarteraRow[] => {
+  const gestoresPorNombre = personasPorNombre(personas.gestores);
+  const gerentesPorNombre = personasPorNombre(personas.gerentes);
+  return rows.filter((row) => {
     if (excludeField !== 'pais' && !rowMatchesFilter(row, filters.pais, ['pais'])) return false;
     if (excludeField !== 'zona' && !rowMatchesFilter(row, filters.zona, ['zona'])) return false;
-    if (excludeField !== 'gestor' && !rowMatchesFilter(row, filters.gestor, ['gestor'])) return false;
-    if (excludeField !== 'gerente' && !rowMatchesFilter(row, filters.gerente, ['gerente', 'gerente_zona'])) return false;
+    if (excludeField !== 'gestor' && !rowMatchesPersonaFilter(row, filters.gestor, ['gestor'], gestoresPorNombre)) return false;
+    if (excludeField !== 'gerente' && !rowMatchesPersonaFilter(row, filters.gerente, ['gerente', 'gerente_zona'], gerentesPorNombre)) return false;
     if (excludeField !== 'pd' && !rowMatchesFilter(row, filters.pd, ['pd_actual', 'pd'])) return false;
     if (excludeField !== 'campania' && !rowMatchesFilter(row, filters.campania, ['campania_adeuda', 'campania', 'campaña', 'campaign'])) return false;
     return true;
   });
+};
 
 const getUniqueOptions = (rows: CarteraRow[], keyVariants: string[]): string[] => {
   const values = rows.map((row) => getFieldValue(row, keyVariants)).filter((value) => value !== '');
   return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 };
 
-export const buildFilterOptions = (rows: CarteraRow[], filters: DashboardMultiFilterParams): FilterOptions => ({
-  pais: getUniqueOptions(filterRows(rows, filters, 'pais'), ['pais']),
-  zona: getUniqueOptions(filterRows(rows, filters, 'zona'), ['zona']),
-  gestor: getUniqueOptions(filterRows(rows, filters, 'gestor'), ['gestor']),
-  gerente: getUniqueOptions(filterRows(rows, filters, 'gerente'), ['gerente', 'gerente_zona']),
-  pd: getUniqueOptions(filterRows(rows, filters, 'pd'), ['pd_actual', 'pd']),
-  campania: getUniqueOptions(filterRows(rows, filters, 'campania'), ['campania_adeuda', 'campania', 'campaña', 'campaign'])
+/**
+ * OPCIONES de la dimensión Gestor/Gerente: el catálogo SIEMPRE sale de
+ * `personas` (usuarios/roles/relaciones — ver ScopeService.gestoresEnAlcance /
+ * gerentesZonaEnAlcance), nunca de `getUniqueOptions` sobre `cartera`. Cada
+ * persona entra en la lista si alcanza alguna de las `filasElegibles` (las
+ * filas ya acotadas por las DEMÁS dimensiones seleccionadas): por nombre
+ * (cuando coincide con `cartera.gestor`/`gerente_zona`) o porque su propio
+ * País-Zona intersecta el de esas filas — así una persona sin ninguna fila
+ * con su nombre en cartera (p. ej. un Gestor nuevo, con gestor_pais_zona pero
+ * 0 coincidencias de nombre) sigue apareciendo mientras su asignación
+ * intersecte el universo filtrado.
+ */
+const opcionesPersonas = (personas: PersonaFiltro[], filasElegibles: CarteraRow[], nameKeys: string[]): string[] => {
+  const paresPresentes = new Set<string>();
+  const nombresPresentes = new Set<string>();
+  filasElegibles.forEach((row) => {
+    const nombre = getFieldValue(row, nameKeys).toLocaleLowerCase();
+    if (nombre) nombresPresentes.add(nombre);
+    const pais = getFieldValue(row, ['pais']);
+    const zona = getFieldValue(row, ['zona']);
+    if (pais && zona) paresPresentes.add(paisZonaKey(pais, zona));
+  });
+
+  return personas
+    .filter((persona) => {
+      if (nombresPresentes.has(persona.nombre.trim().toLocaleLowerCase())) return true;
+      return persona.paisZona.some((pz) => paresPresentes.has(paisZonaKey(pz.pais, pz.zona)));
+    })
+    .map((persona) => persona.nombre)
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+};
+
+export const buildFilterOptions = (
+  rows: CarteraRow[],
+  filters: DashboardMultiFilterParams,
+  personas: PersonasEnAlcance
+): FilterOptions => ({
+  pais: getUniqueOptions(filterRows(rows, filters, personas, 'pais'), ['pais']),
+  zona: getUniqueOptions(filterRows(rows, filters, personas, 'zona'), ['zona']),
+  gestor: opcionesPersonas(personas.gestores, filterRows(rows, filters, personas, 'gestor'), ['gestor']),
+  gerente: opcionesPersonas(personas.gerentes, filterRows(rows, filters, personas, 'gerente'), ['gerente', 'gerente_zona']),
+  pd: getUniqueOptions(filterRows(rows, filters, personas, 'pd'), ['pd_actual', 'pd']),
+  campania: getUniqueOptions(filterRows(rows, filters, personas, 'campania'), ['campania_adeuda', 'campania', 'campaña', 'campaign'])
 });
 
 /**
  * Filtra las filas por los mismos criterios del dashboard (equivalente al
  * filteredTableData del frontend). Se usa para el detalle de cuentas, el
- * resumen por campaña y el resumen por país.
+ * resumen por campaña y el resumen por país. Gestor/Gerente usan
+ * `rowMatchesPersonaFilter` (nombre O País-Zona propio de la persona
+ * seleccionada) — nunca solo `row.gestor === valor`.
  */
-export const filterCarteraRows = (rows: CarteraRow[], filters: DashboardMultiFilterParams): CarteraRow[] => {
-  const normalize = (value: unknown) => String(value ?? '').toLocaleLowerCase().trim();
+export const filterCarteraRows = (rows: CarteraRow[], filters: DashboardMultiFilterParams, personas: PersonasEnAlcance): CarteraRow[] => {
+  const gestoresPorNombre = personasPorNombre(personas.gestores);
+  const gerentesPorNombre = personasPorNombre(personas.gerentes);
 
   return rows.filter((row) => {
-    const rowPais = normalize(row.pais);
-    const rowGestor = normalize(row.gestor);
-    const rowGerente = normalize(row.gerente ?? row.gerente_zona);
-    const rowZona = normalize(row.zona);
-    const rowPd = normalize(row.pd_actual ?? row.pd);
-    const rowCampania = normalize(row.campania_adeuda ?? row.campania ?? (row as Record<string, unknown>)['campaña'] ?? row.campaign);
-
-    if (filters.pais.length && !filters.pais.map((v) => v.toLocaleLowerCase()).includes(rowPais)) return false;
-    if (filters.gestor.length && !filters.gestor.map((v) => v.toLocaleLowerCase()).includes(rowGestor)) return false;
-    if (filters.gerente.length && !filters.gerente.map((v) => v.toLocaleLowerCase()).includes(rowGerente)) return false;
-    if (filters.zona.length && !filters.zona.map((v) => v.toLocaleLowerCase()).includes(rowZona)) return false;
-    if (filters.pd.length && !filters.pd.map((v) => v.toLocaleLowerCase()).includes(rowPd)) return false;
-    if (filters.campania.length && !filters.campania.map((v) => v.toLocaleLowerCase()).includes(rowCampania)) return false;
+    if (!rowMatchesFilter(row, filters.pais, ['pais'])) return false;
+    if (!rowMatchesPersonaFilter(row, filters.gestor, ['gestor'], gestoresPorNombre)) return false;
+    if (!rowMatchesPersonaFilter(row, filters.gerente, ['gerente', 'gerente_zona'], gerentesPorNombre)) return false;
+    if (!rowMatchesFilter(row, filters.zona, ['zona'])) return false;
+    if (!rowMatchesFilter(row, filters.pd, ['pd_actual', 'pd'])) return false;
+    if (!rowMatchesFilter(row, filters.campania, ['campania_adeuda', 'campania', 'campaña', 'campaign'])) return false;
     return true;
   });
 };

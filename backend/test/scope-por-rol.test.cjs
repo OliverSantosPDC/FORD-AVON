@@ -60,11 +60,14 @@ const db = {
     { id: 'zona-107', nombre: '107', activo: true },
     { id: 'zona-201', nombre: '201', activo: true }
   ],
+  roles: [
+    { id: 'role-gerente-zona', clave: 'gerente_zona' }
+  ],
   profiles: [
     { id: 'user-sup1', activo: true },
     { id: 'user-sup2', activo: true },
-    { id: 'user-gerente1', activo: true },
-    { id: 'user-gerente2', activo: true }
+    { id: 'user-gerente1', activo: true, nombre: 'Gerente', apellido: 'Uno', role_id: 'role-gerente-zona' },
+    { id: 'user-gerente2', activo: true, nombre: 'Gerente', apellido: 'Dos', role_id: 'role-gerente-zona' }
   ],
   supervisor_gestor: [
     { id: 'sg-1', supervisor_id: 'user-sup1', gestor_id: 'g-A', activo: true, fecha_inicio: AYER, fecha_fin: null },
@@ -112,6 +115,7 @@ class Builder {
     if (this.limitN != null) rows = rows.slice(0, this.limitN);
     return rows.map((r) => ({ ...r }));
   }
+  maybeSingle() { const rows = this._rows(); return Promise.resolve({ data: rows[0] ?? null, error: null }); }
   then(resolve, reject) { return Promise.resolve({ data: this._rows(), error: null }).then(resolve, reject); }
 }
 
@@ -123,7 +127,7 @@ fakeModule.loaded = true;
 require.cache[supabaseJsPath] = fakeModule;
 
 const distDir = path.join(__dirname, '..', 'dist');
-const { resolveScopeContext } = require(path.join(distDir, 'services', 'ScopeService.js'));
+const { resolveScopeContext, gestoresEnAlcance, gerentesZonaEnAlcance } = require(path.join(distDir, 'services', 'ScopeService.js'));
 const { applyScope } = require(path.join(distDir, 'services', 'ScopeFilter.js'));
 
 /* ===== Cartera ficticia. IMPORTANTE: la fila de GUATEMALA/107 usa un nombre
@@ -213,4 +217,65 @@ test('Seguridad: applyScope nunca depende de datos enviados por el cliente — u
   const ctxGestorB = await resolveScopeContext({ userId: 'user-gestorB', roleClave: 'gestor', permissions: [] });
   const rows = applyScope(CARTERA, ctxGestorB, applyOpts);
   assert.ok(rows.every((r) => codigos([r])[0] === 'CTA-B-PZ'));
+});
+
+/* ===== gestoresEnAlcance / gerentesZonaEnAlcance / gerenteZonaIds (catálogo
+ * de PERSONAS para las OPCIONES del filtro — Secciones 1-15 de la tarea
+ * "conexión definitiva usuarios/scope/filtros"): nunca `cartera.gestor`. ===== */
+
+test('gestoresEnAlcance (SUPERVISOR): devuelve EXACTAMENTE sus 2 gestores, incluyendo al que NO tiene ninguna fila en cartera.gestor', async () => {
+  const ctx = await resolveScopeContext({ userId: 'user-sup1', roleClave: 'supervisor', permissions: [] });
+  const gestores = await gestoresEnAlcance(ctx);
+  const nombres = gestores.map((g) => g.nombre).sort();
+  assert.deepEqual(nombres, ['GESTOR FANTASMA SIN CARTERA', 'GESTOR REAL EN CARTERA']);
+  // El "fantasma" (gestorB) trae SU PROPIO gestor_pais_zona (GUATEMALA/107) —
+  // esto es lo que permite que aparezca en el filtro y se pueda seleccionar
+  // sin depender de que su nombre exista en cartera.
+  const fantasma = gestores.find((g) => g.nombre === 'GESTOR FANTASMA SIN CARTERA');
+  assert.deepEqual(fantasma.paisZona, [{ pais: 'GUATEMALA', zona: '107' }]);
+  // Aislamiento: nunca incluye al gestor de otro Supervisor.
+  assert.ok(!nombres.includes('GESTOR DE OTRO SUPERVISOR'));
+});
+
+test('gestoresEnAlcance (ADMINISTRADOR): ve TODOS los gestores activos del sistema', async () => {
+  const ctx = await resolveScopeContext({ userId: 'user-admin', roleClave: 'administrador', permissions: [] });
+  const gestores = await gestoresEnAlcance(ctx);
+  assert.deepEqual(gestores.map((g) => g.nombre).sort(), ['GESTOR DE OTRO SUPERVISOR', 'GESTOR FANTASMA SIN CARTERA', 'GESTOR REAL EN CARTERA']);
+});
+
+test('gestoresEnAlcance (SUPERVISOR no relacionado): ve SOLO el suyo, aislado', async () => {
+  const ctx = await resolveScopeContext({ userId: 'user-sup2', roleClave: 'supervisor', permissions: [] });
+  const gestores = await gestoresEnAlcance(ctx);
+  assert.deepEqual(gestores.map((g) => g.nombre), ['GESTOR DE OTRO SUPERVISOR']);
+});
+
+test('ctx.gerenteZonaIds: se propaga a SUPERVISOR y transitivamente a LIDERAZGO, aislado del Supervisor no relacionado', async () => {
+  const ctxSup = await resolveScopeContext({ userId: 'user-sup1', roleClave: 'supervisor', permissions: [] });
+  assert.deepEqual(ctxSup.gerenteZonaIds, ['user-gerente1']);
+
+  const ctxLider = await resolveScopeContext({ userId: 'user-lider1', roleClave: 'liderazgo', permissions: [] });
+  assert.deepEqual(ctxLider.gerenteZonaIds, ['user-gerente1']);
+
+  const ctxSup2 = await resolveScopeContext({ userId: 'user-sup2', roleClave: 'supervisor', permissions: [] });
+  assert.deepEqual(ctxSup2.gerenteZonaIds, ['user-gerente2']);
+
+  const ctxGerente = await resolveScopeContext({ userId: 'user-gerente1', roleClave: 'gerente_zona', permissions: [] });
+  assert.deepEqual(ctxGerente.gerenteZonaIds, ['user-gerente1']);
+});
+
+test('gerentesZonaEnAlcance (SUPERVISOR/LIDERAZGO): devuelve EXACTAMENTE su Gerente de zona, con su propio País-Zona, nunca el de otro Supervisor', async () => {
+  const ctxSup = await resolveScopeContext({ userId: 'user-sup1', roleClave: 'supervisor', permissions: [] });
+  const gerentesSup = await gerentesZonaEnAlcance(ctxSup);
+  assert.deepEqual(gerentesSup.map((g) => g.nombre), ['Gerente Uno']);
+  assert.deepEqual(gerentesSup[0].paisZona, [{ pais: 'REPUBLICA DOMINICANA', zona: '107' }]);
+
+  const ctxLider = await resolveScopeContext({ userId: 'user-lider1', roleClave: 'liderazgo', permissions: [] });
+  const gerentesLider = await gerentesZonaEnAlcance(ctxLider);
+  assert.deepEqual(gerentesLider.map((g) => g.nombre), ['Gerente Uno']);
+});
+
+test('gerentesZonaEnAlcance (ADMINISTRADOR): ve TODOS los gerentes de zona activos', async () => {
+  const ctx = await resolveScopeContext({ userId: 'user-admin', roleClave: 'administrador', permissions: [] });
+  const gerentes = await gerentesZonaEnAlcance(ctx);
+  assert.deepEqual(gerentes.map((g) => g.nombre).sort(), ['Gerente Dos', 'Gerente Uno']);
 });

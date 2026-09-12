@@ -1,5 +1,6 @@
 import { getSupabaseClient } from '../config/supabaseClient';
 import type { AuthScope } from './PerfilService';
+import type { PersonaFiltro } from '../utils/carteraAggregations';
 
 /**
  * FASE 3.3.1 — ScopeService (única fuente de verdad del alcance de datos).
@@ -34,6 +35,11 @@ export interface ScopeContext {
   gestorIds: string[];
   /** UUIDs de zonas del alcance. */
   zonaIds: string[];
+  /** UUIDs de perfiles (profiles.id) con rol gerente_zona dentro del alcance:
+   *  el propio usuario si es Gerente de zona, o los Gerentes de zona de sus
+   *  Supervisores/Gestores supervisados transitivamente (Supervisor/Liderazgo).
+   *  Fuente para el catálogo de personas de los filtros (nunca cartera). */
+  gerenteZonaIds: string[];
 }
 
 export interface ResolveScopeInput {
@@ -67,7 +73,8 @@ const baseContext = (input: ResolveScopeInput): ScopeContext => ({
   isGlobal: false,
   scope: emptyScope(),
   gestorIds: [],
-  zonaIds: []
+  zonaIds: [],
+  gerenteZonaIds: []
 });
 
 /**
@@ -104,56 +111,82 @@ const gestoresPorIds = async (gestorIds: string[]): Promise<Array<{ id: string; 
   return (data ?? []) as Array<{ id: string; nombre_cartera: string | null }>;
 };
 
-/** País/Zona explícitos (narrowing adicional) de uno o varios `gestores.id`, vigentes. */
-const paisZonaDeGestores = async (gestorIds: string[]): Promise<Array<{ pais: string; zona: string }>> => {
-  if (gestorIds.length === 0) return [];
+/** Resuelve nombres de zona para un conjunto de `zona_id`, en un solo query. */
+const nombresDeZonas = async (zonaIds: string[]): Promise<Map<string, string>> => {
+  if (zonaIds.length === 0) return new Map();
+  const { data: zonas, error: zError } = await getSupabaseClient().from('zonas').select('id, nombre').in('id', zonaIds).eq('activo', true);
+  if (zError) throw new ScopeResolutionError(`No se pudieron leer las zonas: ${zError.message}`);
+  return new Map(((zonas ?? []) as Array<{ id: string; nombre: string }>).map((z) => [z.id, z.nombre]));
+};
+
+/** País/Zona explícitos de uno o varios `gestores.id` (vigentes), AGRUPADOS por
+ *  gestor_id. Fuente única para el narrowing/concesión de un Gestor Y para el
+ *  catálogo de personas del filtro (cada persona necesita SU PROPIO conjunto
+ *  País-Zona, no solo la unión de todos). */
+const paisZonaPorGestorId = async (gestorIds: string[]): Promise<Map<string, Array<{ pais: string; zona: string }>>> => {
+  const map = new Map<string, Array<{ pais: string; zona: string }>>();
+  if (gestorIds.length === 0) return map;
   const today = serverDate();
-  const client = getSupabaseClient();
-  const { data: rel, error: relError } = await client
+  const { data: rel, error: relError } = await getSupabaseClient()
     .from('gestor_pais_zona')
-    .select('zona_id, pais')
+    .select('gestor_id, zona_id, pais')
     .in('gestor_id', gestorIds)
     .eq('activo', true)
     .lte('fecha_inicio', today)
     .or(`fecha_fin.is.null,fecha_fin.gte.${today}`);
   if (relError) throw new ScopeResolutionError(`No se pudieron leer las zonas asignadas del gestor: ${relError.message}`);
-  const rows = (rel ?? []) as Array<{ zona_id: string; pais: string | null }>;
-  if (rows.length === 0) return [];
+  const rows = (rel ?? []) as Array<{ gestor_id: string; zona_id: string; pais: string | null }>;
+  if (rows.length === 0) return map;
 
-  const zonaIds = uniq(rows.map((r) => r.zona_id));
-  const { data: zonas, error: zError } = await client.from('zonas').select('id, nombre').in('id', zonaIds).eq('activo', true);
-  if (zError) throw new ScopeResolutionError(`No se pudieron leer las zonas: ${zError.message}`);
-  const nombrePorId = new Map(((zonas ?? []) as Array<{ id: string; nombre: string }>).map((z) => [z.id, z.nombre]));
-
-  return rows
-    .map((r) => ({ pais: r.pais ?? '', zona: nombrePorId.get(r.zona_id) ?? '' }))
-    .filter((p) => p.pais && p.zona);
+  const nombrePorId = await nombresDeZonas(uniq(rows.map((r) => r.zona_id)));
+  for (const r of rows) {
+    const zona = nombrePorId.get(r.zona_id);
+    if (!r.pais || !zona) continue;
+    const list = map.get(r.gestor_id) ?? [];
+    list.push({ pais: r.pais, zona });
+    map.set(r.gestor_id, list);
+  }
+  return map;
 };
 
-/** País/Zona explícitos de uno o varios Gerentes de zona (por `profiles.id`), vigentes. */
-const paisZonaDeGerentes = async (gerenteUserIds: string[]): Promise<Array<{ pais: string; zona: string }>> => {
-  if (gerenteUserIds.length === 0) return [];
+/** País/Zona explícitos de uno o varios Gerentes de zona (por `profiles.id`),
+ *  vigentes, AGRUPADOS por usuario_id (mismo motivo que arriba). */
+const paisZonaPorGerenteId = async (gerenteUserIds: string[]): Promise<Map<string, Array<{ pais: string; zona: string }>>> => {
+  const map = new Map<string, Array<{ pais: string; zona: string }>>();
+  if (gerenteUserIds.length === 0) return map;
   const today = serverDate();
-  const client = getSupabaseClient();
-  const { data: rel, error: relError } = await client
+  const { data: rel, error: relError } = await getSupabaseClient()
     .from('gerente_zona_zona')
-    .select('zona_id, pais')
+    .select('usuario_id, zona_id, pais')
     .in('usuario_id', gerenteUserIds)
     .eq('activo', true)
     .lte('fecha_inicio', today)
     .or(`fecha_fin.is.null,fecha_fin.gte.${today}`);
   if (relError) throw new ScopeResolutionError(`No se pudieron leer las zonas de los gerentes de zona: ${relError.message}`);
-  const rows = (rel ?? []) as Array<{ zona_id: string; pais: string | null }>;
-  if (rows.length === 0) return [];
+  const rows = (rel ?? []) as Array<{ usuario_id: string; zona_id: string; pais: string | null }>;
+  if (rows.length === 0) return map;
 
-  const zonaIds = uniq(rows.map((r) => r.zona_id));
-  const { data: zonas, error: zError } = await client.from('zonas').select('id, nombre').in('id', zonaIds).eq('activo', true);
-  if (zError) throw new ScopeResolutionError(`No se pudieron leer las zonas: ${zError.message}`);
-  const nombrePorId = new Map(((zonas ?? []) as Array<{ id: string; nombre: string }>).map((z) => [z.id, z.nombre]));
+  const nombrePorId = await nombresDeZonas(uniq(rows.map((r) => r.zona_id)));
+  for (const r of rows) {
+    const zona = nombrePorId.get(r.zona_id);
+    if (!r.pais || !zona) continue;
+    const list = map.get(r.usuario_id) ?? [];
+    list.push({ pais: r.pais, zona });
+    map.set(r.usuario_id, list);
+  }
+  return map;
+};
 
-  return rows
-    .map((r) => ({ pais: r.pais ?? '', zona: nombrePorId.get(r.zona_id) ?? '' }))
-    .filter((p) => p.pais && p.zona);
+/** País/Zona explícitos (narrowing adicional) de uno o varios `gestores.id`, vigentes. */
+const paisZonaDeGestores = async (gestorIds: string[]): Promise<Array<{ pais: string; zona: string }>> => {
+  const map = await paisZonaPorGestorId(gestorIds);
+  return [...map.values()].flat();
+};
+
+/** País/Zona explícitos de uno o varios Gerentes de zona (por `profiles.id`), vigentes. */
+const paisZonaDeGerentes = async (gerenteUserIds: string[]): Promise<Array<{ pais: string; zona: string }>> => {
+  const map = await paisZonaPorGerenteId(gerenteUserIds);
+  return [...map.values()].flat();
 };
 
 /** Filtra una lista de `profiles.id`, devolviendo solo los que siguen activos.
@@ -258,6 +291,7 @@ const resolveSupervisorScope = async (ctx: ScopeContext): Promise<ScopeContext> 
   }
 
   const gerenteIds = await gerentesDeSupervisores([ctx.userId]);
+  ctx.gerenteZonaIds = gerenteIds;
   ctx.scope.paisZonaGrant = mergePairs(
     mergePairs(ctx.scope.paisZonaGrant ?? [], await paisZonaDeGerentes(gerenteIds)),
     await paisZonaDeGestores(ctx.gestorIds)
@@ -317,6 +351,7 @@ const resolveLiderazgoScope = async (ctx: ScopeContext): Promise<ScopeContext> =
   }
 
   const gerenteIds = await gerentesDeSupervisores(supervisorIds);
+  ctx.gerenteZonaIds = gerenteIds;
   ctx.scope.paisZonaGrant = mergePairs(
     mergePairs(ctx.scope.paisZonaGrant ?? [], await paisZonaDeGerentes(gerenteIds)),
     await paisZonaDeGestores(ctx.gestorIds)
@@ -339,6 +374,7 @@ const resolveGerenteZonaScope = async (ctx: ScopeContext): Promise<ScopeContext>
     return ctx; // Sin País/Zona vigentes ⇒ scope vacío (NO global).
   }
   ctx.scope.paisZonaGrant = pares;
+  ctx.gerenteZonaIds = [ctx.userId];
 
   const today = serverDate();
   const { data: rel, error: relError } = await getSupabaseClient()
@@ -352,6 +388,65 @@ const resolveGerenteZonaScope = async (ctx: ScopeContext): Promise<ScopeContext>
   ctx.zonaIds = uniq(((rel ?? []) as Array<{ zona_id: string | null }>).map((r) => r.zona_id));
 
   return ctx;
+};
+
+/** Todos los gestores activos (Administrador: ve todos los del sistema). */
+const todosGestoresActivos = async (): Promise<Array<{ id: string; nombre_cartera: string | null }>> => {
+  const { data, error } = await getSupabaseClient().from('gestores').select('id, nombre_cartera').eq('activo', true);
+  if (error) throw new ScopeResolutionError(`No se pudieron leer los gestores: ${error.message}`);
+  return (data ?? []) as Array<{ id: string; nombre_cartera: string | null }>;
+};
+
+const roleIdPorClave = async (clave: string): Promise<string | null> => {
+  const { data, error } = await getSupabaseClient().from('roles').select('id').eq('clave', clave).maybeSingle();
+  if (error) throw new ScopeResolutionError(`No se pudo leer el rol ${clave}: ${error.message}`);
+  return (data as { id: string } | null)?.id ?? null;
+};
+
+/**
+ * Catálogo de GESTORES para las OPCIONES del filtro (Gestor), según el
+ * alcance del usuario CONECTADO: fuente ÚNICA = usuarios/gestores/
+ * gestor_pais_zona — NUNCA `cartera.gestor`. Administrador ve todos los
+ * gestores activos del sistema; cualquier otro rol ve únicamente los suyos
+ * (`ctx.gestorIds`, ya resuelto por ScopeService según su rol/relaciones).
+ * Cada persona trae su propio conjunto País-Zona (para que el filtro pueda
+ * encadenar Gestor→País/Zona y viceversa sin depender de `cartera.gestor`).
+ */
+export const gestoresEnAlcance = async (ctx: ScopeContext): Promise<PersonaFiltro[]> => {
+  const rows = ctx.isGlobal
+    ? await todosGestoresActivos()
+    : ctx.gestorIds.length
+      ? await gestoresPorIds(ctx.gestorIds)
+      : [];
+  if (rows.length === 0) return [];
+  const pares = await paisZonaPorGestorId(rows.map((r) => r.id));
+  return rows
+    .filter((r) => r.nombre_cartera)
+    .map((r) => ({ nombre: r.nombre_cartera as string, paisZona: pares.get(r.id) ?? [] }));
+};
+
+/**
+ * Catálogo de GERENTES DE ZONA para las OPCIONES del filtro (Gerente), según
+ * el alcance del usuario CONECTADO: fuente ÚNICA = usuarios/profiles/roles/
+ * gerente_zona_zona — NUNCA `cartera.gerente_zona`. Administrador ve todos los
+ * Gerentes de zona activos; cualquier otro rol ve únicamente los suyos
+ * (`ctx.gerenteZonaIds`).
+ */
+export const gerentesZonaEnAlcance = async (ctx: ScopeContext): Promise<PersonaFiltro[]> => {
+  const roleId = await roleIdPorClave('gerente_zona');
+  if (!roleId) return [];
+  const client = getSupabaseClient();
+  let query = client.from('profiles').select('id, nombre, apellido').eq('activo', true).eq('role_id', roleId);
+  if (!ctx.isGlobal) {
+    if (ctx.gerenteZonaIds.length === 0) return [];
+    query = query.in('id', ctx.gerenteZonaIds);
+  }
+  const { data, error } = await query;
+  if (error) throw new ScopeResolutionError(`No se pudieron leer los gerentes de zona: ${error.message}`);
+  const rows = (data ?? []) as Array<{ id: string; nombre: string; apellido: string | null }>;
+  if (rows.length === 0) return [];
+  const pares = await paisZonaPorGerenteId(rows.map((r) => r.id));
+  return rows.map((r) => ({ nombre: `${r.nombre}${r.apellido ? ` ${r.apellido}` : ''}`.trim(), paisZona: pares.get(r.id) ?? [] }));
 };
 
 /**

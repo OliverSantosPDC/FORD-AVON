@@ -20,11 +20,22 @@ import {
   buildFilterOptions,
   filterCarteraRows,
   DashboardMultiFilterParams,
-  CarteraRow
+  CarteraRow,
+  PersonasEnAlcance
 } from '../utils/carteraAggregations';
 import { applyScope } from './ScopeFilter';
-import type { ScopeContext } from './ScopeService';
+import { gestoresEnAlcance, gerentesZonaEnAlcance, type ScopeContext } from './ScopeService';
 import { getSupabaseClient } from '../config/supabaseClient';
+
+/** Catálogo de personas (Gestor/Gerente de zona) para las opciones y la
+ *  aplicación del filtro: SIEMPRE desde usuarios/roles/relaciones
+ *  (ScopeService), acotado al alcance del usuario CONECTADO — nunca desde
+ *  `cartera.gestor`/`cartera.gerente_zona`. Única función para Dashboard,
+ *  Centro de Inteligencia y Control Operativo (reutilizan este mismo origen). */
+const personasEnAlcance = async (scopeContext: ScopeContext): Promise<PersonasEnAlcance> => ({
+  gestores: await gestoresEnAlcance(scopeContext),
+  gerentes: await gerentesZonaEnAlcance(scopeContext)
+});
 
 export class CarteraService {
   private readonly repository: CarteraRepository;
@@ -102,9 +113,12 @@ export class CarteraService {
     const scoped = await this.overlayEffectiveGestor(scopedOriginal);
 
     // 3) Filtros de búsqueda del usuario (solo pueden ESTRECHAR, nunca ampliar).
+    //    Gestor/Gerente se resuelven contra el catálogo de personas del propio
+    //    alcance (usuarios/roles/relaciones), nunca por texto de cartera.
+    const personas = await personasEnAlcance(scopeContext);
     const multi = toMultiFilters(filters);
     const hasFilters = Object.values(multi).some((list) => list.length > 0);
-    const filtered = hasFilters ? filterCarteraRows(scoped, multi) : scoped;
+    const filtered = hasFilters ? filterCarteraRows(scoped, multi, personas) : scoped;
 
     // 4) Límite/paginación, siempre al final.
     if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) {
@@ -145,11 +159,18 @@ export class CarteraService {
       return result;
     };
 
-    const cartera = step('map (rows.map(mapToCartera))', () => rows.map(mapToCartera));
-    const filtered = step('applyFilters', () => applyFilters(cartera, filters));
+    // Catálogo de personas (Gestor/Gerente de zona) del PROPIO alcance del
+    // usuario conectado — única fuente para las opciones y la aplicación del
+    // filtro (usuarios/roles/relaciones, nunca `cartera.gestor`/`gerente_zona`).
+    const personas = await step('personasEnAlcance', () => personasEnAlcance(scopeContext));
 
     const multi = toMultiFilters(filters);
-    const rawFiltered = step('filterCarteraRows (rawFiltered)', () => filterCarteraRows(rows, multi));
+    // Único punto de aplicación de los filtros del usuario sobre las filas
+    // crudas (ya scoped): antes existía además `applyFilters` sobre las filas
+    // MAPEADAS con la MISMA lógica (texto) duplicada — Sección 23: unificado
+    // en `filterCarteraRows`, y `filtered` se deriva de ese único resultado.
+    const rawFiltered = step('filterCarteraRows (rawFiltered)', () => filterCarteraRows(rows, multi, personas));
+    const filtered = step('map (rawFiltered.map(mapToCartera))', () => rawFiltered.map(mapToCartera));
 
     const kpis = step('calculateKpis', () => calculateKpis(filtered));
     const paises = step("aggregateBy('pais')", () => aggregateBy(filtered, 'pais'));
@@ -162,7 +183,7 @@ export class CarteraService {
     const resumenCampania = step('aggregateResumenCampania', () => aggregateResumenCampania(rawFiltered));
     const countrySummary = step('aggregateCountrySummary', () => aggregateCountrySummary(rawFiltered));
     const zonaSectorSummary = step('aggregateZonaSector', () => aggregateZonaSector(filtered));
-    const filterOptions = step('buildFilterOptions', () => buildFilterOptions(rows, multi));
+    const filterOptions = step('buildFilterOptions', () => buildFilterOptions(rows, multi, personas));
     const cuentas = step('cuentas (rawFiltered.slice 100)', () => rawFiltered.slice(0, 100));
 
     const response: DashboardResponse = {
@@ -312,51 +333,6 @@ const mapToCartera = (row: Record<string, unknown>): Cartera => {
     nombre: clienteNombreRaw ? String(clienteNombreRaw) : undefined,
     original: row
   };
-};
-
-const normalize = (value?: string) => value?.trim().toLocaleLowerCase();
-const normalizeList = (values?: string[]) =>
-  values?.map((value) => value.trim().toLocaleLowerCase()).filter(Boolean);
-
-const applyFilters = (items: Cartera[], filters?: DashboardFilterParams): Cartera[] => {
-  if (!filters) {
-    return items;
-  }
-
-  const normalized = {
-    pais: normalizeList(filters.pais),
-    gestor: normalizeList(filters.gestor),
-    gerente: normalizeList(filters.gerente),
-    zona: normalizeList(filters.zona),
-    pd: normalizeList(filters.pd),
-    campania: normalizeList(filters.campania),
-    fecha: normalizeList(filters.fecha)
-  };
-
-  return items.filter((item) => {
-    if (normalized.pais && normalized.pais.length && !normalized.pais.includes(item.pais.toLocaleLowerCase())) {
-      return false;
-    }
-    if (normalized.gestor && normalized.gestor.length && !normalized.gestor.includes(item.gestor?.toLocaleLowerCase() ?? '')) {
-      return false;
-    }
-    if (normalized.gerente && normalized.gerente.length && !normalized.gerente.includes(item.gerente?.toLocaleLowerCase() ?? '')) {
-      return false;
-    }
-    if (normalized.zona && normalized.zona.length && !normalized.zona.includes(item.zona?.toLocaleLowerCase() ?? '')) {
-      return false;
-    }
-    if (normalized.pd && normalized.pd.length && !normalized.pd.includes(item.pd.toLocaleLowerCase())) {
-      return false;
-    }
-    if (normalized.campania && normalized.campania.length && !normalized.campania.includes(item.campania?.toLocaleLowerCase() ?? '')) {
-      return false;
-    }
-    if (normalized.fecha && normalized.fecha.length && !normalized.fecha.includes(item.fecha?.toLocaleLowerCase() ?? '')) {
-      return false;
-    }
-    return true;
-  });
 };
 
 const calculateKpis = (items: Cartera[]): Kpis => {

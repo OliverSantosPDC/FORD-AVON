@@ -3,6 +3,7 @@ import { CarteraService } from '../services/CarteraService';
 import { CarteraRepository } from '../repositories/CarteraRepository';
 import { getCarteraDataSource } from '../config/dataSource';
 import { getCentroInteligencia, construirFilterOptionsCentro, type CentroFiltros } from '../services/InteligenciaService';
+import { gestoresEnAlcance } from '../services/ScopeService';
 
 const carteraService = new CarteraService(new CarteraRepository(getCarteraDataSource()));
 
@@ -25,10 +26,14 @@ export class InteligenciaController {
       // Opciones de filtro EN CASCADA (Sección 6): las filas ya vienen con el
       // Scope de seguridad aplicado (frontera en listCartera); cada dimensión
       // respeta las DEMÁS dimensiones ya seleccionadas (construirFilterOptionsCentro,
-      // misma lógica probada en InteligenciaService) — nunca depende de
-      // cartera.gestor como catálogo de personas.
-      const scopedAll = await carteraService.listCartera({}, undefined, ctx);
-      const filterOptions = construirFilterOptionsCentro(scopedAll, filtros);
+      // misma lógica probada en InteligenciaService). El catálogo de Gestores
+      // sale de usuarios/roles/gestor_pais_zona (ScopeService.gestoresEnAlcance),
+      // acotado al alcance del usuario CONECTADO — nunca de cartera.gestor.
+      const [scopedAll, personasGestor] = await Promise.all([
+        carteraService.listCartera({}, undefined, ctx),
+        gestoresEnAlcance(ctx)
+      ]);
+      const filterOptions = construirFilterOptionsCentro(scopedAll, filtros, personasGestor);
 
       // Filtros que aplica listCartera (pais/zona/pd/gestor/gerente/campania).
       const rows = await carteraService.listCartera(
