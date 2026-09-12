@@ -266,3 +266,14 @@ export const resolvePasswordRequest = async (
   if (!res.ok) throw new Error(await parseError(res, 'No se pudo resolver la solicitud.'));
   return res.json();
 };
+
+/** Admin: elimina registros del HISTORIAL (COMPLETADA/RECHAZADA). Nunca elimina una PENDIENTE. */
+export const deletePasswordRequests = async (ids: string[]): Promise<{ eliminadas: number; omitidas: number }> => {
+  const res = await apiFetch('/api/usuarios/password-requests', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids })
+  });
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudo eliminar el historial.'));
+  return res.json();
+};

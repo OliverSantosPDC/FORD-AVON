@@ -2,6 +2,7 @@ import { getSupabaseClient } from '../config/supabaseClient';
 import { SUPABASE_CARTERA_TABLE } from '../config/env';
 import { registrarAuditoria } from './AuditoriaService';
 import { generarPasswordTemporal } from '../utils/password';
+import { describirErrorAuth, esUsuarioAuthInexistente } from '../utils/authErrors';
 import {
   SHEET_USUARIOS, SHEET_LIDERAZGO_SUPERVISOR, SHEET_SUPERVISOR_GESTOR, SHEET_SUPERVISOR_GERENTE,
   SHEET_GESTOR_PAIS_ZONA, SHEET_GERENTE_PAIS_ZONA,
@@ -455,7 +456,7 @@ export const restablecerPassword = async (id: string, password: string): Promise
   if (!pw) throw new UsuariosError('La contraseña es obligatoria.');
   if (pw.length < MIN_PASSWORD_LEN) throw new UsuariosError(`La contraseña debe tener al menos ${MIN_PASSWORD_LEN} caracteres.`);
   const { error } = await getSupabaseClient().auth.admin.updateUserById(id, { password: pw });
-  if (error) throw new UsuariosError(`No se pudo restablecer la contraseña: ${error.message}`);
+  if (error) throw new UsuariosError(describirErrorAuth(error, 'No se pudo restablecer la contraseña.'));
 };
 
 export const actualizarUsuario = async (id: string, input: ActualizarUsuarioInput): Promise<void> => {
@@ -503,10 +504,13 @@ export const eliminarUsuario = async (id: string, actorId: string | null): Promi
   await client.from('liderazgo_supervisor').delete().or(`liderazgo_id.eq.${id},supervisor_id.eq.${id}`);
   await client.from('gerente_zona_zona').delete().eq('usuario_id', id);
 
-  // 2) Elimina de Supabase Auth (Admin API).
+  // 2) Elimina de Supabase Auth (Admin API). Requiere SUPABASE_SERVICE_ROLE_KEY
+  //    (getSupabaseClient() ya está configurado exclusivamente con esa clave;
+  //    nunca con la anon key). Un usuario ya inexistente en Auth (p. ej. una
+  //    reintento tras un fallo previo) NO es un error fatal.
   const { error: authError } = await client.auth.admin.deleteUser(id);
-  if (authError && !/not.*found/i.test(authError.message)) {
-    throw new UsuariosError(`No se pudo eliminar el usuario de Auth: ${authError.message}`);
+  if (authError && !esUsuarioAuthInexistente(authError)) {
+    throw new UsuariosError(describirErrorAuth(authError, 'No se pudo eliminar el usuario de Auth.'));
   }
 
   // 3) Elimina el perfil (por si no hubo cascada).

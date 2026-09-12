@@ -32,6 +32,7 @@ router.post('/usuarios/importar/aplicar', requireAuth, requirePermission(ADMIN),
 // Solicitudes de cambio de contraseña (antes de '/usuarios/:id' para evitar colisión de rutas).
 router.get('/usuarios/password-requests', requireAuth, requirePermission(ADMIN), (req, res) => passwordRequests.listar(req, res));
 router.post('/usuarios/password-requests/:id/resolver', requireAuth, requirePermission(ADMIN), (req, res) => passwordRequests.resolver(req, res));
+router.delete('/usuarios/password-requests', requireAuth, requirePermission(ADMIN), (req, res) => passwordRequests.eliminarHistorial(req, res));
 
 router.get('/usuarios/resumen-alcance', requireAuth, lectura, (req, res) => controller.resumenAlcance(req, res));
 router.get('/usuarios/catalogos', requireAuth, lectura, (req, res) => controller.catalogos(req, res));

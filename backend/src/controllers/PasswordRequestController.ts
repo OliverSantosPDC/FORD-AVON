@@ -3,13 +3,15 @@ import {
   crearSolicitud,
   listarSolicitudes,
   resolverSolicitud,
+  eliminarSolicitudesHistorial,
   PasswordRequestError
 } from '../services/PasswordRequestService';
 
 /**
  * Controlador de solicitudes de cambio de contraseña.
  * - `crear` es público (Login, sin sesión).
- * - `listar`/`resolver` exigen requireAuth + requirePermission('usuarios.administrar_global').
+ * - `listar`/`resolver`/`eliminarHistorial` exigen requireAuth +
+ *   requirePermission('usuarios.administrar_global').
  */
 export class PasswordRequestController {
   async crear(req: Request, res: Response): Promise<Response> {
@@ -43,6 +45,21 @@ export class PasswordRequestController {
       return res.json(result);
     } catch (error) {
       return this.fail(res, error, 'No se pudo resolver la solicitud.');
+    }
+  }
+
+  /** DELETE /api/usuarios/password-requests — elimina registros del HISTORIAL (nunca PENDIENTE). */
+  async eliminarHistorial(req: Request, res: Response): Promise<Response> {
+    try {
+      const { ids } = (req.body ?? {}) as { ids?: unknown };
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ error: 'Debes indicar al menos un registro a eliminar.' });
+      }
+      const actorId = req.auth?.userId ?? null;
+      const result = await eliminarSolicitudesHistorial(ids.map(String), actorId);
+      return res.json(result);
+    } catch (error) {
+      return this.fail(res, error, 'No se pudo eliminar el historial.');
     }
   }
 

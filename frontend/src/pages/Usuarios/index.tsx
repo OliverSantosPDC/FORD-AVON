@@ -44,6 +44,7 @@ import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { useAuth } from '../../context/AuthContext';
 import {
   listUsuarios,
@@ -55,6 +56,7 @@ import {
   resetPasswordUsuario,
   getPasswordRequests,
   resolvePasswordRequest,
+  deletePasswordRequests,
   getResumenAlcance,
   type UsuarioListItem,
   type Catalogos,
@@ -156,6 +158,11 @@ const UsuariosPage = () => {
   const [deleting, setDeleting] = useState(false);
   const [pwReqs, setPwReqs] = useState<PasswordRequest[]>([]);
   const [pwTemp, setPwTemp] = useState<{ email: string; password: string } | null>(null);
+  // Borrado del historial (Sección 3-4): solo COMPLETADA/RECHAZADA son "historial";
+  // una PENDIENTE nunca se selecciona ni se elimina.
+  const [pwSel, setPwSel] = useState<Set<string>>(new Set());
+  const [confirmDeletePw, setConfirmDeletePw] = useState<string[] | null>(null);
+  const [deletingPw, setDeletingPw] = useState(false);
 
   // Agrupación por rol de "Gestión de usuarios" (Sección 11-B): búsqueda + orden
   // + grupos expandibles, todo dentro del rol real (role.clave) de cada usuario.
@@ -182,6 +189,24 @@ const UsuariosPage = () => {
       await loadPwReqs();
     } catch (err) {
       setToast(err instanceof Error ? err.message : 'No se pudo resolver la solicitud.');
+    }
+  };
+  const pwHistoricas = pwReqs.filter((r) => r.estado !== 'PENDIENTE');
+  const togglePwSel = (id: string) => setPwSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleAllPwSel = () => setPwSel((s) => (s.size === pwHistoricas.length ? new Set() : new Set(pwHistoricas.map((r) => r.id))));
+  const confirmarEliminarPwHistorial = async () => {
+    if (!confirmDeletePw || confirmDeletePw.length === 0) return;
+    setDeletingPw(true);
+    try {
+      const { eliminadas, omitidas } = await deletePasswordRequests(confirmDeletePw);
+      setToast(omitidas > 0 ? `${eliminadas} eliminada(s), ${omitidas} omitida(s) (activas).` : `${eliminadas} solicitud(es) eliminada(s) del historial.`);
+      setPwSel(new Set());
+      setConfirmDeletePw(null);
+      await loadPwReqs();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'No se pudo eliminar el historial.');
+    } finally {
+      setDeletingPw(false);
     }
   };
 
@@ -580,14 +605,28 @@ const UsuariosPage = () => {
 
           {canAdminGlobal && (
             <Paper sx={{ mt: 2, borderRadius: 2.5, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}>
-              <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
                 <Typography sx={{ fontWeight: 700 }}>Solicitudes de cambio de contraseña</Typography>
-                <Chip size="small" label={`${pwReqs.filter((r) => r.estado === 'PENDIENTE').length} pendientes`} />
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Chip size="small" label={`${pwReqs.filter((r) => r.estado === 'PENDIENTE').length} pendientes`} />
+                  <Chip size="small" variant="outlined" label={`${pwHistoricas.length} en historial`} />
+                  {pwSel.size > 0 && (
+                    <Button size="small" color="error" variant="outlined" startIcon={<DeleteOutlineIcon fontSize="small" />}
+                      onClick={() => setConfirmDeletePw([...pwSel])} sx={{ textTransform: 'none' }}>
+                      Eliminar seleccionadas ({pwSel.size})
+                    </Button>
+                  )}
+                </Stack>
               </Box>
               <TableContainer sx={{ maxHeight: '45vh' }}>
                 <Table stickyHeader size="small">
                   <TableHead>
                     <TableRow>
+                      <TableCell padding="checkbox">
+                        <Checkbox size="small" indeterminate={pwSel.size > 0 && pwSel.size < pwHistoricas.length}
+                          checked={pwHistoricas.length > 0 && pwSel.size === pwHistoricas.length}
+                          disabled={pwHistoricas.length === 0} onChange={toggleAllPwSel} />
+                      </TableCell>
                       {['Correo', 'Fecha solicitud', 'Estado', 'Motivo', 'Resolución', 'Acciones'].map((h) => (
                         <TableCell key={h} sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</TableCell>
                       ))}
@@ -595,9 +634,14 @@ const UsuariosPage = () => {
                   </TableHead>
                   <TableBody>
                     {pwReqs.length === 0 ? (
-                      <TableRow><TableCell colSpan={6} align="center" sx={{ py: 2, color: 'text.secondary' }}>Sin solicitudes.</TableCell></TableRow>
-                    ) : pwReqs.map((r) => (
-                      <TableRow key={r.id} hover>
+                      <TableRow><TableCell colSpan={7} align="center" sx={{ py: 2, color: 'text.secondary' }}>Sin solicitudes.</TableCell></TableRow>
+                    ) : pwReqs.map((r) => {
+                      const esHistorial = r.estado !== 'PENDIENTE';
+                      return (
+                      <TableRow key={r.id} hover selected={pwSel.has(r.id)}>
+                        <TableCell padding="checkbox">
+                          {esHistorial && <Checkbox size="small" checked={pwSel.has(r.id)} onChange={() => togglePwSel(r.id)} />}
+                        </TableCell>
                         <TableCell sx={{ whiteSpace: 'nowrap' }}>{r.email}</TableCell>
                         <TableCell sx={{ whiteSpace: 'nowrap' }}>{r.created_at.slice(0, 16).replace('T', ' ')}</TableCell>
                         <TableCell>
@@ -613,15 +657,38 @@ const UsuariosPage = () => {
                               <Button size="small" color="success" variant="outlined" onClick={() => resolverPwReq(r.id, 'aprobar', r.email)} sx={{ textTransform: 'none', minWidth: 0 }}>Aprobar</Button>
                               <Button size="small" color="error" variant="outlined" onClick={() => resolverPwReq(r.id, 'rechazar', r.email)} sx={{ textTransform: 'none', minWidth: 0 }}>Rechazar</Button>
                             </Stack>
-                          ) : '—'}
+                          ) : (
+                            <IconButton size="small" color="error" title="Eliminar del historial" onClick={() => setConfirmDeletePw([r.id])}>
+                              <DeleteOutlineIcon fontSize="small" />
+                            </IconButton>
+                          )}
                         </TableCell>
                       </TableRow>
-                    ))}
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </TableContainer>
             </Paper>
           )}
+
+          <Dialog open={confirmDeletePw !== null} onClose={() => setConfirmDeletePw(null)} maxWidth="xs" fullWidth>
+            <DialogTitle>Eliminar historial</DialogTitle>
+            <DialogContent>
+              <Typography sx={{ fontSize: 14 }}>
+                ¿Deseas eliminar {confirmDeletePw?.length ?? 0} solicitud{(confirmDeletePw?.length ?? 0) === 1 ? '' : 'es'} del historial?
+              </Typography>
+              <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 1 }}>
+                Esta acción no afecta solicitudes pendientes ni la contraseña, el usuario, su rol o sus permisos.
+              </Typography>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setConfirmDeletePw(null)} sx={{ textTransform: 'none' }}>Cancelar</Button>
+              <Button color="error" variant="contained" onClick={confirmarEliminarPwHistorial} disabled={deletingPw} sx={{ textTransform: 'none' }}>
+                {deletingPw ? <CircularProgress size={18} color="inherit" /> : 'Eliminar'}
+              </Button>
+            </DialogActions>
+          </Dialog>
         </>
       )}
 

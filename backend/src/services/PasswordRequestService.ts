@@ -1,6 +1,7 @@
 import { getSupabaseClient } from '../config/supabaseClient';
 import { registrarAuditoria } from './AuditoriaService';
 import { generarPasswordTemporal } from '../utils/password';
+import { describirErrorAuth } from '../utils/authErrors';
 
 /**
  * Solicitudes de cambio de contraseña (FASE 1 + 7).
@@ -104,7 +105,7 @@ export const resolverSolicitud = async (
   }
   const passwordTemporal = generarPasswordTemporal();
   const { error: authErr } = await cl.auth.admin.updateUserById(solicitud.usuario_id, { password: passwordTemporal });
-  if (authErr) throw new PasswordRequestError(`No se pudo restablecer la contraseña: ${authErr.message}`);
+  if (authErr) throw new PasswordRequestError(describirErrorAuth(authErr, 'No se pudo restablecer la contraseña.'));
 
   const { error } = await cl
     .from('password_change_requests')
@@ -113,4 +114,50 @@ export const resolverSolicitud = async (
   if (error) throw new PasswordRequestError('Contraseña restablecida pero no se pudo actualizar la solicitud.');
   await registrarAuditoria(actorId, 'password_request.aprobar', 'password_change_requests', id, { email: solicitud.email });
   return { estado: 'COMPLETADA', passwordTemporal };
+};
+
+/** Estados que representan HISTORIAL (resueltas). Nunca se borra una solicitud PENDIENTE. */
+const ESTADOS_HISTORIAL = ['COMPLETADA', 'RECHAZADA'];
+
+/**
+ * Elimina registros del HISTORIAL de solicitudes de cambio de contraseña
+ * (Sección 3-4). Solo borra los ids cuyo estado sea COMPLETADA o RECHAZADA;
+ * cualquier id de una solicitud PENDIENTE se omite silenciosamente (nunca se
+ * elimina una solicitud activa). No afecta contraseñas, perfiles, roles,
+ * niveles, relaciones ni alcance: `password_change_requests` es una bitácora
+ * de solicitudes, independiente de esos datos.
+ */
+export const eliminarSolicitudesHistorial = async (
+  ids: string[],
+  actorId: string | null
+): Promise<{ eliminadas: number; omitidas: number }> => {
+  const idsUnicos = Array.from(new Set(ids.filter((id) => typeof id === 'string' && id.trim())));
+  if (idsUnicos.length === 0) throw new PasswordRequestError('Debes indicar al menos un registro a eliminar.');
+
+  const cl = c();
+  const { data, error } = await cl
+    .from('password_change_requests')
+    .select('id, email, estado')
+    .in('id', idsUnicos);
+  if (error) throw new PasswordRequestError('No se pudo verificar el historial a eliminar.');
+
+  const filas = (data ?? []) as Array<{ id: string; email: string; estado: string }>;
+  // "omitidas" cubre tanto ids inexistentes como ids de solicitudes PENDIENTE (activas): nunca se eliminan.
+  const elegibles = filas.filter((f) => ESTADOS_HISTORIAL.includes(f.estado));
+
+  if (elegibles.length === 0) {
+    return { eliminadas: 0, omitidas: idsUnicos.length };
+  }
+
+  const idsElegibles = elegibles.map((f) => f.id);
+  const { error: delErr } = await cl.from('password_change_requests').delete().in('id', idsElegibles);
+  if (delErr) throw new PasswordRequestError('No se pudo eliminar el historial.');
+
+  await registrarAuditoria(actorId, 'password_request.eliminar_historial', 'password_change_requests', null, {
+    cantidad: idsElegibles.length,
+    omitidas: idsUnicos.length - idsElegibles.length,
+    emails: elegibles.map((f) => f.email)
+  });
+
+  return { eliminadas: idsElegibles.length, omitidas: idsUnicos.length - idsElegibles.length };
 };
