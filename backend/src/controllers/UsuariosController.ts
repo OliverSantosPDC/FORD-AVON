@@ -154,7 +154,8 @@ export class UsuariosController {
   /** GET /api/usuarios/plantilla — descarga la plantilla oficial .xlsx. */
   async plantilla(_req: Request, res: Response): Promise<void> {
     try {
-      const buffer = await generarPlantilla();
+      const catalogos = await obtenerCatalogos();
+      const buffer = await generarPlantilla(catalogos.carteraPaisZona);
       res.setHeader('Content-Type', XLSX_MIME);
       res.setHeader('Content-Disposition', 'attachment; filename="plantilla_usuarios.xlsx"');
       res.send(buffer);

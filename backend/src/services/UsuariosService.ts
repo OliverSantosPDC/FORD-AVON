@@ -5,7 +5,7 @@ import { generarPasswordTemporal } from '../utils/password';
 import { describirErrorAuth, esUsuarioAuthInexistente } from '../utils/authErrors';
 import {
   SHEET_USUARIOS, SHEET_LIDERAZGO_SUPERVISOR, SHEET_SUPERVISOR_GESTOR, SHEET_SUPERVISOR_GERENTE,
-  SHEET_GESTOR_PAIS_ZONA, SHEET_GERENTE_PAIS_ZONA,
+  SHEET_GESTOR_PAIS_ZONA, SHEET_GERENTE_PAIS_ZONA, idPaisZonaDe,
   type ParsedWorkbook, type FilaUsuarioImport, type FilaRelacionImport, type FilaPaisZonaImport
 } from '../utils/usuariosExcel';
 
@@ -232,7 +232,7 @@ const distinctCarteraPaisZona = async (): Promise<PaisZona[]> => {
     for (const r of rows) {
       const pais = typeof r.pais === 'string' ? r.pais.trim() : '';
       const zona = typeof r.zona === 'string' ? r.zona.trim() : '';
-      if (pais && zona) pares.add(`${pais} ${zona}`);
+      if (pais && zona) pares.add(`${pais}||${zona}`);
     }
     if (rows.length < pageSize) break;
   }
@@ -242,7 +242,7 @@ const distinctCarteraPaisZona = async (): Promise<PaisZona[]> => {
   const zonaIdPorNombre = new Map(((zonasRows ?? []) as Array<{ id: string; nombre: string }>).map((z) => [z.nombre, z.id]));
 
   return Array.from(pares)
-    .map((par) => { const [pais, zona] = par.split(' '); return { pais, zona, zonaId: zonaIdPorNombre.get(zona) ?? '' }; })
+    .map((par) => { const [pais, zona] = par.split('||'); return { pais, zona, zonaId: zonaIdPorNombre.get(zona) ?? '' }; })
     .filter((p) => p.zonaId)
     .sort((a, b) => a.pais.localeCompare(b.pais, 'es') || a.zona.localeCompare(b.zona, 'es', { numeric: true }));
 };
@@ -704,6 +704,11 @@ interface ContextoMasivo {
   rolesPorClave: Map<string, { id: string; nivel: number | null }>;
   carteraGestores: Set<string>;
   carteraPaisZona: Set<string>;
+  /** ID_PAIS_ZONA ("GT-107") -> par real (Sección 4-8), construido con la
+   *  MISMA función (`idPaisZonaDe`) que genera la plantilla: nunca se infiere
+   *  País desde Zona, y el mismo número de Zona en países distintos produce
+   *  IDs distintos. */
+  paisZonaPorId: Map<string, PaisZona>;
   zonaIdPorNombre: Map<string, string>;
   perfilesPorEmail: Map<string, PerfilExistente>;
 }
@@ -741,35 +746,68 @@ const cargarContextoMasivo = async (parsed: ParsedWorkbook): Promise<ContextoMas
     rolesPorClave: new Map(catalogos.roles.map((r) => [r.clave, { id: r.id, nivel: r.nivel }])),
     carteraGestores: new Set(catalogos.carteraGestores.map((g) => g.toLowerCase())),
     carteraPaisZona: new Set(catalogos.carteraPaisZona.map((pz) => paisZonaKey(pz.pais, pz.zona))),
+    paisZonaPorId: new Map(catalogos.carteraPaisZona.map((pz) => [idPaisZonaDe(pz.pais, pz.zona), pz])),
     zonaIdPorNombre,
     perfilesPorEmail
   };
 };
 
+/** Resuelve ID_PAIS_ZONA -> PAIS+ZONA en las filas de una hoja País-Zona,
+ *  ANTES de validar/aplicar (Sección 5/13): permite usar el identificador de
+ *  la hoja PAIS_ZONA en vez de escribir País y Zona a mano. Muta las filas en
+ *  el mismo `ParsedWorkbook` que usan tanto validarWorkbook como
+ *  aplicarWorkbook, así ambos ven exactamente el mismo PAIS/ZONA resuelto
+ *  (nunca dos resoluciones separadas que puedan divergir). Si ID_PAIS_ZONA
+ *  viene vacío, no toca nada (compatibilidad con PAIS/ZONA directos, Sección 6). */
+const resolverIdsPaisZona = (filas: FilaPaisZonaImport[], paisZonaPorId: Map<string, PaisZona>): void => {
+  filas.forEach((f) => {
+    const id = f.idPaisZona.trim().toUpperCase();
+    if (!id) return;
+    const resuelto = paisZonaPorId.get(id);
+    if (resuelto) {
+      f.pais = resuelto.pais;
+      f.zona = resuelto.zona;
+    } else {
+      f.idPaisZonaInvalido = true;
+    }
+  });
+};
+
 /** Rol/estado EFECTIVO de un email tras aplicar (hipotéticamente) el archivo:
  *  prioriza lo declarado en la hoja USUARIOS (si el email aparece ahí) sobre
  *  lo que ya existe en Supabase. `rol=null` ⇒ el email no existe en ningún lado
- *  (ni en el archivo ni en la base) — error de referencia inexistente. */
+ *  (ni en el archivo ni en la base) — error de referencia inexistente.
+ *  `usuariosInvalidos` son los emails cuya PROPIA fila CREAR en USUARIOS tiene
+ *  un error (Sección 3): ese usuario NUEVO no se creará, así que cualquier
+ *  relación que dependa de él NO puede darse por válida todavía — se marca
+ *  `invalido: true` en vez de confiar en el rol declarado. Un error en una
+ *  fila ACTUALIZAR/ACTIVAR/DESACTIVAR no aplica aquí: el usuario YA EXISTE y
+ *  esa fila con error simplemente no cambia nada (el rol/estado ya vigente en
+ *  Supabase sigue siendo válido para las relaciones). */
 const rolEfectivo = (
   email: string,
   usuariosPorEmail: Map<string, FilaUsuarioImport>,
-  ctx: ContextoMasivo
-): { rol: string | null; activo: boolean | null } => {
+  ctx: ContextoMasivo,
+  usuariosInvalidos: Set<string>
+): { rol: string | null; activo: boolean | null; invalido: boolean } => {
   const fila = usuariosPorEmail.get(email);
   const existente = ctx.perfilesPorEmail.get(email);
+  if (fila && usuariosInvalidos.has(email) && fila.accion.toUpperCase() === 'CREAR') {
+    return { rol: existente?.roleClave ?? null, activo: existente?.activo ?? null, invalido: true };
+  }
   if (fila) {
     const accion = fila.accion.toUpperCase();
     const activoDeclarado = fila.activo ? fila.activo.toUpperCase() !== 'NO' : undefined;
     if (accion === 'CREAR' || accion === 'ACTUALIZAR') {
       const rol = fila.rol || existente?.roleClave || null;
       const activo = activoDeclarado !== undefined ? activoDeclarado : (accion === 'CREAR' ? true : (existente?.activo ?? true));
-      return { rol, activo };
+      return { rol, activo, invalido: false };
     }
-    if (accion === 'ACTIVAR') return { rol: existente?.roleClave ?? null, activo: true };
-    if (accion === 'DESACTIVAR') return { rol: existente?.roleClave ?? null, activo: false };
+    if (accion === 'ACTIVAR') return { rol: existente?.roleClave ?? null, activo: true, invalido: false };
+    if (accion === 'DESACTIVAR') return { rol: existente?.roleClave ?? null, activo: false, invalido: false };
   }
-  if (existente) return { rol: existente.roleClave, activo: existente.activo };
-  return { rol: null, activo: null };
+  if (existente) return { rol: existente.roleClave, activo: existente.activo, invalido: false };
+  return { rol: null, activo: null, invalido: false };
 };
 
 const validarNivel = (fila: FilaUsuarioImport, rolInfo: { nivel: number | null }): string => {
@@ -833,7 +871,8 @@ const DEF_SUPERVISOR_GERENTE: RelacionDef = { hoja: SHEET_SUPERVISOR_GERENTE, co
 
 /** Valida una hoja de relación simple (1 fila = 1 par propietario/relacionado). */
 const validarFilasRelacion = (
-  filas: FilaRelacionImport[], def: RelacionDef, ctx: ContextoMasivo, usuariosPorEmail: Map<string, FilaUsuarioImport>
+  filas: FilaRelacionImport[], def: RelacionDef, ctx: ContextoMasivo, usuariosPorEmail: Map<string, FilaUsuarioImport>,
+  usuariosInvalidos: Set<string>
 ): PreviewItem[] => {
   const vistos = new Set<string>();
   return filas.map((f) => {
@@ -849,14 +888,16 @@ const validarFilasRelacion = (
       vistos.add(key);
     }
     if (!mensaje) {
-      const efP = rolEfectivo(propietario, usuariosPorEmail, ctx);
-      if (!efP.rol) { mensaje = `${def.colPropietario} inexistente: "${f.propietario}".`; columna = def.colPropietario; }
+      const efP = rolEfectivo(propietario, usuariosPorEmail, ctx, usuariosInvalidos);
+      if (efP.invalido) { mensaje = `${f.propietario} tiene errores en la hoja USUARIOS: corrígelos antes de asignar relaciones.`; columna = def.colPropietario; }
+      else if (!efP.rol) { mensaje = `${def.colPropietario} inexistente: "${f.propietario}".`; columna = def.colPropietario; }
       else if (efP.rol !== def.rolPropietario) { mensaje = `${f.propietario} no tiene rol "${def.rolPropietario}" (relación jerárquica inválida; tiene "${efP.rol}").`; columna = def.colPropietario; }
       else if (efP.activo === false) { mensaje = `${f.propietario} quedará inactivo: no se le pueden asignar relaciones.`; columna = def.colPropietario; }
     }
     if (!mensaje) {
-      const efR = rolEfectivo(relacionado, usuariosPorEmail, ctx);
-      if (!efR.rol) { mensaje = `${def.colRelacionado} inexistente: "${f.relacionado}".`; columna = def.colRelacionado; }
+      const efR = rolEfectivo(relacionado, usuariosPorEmail, ctx, usuariosInvalidos);
+      if (efR.invalido) { mensaje = `${f.relacionado} tiene errores en la hoja USUARIOS: corrígelos antes de asignar relaciones.`; columna = def.colRelacionado; }
+      else if (!efR.rol) { mensaje = `${def.colRelacionado} inexistente: "${f.relacionado}".`; columna = def.colRelacionado; }
       else if (efR.rol !== def.rolRelacionado) { mensaje = `${f.relacionado} no tiene rol "${def.rolRelacionado}" (relación jerárquica inválida; tiene "${efR.rol}").`; columna = def.colRelacionado; }
       else if (efR.activo === false) { mensaje = `${f.relacionado} quedará inactivo: no se le pueden asignar relaciones.`; columna = def.colRelacionado; }
     }
@@ -866,15 +907,17 @@ const validarFilasRelacion = (
 
 /** Valida una hoja de País-Zona (Gestor o Gerente de zona): PAR obligatorio, nunca listas cruzadas. */
 const validarFilasPaisZona = (
-  filas: FilaPaisZonaImport[], colEmail: string, rolEsperado: string, ctx: ContextoMasivo, usuariosPorEmail: Map<string, FilaUsuarioImport>
+  filas: FilaPaisZonaImport[], colEmail: string, rolEsperado: string, ctx: ContextoMasivo, usuariosPorEmail: Map<string, FilaUsuarioImport>,
+  usuariosInvalidos: Set<string>
 ): PreviewItem[] => {
   const vistos = new Set<string>();
   return filas.map((f) => {
     const email = normEmail(f.email);
     let mensaje = ''; let columna = '';
-    if (!email) { mensaje = `${colEmail} es obligatorio.`; columna = colEmail; }
-    else if (!f.pais.trim()) { mensaje = 'PAIS es obligatorio.'; columna = 'PAIS'; }
-    else if (!f.zona.trim()) { mensaje = 'ZONA es obligatorio.'; columna = 'ZONA'; }
+    if (f.idPaisZonaInvalido) { mensaje = `ID_PAIS_ZONA no válido: "${f.idPaisZona}".`; columna = 'ID_PAIS_ZONA'; }
+    else if (!email) { mensaje = `${colEmail} es obligatorio.`; columna = colEmail; }
+    else if (!f.pais.trim()) { mensaje = 'PAIS es obligatorio (o indique ID_PAIS_ZONA).'; columna = 'PAIS'; }
+    else if (!f.zona.trim()) { mensaje = 'ZONA es obligatorio (o indique ID_PAIS_ZONA).'; columna = 'ZONA'; }
     if (!mensaje) {
       const key = `${email}||${paisZonaKey(f.pais, f.zona)}`;
       if (vistos.has(key)) { mensaje = 'Fila duplicada.'; columna = 'PAIS/ZONA'; }
@@ -888,8 +931,9 @@ const validarFilasPaisZona = (
       columna = 'PAIS/ZONA';
     }
     if (!mensaje) {
-      const ef = rolEfectivo(email, usuariosPorEmail, ctx);
-      if (!ef.rol) { mensaje = `${colEmail} inexistente: "${f.email}".`; columna = colEmail; }
+      const ef = rolEfectivo(email, usuariosPorEmail, ctx, usuariosInvalidos);
+      if (ef.invalido) { mensaje = `${f.email} tiene errores en la hoja USUARIOS: corrígelos antes de asignar relaciones.`; columna = colEmail; }
+      else if (!ef.rol) { mensaje = `${colEmail} inexistente: "${f.email}".`; columna = colEmail; }
       else if (ef.rol !== rolEsperado) { mensaje = `${f.email} no tiene rol "${rolEsperado}" (relación jerárquica inválida; tiene "${ef.rol}").`; columna = colEmail; }
       else if (ef.activo === false) { mensaje = `${f.email} quedará inactivo: no se le pueden asignar relaciones.`; columna = colEmail; }
     }
@@ -903,6 +947,13 @@ const validarTodo = async (parsed: ParsedWorkbook): Promise<{ ctx: ContextoMasiv
   const usuariosPorEmail = new Map<string, FilaUsuarioImport>();
   parsed.usuarios.forEach((f) => { const e = normEmail(f.email); if (e) usuariosPorEmail.set(e, f); });
 
+  // Resuelve ID_PAIS_ZONA -> PAIS/ZONA ANTES de validar relaciones (Sección 13:
+  // EXCEL -> VALIDACIÓN -> RESOLVER ID_PAIS_ZONA -> VALIDAR RELACIONES -> ...),
+  // mutando `parsed` para que aplicarWorkbook (que reutiliza este mismo objeto)
+  // vea el mismo PAIS/ZONA ya resuelto.
+  resolverIdsPaisZona(parsed.gestorPaisZona, ctx.paisZonaPorId);
+  resolverIdsPaisZona(parsed.gerentePaisZona, ctx.paisZonaPorId);
+
   const vistos = new Set<string>();
   const itemsUsuarios: PreviewItem[] = parsed.usuarios.map((f) => {
     const { mensaje, columna } = validarFilaUsuario(f, ctx, vistos);
@@ -911,13 +962,17 @@ const validarTodo = async (parsed: ParsedWorkbook): Promise<{ ctx: ContextoMasiv
     return { hoja: SHEET_USUARIOS, fila: f.fila, accion: f.accion.toUpperCase(), email: f.email.trim(), rol: f.rol, columna, estado: mensaje ? 'ERROR' : 'VALIDO', mensaje: mensaje || 'OK' } as PreviewItem;
   });
 
+  // Emails cuya PROPIA fila en USUARIOS tiene error (Sección 3): una relación
+  // que dependa de ellos nunca se cuenta como válida por sí sola.
+  const usuariosInvalidos = new Set(itemsUsuarios.filter((it) => it.estado === 'ERROR').map((it) => normEmail(it.email)));
+
   return {
     ctx, usuariosPorEmail, itemsUsuarios,
-    itemsLid: parsed.hojasPresentes.has(SHEET_LIDERAZGO_SUPERVISOR) ? validarFilasRelacion(parsed.liderazgoSupervisor, DEF_LIDERAZGO_SUPERVISOR, ctx, usuariosPorEmail) : [],
-    itemsSupGes: parsed.hojasPresentes.has(SHEET_SUPERVISOR_GESTOR) ? validarFilasRelacion(parsed.supervisorGestor, DEF_SUPERVISOR_GESTOR, ctx, usuariosPorEmail) : [],
-    itemsSupGer: parsed.hojasPresentes.has(SHEET_SUPERVISOR_GERENTE) ? validarFilasRelacion(parsed.supervisorGerente, DEF_SUPERVISOR_GERENTE, ctx, usuariosPorEmail) : [],
-    itemsGesPz: parsed.hojasPresentes.has(SHEET_GESTOR_PAIS_ZONA) ? validarFilasPaisZona(parsed.gestorPaisZona, 'GESTOR_EMAIL', 'gestor', ctx, usuariosPorEmail) : [],
-    itemsGerPz: parsed.hojasPresentes.has(SHEET_GERENTE_PAIS_ZONA) ? validarFilasPaisZona(parsed.gerentePaisZona, 'GERENTE_ZONA_EMAIL', 'gerente_zona', ctx, usuariosPorEmail) : []
+    itemsLid: parsed.hojasPresentes.has(SHEET_LIDERAZGO_SUPERVISOR) ? validarFilasRelacion(parsed.liderazgoSupervisor, DEF_LIDERAZGO_SUPERVISOR, ctx, usuariosPorEmail, usuariosInvalidos) : [],
+    itemsSupGes: parsed.hojasPresentes.has(SHEET_SUPERVISOR_GESTOR) ? validarFilasRelacion(parsed.supervisorGestor, DEF_SUPERVISOR_GESTOR, ctx, usuariosPorEmail, usuariosInvalidos) : [],
+    itemsSupGer: parsed.hojasPresentes.has(SHEET_SUPERVISOR_GERENTE) ? validarFilasRelacion(parsed.supervisorGerente, DEF_SUPERVISOR_GERENTE, ctx, usuariosPorEmail, usuariosInvalidos) : [],
+    itemsGesPz: parsed.hojasPresentes.has(SHEET_GESTOR_PAIS_ZONA) ? validarFilasPaisZona(parsed.gestorPaisZona, 'GESTOR_EMAIL', 'gestor', ctx, usuariosPorEmail, usuariosInvalidos) : [],
+    itemsGerPz: parsed.hojasPresentes.has(SHEET_GERENTE_PAIS_ZONA) ? validarFilasPaisZona(parsed.gerentePaisZona, 'GERENTE_ZONA_EMAIL', 'gerente_zona', ctx, usuariosPorEmail, usuariosInvalidos) : []
   };
 };
 
@@ -1418,8 +1473,8 @@ export const obtenerResumenAlcance = async (): Promise<{ totalUsuarios: number; 
     }
     if (roleClave === 'gerente_zona') {
       const asignadas = zonasPorGerente.get(p.id) ?? [];
-      const paisZonaSet = new Set(asignadas.map((a) => `${a.pais} ${a.zona}`));
-      const filas = cartera.filter((f) => paisZonaSet.has(`${f.pais} ${f.zona}`));
+      const paisZonaSet = new Set(asignadas.map((a) => `${a.pais}||${a.zona}`));
+      const filas = cartera.filter((f) => paisZonaSet.has(`${f.pais}||${f.zona}`));
       return { ...base, totalZonas: uniq(asignadas.map((a) => a.zona)).length, totalSectores: uniq(filas.map((f) => f.sector)).length, paises: uniq(asignadas.map((a) => a.pais)), zonas: uniq(asignadas.map((a) => a.zona)) };
     }
     return base;

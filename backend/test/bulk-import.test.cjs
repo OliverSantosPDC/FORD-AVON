@@ -245,7 +245,10 @@ const buildWorkbook = async (spec) => {
   const addPzSheet = (name, colEmail, rows) => {
     if (!rows) return;
     const ws = wb.addWorksheet(name);
-    ws.columns = [{ header: colEmail, key: 'email' }, { header: 'PAIS', key: 'pais' }, { header: 'ZONA', key: 'zona' }];
+    // ID_PAIS_ZONA al final (4to elemento opcional en cada fila) para no romper
+    // las filas existentes de 3 columnas [email, PAIS, ZONA]; se busca por
+    // nombre de encabezado, no por posición, así que el orden no afecta el parseo real.
+    ws.columns = [{ header: colEmail, key: 'email' }, { header: 'PAIS', key: 'pais' }, { header: 'ZONA', key: 'zona' }, { header: 'ID_PAIS_ZONA', key: 'idPaisZona' }];
     rows.forEach((r) => ws.addRow(r));
   };
   addPzSheet('GESTOR_PAIS_ZONA', 'GESTOR_EMAIL', spec.gestorPaisZona);
@@ -544,4 +547,102 @@ test('Carga masiva — Zona 107 en Guatemala y República Dominicana asignada a 
   assert.equal(visiblesGuatemala[0].pais, 'GUATEMALA');
   assert.equal(visiblesRD.length, 1);
   assert.equal(visiblesRD[0].pais, 'REPUBLICA DOMINICANA');
+});
+
+test('Carga masiva — ID_PAIS_ZONA: "GT-107" y "RD-107" resuelven a GUATEMALA y REPUBLICA DOMINICANA sin mezclarse; ID inválido da error claro; PAIS/ZONA directo sigue funcionando (compatibilidad)', async () => {
+  const buf = await buildWorkbook({
+    usuarios: [
+      ['CREAR', 'gestorIdPz.qatest@example.com', 'Gestor', 'IdPz', 'gestor', 4, 'GESTOR FICTICIO UNO', 'SI'],
+      ['CREAR', 'gerenteIdPzGt.qatest@example.com', 'Gerente', 'IdPzGt', 'gerente_zona', 5, '', 'SI'],
+      ['CREAR', 'gerenteIdPzRd.qatest@example.com', 'Gerente', 'IdPzRd', 'gerente_zona', 5, '', 'SI'],
+      ['CREAR', 'gerenteIdPzMal.qatest@example.com', 'Gerente', 'IdPzMal', 'gerente_zona', 5, '', 'SI']
+    ],
+    gestorPaisZona: [
+      // ID_PAIS_ZONA (4to elemento) sin PAIS/ZONA manuales: se resuelven solos.
+      ['gestorIdPz.qatest@example.com', '', '', 'GT-107']
+    ],
+    gerentePaisZona: [
+      ['gerenteIdPzGt.qatest@example.com', '', '', 'GT-107'],
+      ['gerenteIdPzRd.qatest@example.com', '', '', 'RD-107'],
+      // ID_PAIS_ZONA inexistente en el catálogo real -> error claro, nunca infiere País desde Zona.
+      ['gerenteIdPzMal.qatest@example.com', '', '', 'GT-999']
+    ]
+  });
+  const parsed = await parsearWorkbook(buf);
+  const { items } = await validarWorkbook(parsed);
+
+  const filaGt = items.find((i) => i.hoja === 'GESTOR_PAIS_ZONA' && i.email === 'gestorIdPz.qatest@example.com');
+  assert.equal(filaGt.estado, 'VALIDO', JSON.stringify(filaGt));
+  assert.equal(filaGt.valor, 'GUATEMALA / 107');
+
+  const filaGerGt = items.find((i) => i.hoja === 'GERENTE_PAIS_ZONA' && i.email === 'gerenteIdPzGt.qatest@example.com');
+  assert.equal(filaGerGt.estado, 'VALIDO', JSON.stringify(filaGerGt));
+  assert.equal(filaGerGt.valor, 'GUATEMALA / 107');
+
+  const filaGerRd = items.find((i) => i.hoja === 'GERENTE_PAIS_ZONA' && i.email === 'gerenteIdPzRd.qatest@example.com');
+  assert.equal(filaGerRd.estado, 'VALIDO', JSON.stringify(filaGerRd));
+  assert.equal(filaGerRd.valor, 'REPUBLICA DOMINICANA / 107');
+  assert.notEqual(filaGerGt.valor, filaGerRd.valor, 'GT-107 y RD-107 nunca deben resolver al mismo País');
+
+  const filaMal = items.find((i) => i.hoja === 'GERENTE_PAIS_ZONA' && i.email === 'gerenteIdPzMal.qatest@example.com');
+  assert.equal(filaMal.estado, 'ERROR');
+  assert.equal(filaMal.columna, 'ID_PAIS_ZONA');
+  assert.match(filaMal.mensaje, /ID_PAIS_ZONA no válido/);
+  assert.match(filaMal.mensaje, /GT-999/);
+
+  // Aplicar y confirmar que se guardó el País correcto para cada uno (nunca mezclado).
+  const { resumen } = await aplicarWorkbook(parsed, true, null);
+  assert.equal(resumen.creaciones, 4);
+  const gGt = findProfile('gerenteidpzgt.qatest@example.com');
+  const gRd = findProfile('gerenteidpzrd.qatest@example.com');
+  const pzGt = activeRows('gerente_zona_zona', 'usuario_id', gGt.id);
+  const pzRd = activeRows('gerente_zona_zona', 'usuario_id', gRd.id);
+  assert.equal(pzGt[0].pais, 'GUATEMALA');
+  assert.equal(pzRd[0].pais, 'REPUBLICA DOMINICANA');
+
+  // Compatibilidad (Sección 6): un archivo que SOLO usa PAIS/ZONA (sin ID_PAIS_ZONA) sigue funcionando igual que antes.
+  const bufCompat = await buildWorkbook({
+    usuarios: [['CREAR', 'gerenteCompatPz.qatest@example.com', 'Gerente', 'CompatPz', 'gerente_zona', 5, '', 'SI']],
+    gerentePaisZona: [['gerenteCompatPz.qatest@example.com', 'GUATEMALA', '107']]
+  });
+  const parsedCompat = await parsearWorkbook(bufCompat);
+  const { items: itemsCompat } = await validarWorkbook(parsedCompat);
+  const filaCompat = itemsCompat.find((i) => i.hoja === 'GERENTE_PAIS_ZONA');
+  assert.equal(filaCompat.estado, 'VALIDO', JSON.stringify(filaCompat));
+  assert.equal(filaCompat.valor, 'GUATEMALA / 107');
+});
+
+test('Carga masiva — Sección 3: una relación que depende de un CREAR con error en USUARIOS nunca se cuenta como válida, aunque el rol declarado sea correcto', async () => {
+  const buf = await buildWorkbook({
+    usuarios: [
+      ['CREAR', 'supervisorSec3.qatest@example.com', 'Supervisor', 'Sec3', 'supervisor', 3, '', 'SI'],
+      // NOMBRE_CARTERA no existe en cartera.gestor -> esta fila CREAR fallará: el usuario nunca existirá.
+      ['CREAR', 'gestorSec3.qatest@example.com', 'Gestor', 'Sec3', 'gestor', 4, 'NOMBRE_CARTERA_INEXISTENTE', 'SI']
+    ],
+    supervisorGestor: [
+      ['supervisorSec3.qatest@example.com', 'gestorSec3.qatest@example.com']
+    ]
+  });
+  const parsed = await parsearWorkbook(buf);
+  const { items, resumen } = await validarWorkbook(parsed);
+
+  const filaUsuarioGestor = items.find((i) => i.hoja === 'USUARIOS' && i.email === 'gestorSec3.qatest@example.com');
+  assert.equal(filaUsuarioGestor.estado, 'ERROR');
+
+  // La relación SUPERVISOR_GESTOR NO debe marcarse VALIDO solo porque el ROL
+  // declarado ('gestor') coincide: el gestor nunca se creará realmente.
+  const filaRelacion = items.find((i) => i.hoja === 'SUPERVISOR_GESTOR');
+  assert.equal(filaRelacion.estado, 'ERROR', JSON.stringify(filaRelacion));
+  assert.match(filaRelacion.mensaje, /tiene errores en la hoja USUARIOS/);
+  assert.ok(resumen.errores >= 2);
+
+  // Aplicando "solo válidas": el supervisor se crea, el gestor NO, y NO se crea
+  // ninguna relación supervisor_gestor para él (nunca una sincronización parcial silenciosa).
+  const { resumen: resumenApply } = await aplicarWorkbook(parsed, true, null);
+  assert.equal(resumenApply.creaciones, 1);
+  const sup = findProfile('supervisorsec3.qatest@example.com');
+  assert.ok(sup);
+  assert.equal(findProfile('gestorsec3.qatest@example.com'), undefined);
+  const rel = activeRows('supervisor_gestor', 'supervisor_id', sup.id);
+  assert.equal(rel.length, 0, 'no debe existir relación supervisor_gestor hacia un gestor que nunca se creó');
 });
