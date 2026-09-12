@@ -20,6 +20,45 @@ const pct = (part: number, whole: number) => (whole === 0 ? 0 : Number(((part / 
 const round2 = (n: number) => Number(n.toFixed(2));
 
 export interface CentroFiltros { pais?: string[]; zona?: string[]; pd?: string[]; gestor?: string[]; sector?: string[]; riesgo?: string[]; }
+export interface CentroFilterOptions { pais: string[]; zona: string[]; sector: string[]; pd: string[]; riesgo: string[]; gestor: string[]; }
+
+const uniq = (rows: Row[], ...keys: string[]): string[] =>
+  [...new Set(rows.map((r) => { for (const k of keys) { const v = r[k]; if (v !== null && v !== undefined && String(v).trim() !== '') return String(v); } return ''; }).filter(Boolean))].sort();
+
+const coincideFiltro = (r: Row, valores: string[] | undefined, keys: string[]): boolean => {
+  if (!valores?.length) return true;
+  const set = new Set(valores.map((v) => v.toUpperCase()));
+  for (const k of keys) { const v = r[k]; if (v !== null && v !== undefined && set.has(String(v).toUpperCase())) return true; }
+  return false;
+};
+
+/**
+ * Opciones de filtro EN CASCADA para el Centro de Inteligencia (Sección 6):
+ * `scopedRows` ya trae aplicada la frontera de seguridad (ScopeService/
+ * applyScope) — nunca depende de cartera.gestor como catálogo de personas.
+ * Cada dimensión se calcula excluyéndose a sí misma pero respetando las
+ * DEMÁS dimensiones ya seleccionadas (mismo principio que
+ * `buildFilterOptions` del Dashboard): País acota Zona/Sector/PD/Riesgo/
+ * Gestor, Zona acota Sector/PD, etc. — nunca al revés (nunca amplía).
+ */
+export const construirFilterOptionsCentro = (scopedRows: Row[], filtros: CentroFiltros): CentroFilterOptions => {
+  const filasPara = (excluida: keyof CentroFiltros): Row[] => scopedRows.filter((r) =>
+    (excluida === 'pais' || coincideFiltro(r, filtros.pais, ['pais'])) &&
+    (excluida === 'zona' || coincideFiltro(r, filtros.zona, ['zona'])) &&
+    (excluida === 'sector' || coincideFiltro(r, filtros.sector, ['sector'])) &&
+    (excluida === 'pd' || coincideFiltro(r, filtros.pd, ['pd_actual', 'pd'])) &&
+    (excluida === 'riesgo' || coincideFiltro(r, filtros.riesgo, ['riesgo', 'nivel_riesgo', 'riesgo_pd'])) &&
+    (excluida === 'gestor' || coincideFiltro(r, filtros.gestor, ['gestor']))
+  );
+  return {
+    pais: uniq(filasPara('pais'), 'pais'),
+    zona: uniq(filasPara('zona'), 'zona'),
+    sector: uniq(filasPara('sector'), 'sector'),
+    pd: uniq(filasPara('pd'), 'pd_actual', 'pd'),
+    riesgo: uniq(filasPara('riesgo'), 'riesgo', 'nivel_riesgo', 'riesgo_pd'),
+    gestor: uniq(filasPara('gestor'), 'gestor')
+  };
+};
 export interface Hallazgo { categoria: 'Gestión' | 'Cartera' | 'Calendario' | 'Operación'; nivel: 'Crítico' | 'Atención' | 'Informativo' | 'Positivo'; titulo: string; detalle: string; valor?: string; }
 
 interface Grupo { clave: string; saldoAsignadoUsd: number; saldoActualUsd: number; recuperadoUsd: number; cuentas: number; pctRecuperacion: number; }

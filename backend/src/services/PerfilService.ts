@@ -8,16 +8,13 @@ export interface AuthScope {
   paises: string[];
   zonas: string[];
   gestores: string[];
-  /** Narrowing adicional EXACTO (país+zona), tipo AND: cuando no está vacío, una
-   *  fila solo queda autorizada si además coincide con uno de estos pares (ver
-   *  ScopeFilter). Uso: restricción OPCIONAL de un Gestor sobre su propio
-   *  alcance por nombre. Vacío = sin narrowing adicional. */
-  paisZonaPairs?: Array<{ pais: string; zona: string }>;
   /** Concesión adicional EXACTA (país+zona), tipo OR: una fila queda autorizada
    *  si coincide con CUALQUIER dimensión base (gestor/zona/país) O con uno de
    *  estos pares — es una fuente de acceso independiente, no una restricción.
-   *  Uso: Gerente de zona (fuente única de su alcance) y, transitivamente,
-   *  Supervisor/Liderazgo heredando el alcance de sus Gerentes de zona. */
+   *  Uso: Gestor (gestor_pais_zona: fuente de alcance que NUNCA depende de que
+   *  su nombre exista en cartera.gestor), Gerente de zona (gerente_zona_zona:
+   *  fuente única de su alcance) y, transitivamente, Supervisor/Liderazgo
+   *  heredando el alcance de sus Gestores/Gerentes de zona. */
   paisZonaGrant?: Array<{ pais: string; zona: string }>;
 }
 

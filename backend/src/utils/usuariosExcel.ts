@@ -6,7 +6,7 @@ import ExcelJS from 'exceljs';
  * cartera). Estructura NORMALIZADA en hojas separadas (en vez de columnas con
  * varios valores separados por ";"): evita ambigüedad, especialmente en
  * País-Zona, que SIEMPRE se trata como PAR (nunca como dos listas
- * independientes — ver ScopeService/ScopeFilter, `paisZonaGrant`/`paisZonaPairs`).
+ * independientes — ver ScopeService/ScopeFilter, `paisZonaGrant`).
  *
  * Hojas:
  *   USUARIOS              — ACCION, EMAIL, NOMBRE, APELLIDO, ROL, NIVEL (informativo),

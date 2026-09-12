@@ -198,9 +198,14 @@ const mergePairs = (
   return out;
 };
 
-/** Resuelve el scope de un GESTOR: sus propios registros activos en `gestores`,
- *  narrowed opcionalmente por País/Zona explícitos (`gestor_pais_zona`). Si no
- *  tiene País/Zona asignados, el alcance es exactamente el de hoy (por nombre). */
+/** Resuelve el scope de un GESTOR: UNIÓN de dos fuentes independientes (OR,
+ *  igual que un Gerente de zona) — (a) el nombre en `gestores.nombre_cartera`
+ *  (dimensión "gestor", compatibilidad con cartera existente) y (b) sus
+ *  País-Zona explícitos en `gestor_pais_zona`, heredados como CONCESIÓN
+ *  independiente (`paisZonaGrant`, ver ScopeFilter). Un Gestor cuyo nombre NO
+ *  exista en `cartera.gestor` (la fuente de verdad de personas es USUARIOS,
+ *  no cartera) sigue viendo su cartera correcta mientras tenga País-Zona
+ *  asignado: `paisZonaGrant` nunca depende de la coincidencia de nombre. */
 const resolveGestorScope = async (ctx: ScopeContext): Promise<ScopeContext> => {
   const { data, error } = await getSupabaseClient()
     .from('gestores')
@@ -215,16 +220,18 @@ const resolveGestorScope = async (ctx: ScopeContext): Promise<ScopeContext> => {
   const rows = (data ?? []) as Array<{ id: string; nombre_cartera: string | null }>;
   ctx.gestorIds = uniq(rows.map((r) => r.id));
   ctx.scope.gestores = uniq(rows.map((r) => r.nombre_cartera));
-  ctx.scope.paisZonaPairs = await paisZonaDeGestores(ctx.gestorIds);
+  ctx.scope.paisZonaGrant = mergePairs(ctx.scope.paisZonaGrant ?? [], await paisZonaDeGestores(ctx.gestorIds));
   return ctx;
 };
 
 /**
  * Resuelve el scope de un SUPERVISOR (Nivel 3): UNIÓN de dos ramas paralelas —
- * (a) sus Gestores asignados en `supervisor_gestor` (dimensión "gestor", como
- * antes) y (b) sus Gerentes de zona asignados en `supervisor_gerente_zona`,
- * cuyo alcance (País-Zona) se hereda como CONCESIÓN independiente
- * (`paisZonaGrant`, ver ScopeFilter) — nunca restringe la rama de gestores.
+ * (a) sus Gestores asignados en `supervisor_gestor` (dimensión "gestor" por
+ * nombre, PLUS el País-Zona explícito de cada uno como concesión heredada —
+ * nunca depende de que el nombre del gestor exista en cartera.gestor) y
+ * (b) sus Gerentes de zona asignados en `supervisor_gerente_zona`, cuyo
+ * alcance (País-Zona) se hereda igual como CONCESIÓN independiente
+ * (`paisZonaGrant`, ver ScopeFilter) — ninguna rama restringe a la otra.
  * Sin ninguna de las dos asignaciones ⇒ scope vacío (NO global).
  */
 const resolveSupervisorScope = async (ctx: ScopeContext): Promise<ScopeContext> => {
@@ -251,7 +258,10 @@ const resolveSupervisorScope = async (ctx: ScopeContext): Promise<ScopeContext> 
   }
 
   const gerenteIds = await gerentesDeSupervisores([ctx.userId]);
-  ctx.scope.paisZonaGrant = mergePairs(ctx.scope.paisZonaGrant ?? [], await paisZonaDeGerentes(gerenteIds));
+  ctx.scope.paisZonaGrant = mergePairs(
+    mergePairs(ctx.scope.paisZonaGrant ?? [], await paisZonaDeGerentes(gerenteIds)),
+    await paisZonaDeGestores(ctx.gestorIds)
+  );
 
   return ctx;
 };
@@ -260,10 +270,11 @@ const resolveSupervisorScope = async (ctx: ScopeContext): Promise<ScopeContext> 
  * Resuelve el scope de un LIDERAZGO (Nivel 2): UNIÓN transitiva del alcance de
  * todos sus Supervisores asignados en `liderazgo_supervisor` (activos,
  * vigentes y con perfil activo — defensivo: un supervisor desactivado deja de
- * aportar alcance) — tanto sus Gestores (`supervisor_gestor`) como sus
- * Gerentes de zona (`supervisor_gerente_zona`, heredados como concesión
- * `paisZonaGrant`). Sin supervisores asignados ⇒ scope vacío (fail-closed; ya
- * NO es un rol global).
+ * aportar alcance) — tanto sus Gestores (`supervisor_gestor`, con su
+ * País-Zona heredado como concesión) como sus Gerentes de zona
+ * (`supervisor_gerente_zona`, heredados igual como concesión `paisZonaGrant`).
+ * Sin supervisores asignados ⇒ scope vacío (fail-closed; ya NO es un rol
+ * global).
  */
 const resolveLiderazgoScope = async (ctx: ScopeContext): Promise<ScopeContext> => {
   const today = serverDate();
@@ -306,7 +317,10 @@ const resolveLiderazgoScope = async (ctx: ScopeContext): Promise<ScopeContext> =
   }
 
   const gerenteIds = await gerentesDeSupervisores(supervisorIds);
-  ctx.scope.paisZonaGrant = mergePairs(ctx.scope.paisZonaGrant ?? [], await paisZonaDeGerentes(gerenteIds));
+  ctx.scope.paisZonaGrant = mergePairs(
+    mergePairs(ctx.scope.paisZonaGrant ?? [], await paisZonaDeGerentes(gerenteIds)),
+    await paisZonaDeGestores(ctx.gestorIds)
+  );
 
   return ctx;
 };

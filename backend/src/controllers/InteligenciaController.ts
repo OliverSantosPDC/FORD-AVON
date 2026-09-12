@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { CarteraService } from '../services/CarteraService';
 import { CarteraRepository } from '../repositories/CarteraRepository';
 import { getCarteraDataSource } from '../config/dataSource';
-import { getCentroInteligencia, type CentroFiltros } from '../services/InteligenciaService';
+import { getCentroInteligencia, construirFilterOptionsCentro, type CentroFiltros } from '../services/InteligenciaService';
 
 const carteraService = new CarteraService(new CarteraRepository(getCarteraDataSource()));
 
@@ -22,14 +22,13 @@ export class InteligenciaController {
         pais: parseFilter(q.pais), zona: parseFilter(q.zona), pd: parseFilter(q.pd),
         gestor: parseFilter(q.gestor), sector: parseFilter(q.sector), riesgo: parseFilter(q.riesgo)
       };
-      // Opciones de filtro: filas scoped SIN filtros de usuario (para no vaciar los selects).
+      // Opciones de filtro EN CASCADA (Sección 6): las filas ya vienen con el
+      // Scope de seguridad aplicado (frontera en listCartera); cada dimensión
+      // respeta las DEMÁS dimensiones ya seleccionadas (construirFilterOptionsCentro,
+      // misma lógica probada en InteligenciaService) — nunca depende de
+      // cartera.gestor como catálogo de personas.
       const scopedAll = await carteraService.listCartera({}, undefined, ctx);
-      const uniq = (rows: Record<string, unknown>[], ...keys: string[]) =>
-        [...new Set(rows.map((r) => { for (const k of keys) { const v = r[k]; if (v !== null && v !== undefined && String(v).trim() !== '') return String(v); } return ''; }).filter(Boolean))].sort();
-      const filterOptions = {
-        pais: uniq(scopedAll, 'pais'), zona: uniq(scopedAll, 'zona'), sector: uniq(scopedAll, 'sector'),
-        pd: uniq(scopedAll, 'pd_actual', 'pd'), riesgo: uniq(scopedAll, 'riesgo', 'nivel_riesgo', 'riesgo_pd'), gestor: uniq(scopedAll, 'gestor')
-      };
+      const filterOptions = construirFilterOptionsCentro(scopedAll, filtros);
 
       // Filtros que aplica listCartera (pais/zona/pd/gestor/gerente/campania).
       const rows = await carteraService.listCartera(

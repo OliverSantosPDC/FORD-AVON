@@ -67,12 +67,14 @@ export const isScopeEmpty = (context: ScopeContext): boolean =>
  *  1) `isGlobal === true` (administrador, liderazgo, acceso global temporal
  *     vigente) ⇒ passthrough: devuelve todas las filas SIN filtro de seguridad.
  *     Los filtros de búsqueda del usuario se aplican después, por separado.
- *  2) No global ⇒ una fila se conserva solo si coincide con AL MENOS UNA
- *     dimensión de scope activa (gestor/zona/país). Con el modelo actual, cada
- *     rol puebla una sola dimensión (gestor/supervisor → gestores;
- *     gerente_zona → zonas), por lo que el filtro equivale al de su rol.
- *  3) No global con scope VACÍO (sin dimensiones activas) ⇒ CERO filas.
- *     Nunca se hace fallback a "todos".
+ *  2) No global ⇒ una fila se conserva si coincide con AL MENOS UNA dimensión
+ *     de scope activa (gestor/zona/país, por nombre) O con la concesión
+ *     `paisZonaGrant` (País-Zona exacto vía Grupos y Niveles). Son fuentes
+ *     de acceso independientes (OR): un Gestor/Gerente de zona/Supervisor/
+ *     Liderazgo obtiene acceso por CUALQUIERA de las dos, nunca depende de
+ *     que su nombre exista en `cartera.gestor` para que su País-Zona cuente.
+ *  3) No global con scope VACÍO (ni dimensiones activas ni concesión) ⇒ CERO
+ *     filas. Nunca se hace fallback a "todos".
  *
  * Una "dimensión activa" requiere: que el caller indique el campo de esa
  * dimensión (options) Y que la lista de scope correspondiente tenga valores.
@@ -94,9 +96,10 @@ export const applyScope = <T>(rows: T[], context: ScopeContext, options: ApplySc
     dimensions.push({ field: options.paisField, allowed: toNormalizedSet(context.scope.paises) });
   }
 
-  // 3.b) Concesión adicional (OR, no AND): País-Zona EXACTOS de un Gerente de
-  //    zona propio, o heredados transitivamente por un Supervisor/Liderazgo que
-  //    lo supervisa. Es una fuente de acceso INDEPENDIENTE (no restringe la
+  // 3.b) Concesión adicional (OR, no AND): País-Zona EXACTOS propios de un
+  //    Gestor (gestor_pais_zona) o de un Gerente de zona (gerente_zona_zona),
+  //    o heredados transitivamente por un Supervisor/Liderazgo que los
+  //    supervisa. Es una fuente de acceso INDEPENDIENTE (no restringe la
   //    dimensión base ni es restringida por ella).
   const grant = context.scope.paisZonaGrant ?? [];
   const grantSet = grant.length > 0 && options.paisField && options.zonaField
@@ -114,21 +117,6 @@ export const applyScope = <T>(rows: T[], context: ScopeContext, options: ApplySc
     }
     return false;
   });
-
-  // 5) Narrowing ADICIONAL (AND, no OR): País/Zona EXACTOS asignados
-  //    explícitamente (Grupos y Niveles — gestor/gerente_zona). Solo se aplica
-  //    si el caller declara ambos campos Y el contexto trae pares; si no hay
-  //    pares configurados, este paso es un no-op y el comportamiento es
-  //    idéntico al de antes de introducir Grupos y Niveles.
-  const pairs = context.scope.paisZonaPairs ?? [];
-  if (pairs.length > 0 && options.paisField && options.zonaField) {
-    const allowedPairs = new Set(pairs.map((p) => `${normalizeScopeValue(p.pais)}||${normalizeScopeValue(p.zona)}`));
-    const paisField = options.paisField;
-    const zonaField = options.zonaField;
-    result = result.filter((row) =>
-      allowedPairs.has(`${normalizeScopeValue(row[paisField])}||${normalizeScopeValue(row[zonaField])}`)
-    );
-  }
 
   return result;
 };
