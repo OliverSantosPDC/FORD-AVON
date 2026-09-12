@@ -43,12 +43,15 @@ const db = {
   ],
   zonas: [
     { id: 'zona-107', nombre: '107', codigo: '107', activo: true },
-    { id: 'zona-208', nombre: '208', codigo: '208', activo: true }
+    { id: 'zona-208', nombre: '208', codigo: '208', activo: true },
+    { id: 'zona-201', nombre: '201', codigo: '201', activo: true }
   ],
   cartera: [
     { pais: 'GUATEMALA', zona: '107', gestor: 'GESTOR FICTICIO UNO' },
     { pais: 'REPUBLICA DOMINICANA', zona: '107', gestor: 'GESTOR FICTICIO UNO' },
-    { pais: 'EL SALVADOR', zona: '208', gestor: 'GESTOR FICTICIO DOS' }
+    { pais: 'EL SALVADOR', zona: '208', gestor: 'GESTOR FICTICIO DOS' },
+    { pais: 'EL SALVADOR', zona: '201', gestor: 'GESTOR FICTICIO DOS' },
+    { pais: 'HONDURAS', zona: '201', gestor: 'GESTOR FICTICIO TRES' }
   ],
   gestores: [],
   profiles: [],
@@ -549,7 +552,7 @@ test('Carga masiva — Zona 107 en Guatemala y República Dominicana asignada a 
   assert.equal(visiblesRD[0].pais, 'REPUBLICA DOMINICANA');
 });
 
-test('Carga masiva — ID_PAIS_ZONA: "GT-107" y "RD-107" resuelven a GUATEMALA y REPUBLICA DOMINICANA sin mezclarse; ID inválido da error claro; PAIS/ZONA directo sigue funcionando (compatibilidad)', async () => {
+test('Carga masiva — ID_PAIS_ZONA: "107GUATEMALA" y "107REPUBLICA DOMINICANA" resuelven a GUATEMALA y REPUBLICA DOMINICANA sin mezclarse (SIN código ISO/abreviatura); ID inválido da error claro; PAIS/ZONA directo sigue funcionando (compatibilidad)', async () => {
   const buf = await buildWorkbook({
     usuarios: [
       ['CREAR', 'gestorIdPz.qatest@example.com', 'Gestor', 'IdPz', 'gestor', 4, 'GESTOR FICTICIO UNO', 'SI'],
@@ -559,13 +562,13 @@ test('Carga masiva — ID_PAIS_ZONA: "GT-107" y "RD-107" resuelven a GUATEMALA y
     ],
     gestorPaisZona: [
       // ID_PAIS_ZONA (4to elemento) sin PAIS/ZONA manuales: se resuelven solos.
-      ['gestorIdPz.qatest@example.com', '', '', 'GT-107']
+      ['gestorIdPz.qatest@example.com', '', '', '107GUATEMALA']
     ],
     gerentePaisZona: [
-      ['gerenteIdPzGt.qatest@example.com', '', '', 'GT-107'],
-      ['gerenteIdPzRd.qatest@example.com', '', '', 'RD-107'],
+      ['gerenteIdPzGt.qatest@example.com', '', '', '107GUATEMALA'],
+      ['gerenteIdPzRd.qatest@example.com', '', '', '107REPUBLICA DOMINICANA'],
       // ID_PAIS_ZONA inexistente en el catálogo real -> error claro, nunca infiere País desde Zona.
-      ['gerenteIdPzMal.qatest@example.com', '', '', 'GT-999']
+      ['gerenteIdPzMal.qatest@example.com', '', '', '999GUATEMALA']
     ]
   });
   const parsed = await parsearWorkbook(buf);
@@ -582,13 +585,13 @@ test('Carga masiva — ID_PAIS_ZONA: "GT-107" y "RD-107" resuelven a GUATEMALA y
   const filaGerRd = items.find((i) => i.hoja === 'GERENTE_PAIS_ZONA' && i.email === 'gerenteIdPzRd.qatest@example.com');
   assert.equal(filaGerRd.estado, 'VALIDO', JSON.stringify(filaGerRd));
   assert.equal(filaGerRd.valor, 'REPUBLICA DOMINICANA / 107');
-  assert.notEqual(filaGerGt.valor, filaGerRd.valor, 'GT-107 y RD-107 nunca deben resolver al mismo País');
+  assert.notEqual(filaGerGt.valor, filaGerRd.valor, '107GUATEMALA y 107REPUBLICA DOMINICANA nunca deben resolver al mismo País');
 
   const filaMal = items.find((i) => i.hoja === 'GERENTE_PAIS_ZONA' && i.email === 'gerenteIdPzMal.qatest@example.com');
   assert.equal(filaMal.estado, 'ERROR');
   assert.equal(filaMal.columna, 'ID_PAIS_ZONA');
   assert.match(filaMal.mensaje, /ID_PAIS_ZONA no válido/);
-  assert.match(filaMal.mensaje, /GT-999/);
+  assert.match(filaMal.mensaje, /999GUATEMALA/);
 
   // Aplicar y confirmar que se guardó el País correcto para cada uno (nunca mezclado).
   const { resumen } = await aplicarWorkbook(parsed, true, null);
@@ -610,6 +613,40 @@ test('Carga masiva — ID_PAIS_ZONA: "GT-107" y "RD-107" resuelven a GUATEMALA y
   const filaCompat = itemsCompat.find((i) => i.hoja === 'GERENTE_PAIS_ZONA');
   assert.equal(filaCompat.estado, 'VALIDO', JSON.stringify(filaCompat));
   assert.equal(filaCompat.valor, 'GUATEMALA / 107');
+});
+
+test('Carga masiva — ID_PAIS_ZONA: segundo par de países con la MISMA Zona ("201EL SALVADOR" vs "201HONDURAS") también se resuelven sin mezclarse', async () => {
+  const buf = await buildWorkbook({
+    usuarios: [
+      ['CREAR', 'gerenteZona201Sv.qatest@example.com', 'Gerente', 'Zona201Sv', 'gerente_zona', 5, '', 'SI'],
+      ['CREAR', 'gerenteZona201Hn.qatest@example.com', 'Gerente', 'Zona201Hn', 'gerente_zona', 5, '', 'SI']
+    ],
+    gerentePaisZona: [
+      ['gerenteZona201Sv.qatest@example.com', '', '', '201EL SALVADOR'],
+      ['gerenteZona201Hn.qatest@example.com', '', '', '201HONDURAS']
+    ]
+  });
+  const parsed = await parsearWorkbook(buf);
+  const { items } = await validarWorkbook(parsed);
+
+  const filaSv = items.find((i) => i.hoja === 'GERENTE_PAIS_ZONA' && i.email === 'gerenteZona201Sv.qatest@example.com');
+  const filaHn = items.find((i) => i.hoja === 'GERENTE_PAIS_ZONA' && i.email === 'gerenteZona201Hn.qatest@example.com');
+  assert.equal(filaSv.estado, 'VALIDO', JSON.stringify(filaSv));
+  assert.equal(filaSv.valor, 'EL SALVADOR / 201');
+  assert.equal(filaHn.estado, 'VALIDO', JSON.stringify(filaHn));
+  assert.equal(filaHn.valor, 'HONDURAS / 201');
+  assert.notEqual(filaSv.valor, filaHn.valor, '201EL SALVADOR y 201HONDURAS nunca deben resolver al mismo País');
+
+  const { resumen } = await aplicarWorkbook(parsed, false, null);
+  assert.equal(resumen.errores, 0);
+  const gSv = findProfile('gerentezona201sv.qatest@example.com');
+  const gHn = findProfile('gerentezona201hn.qatest@example.com');
+  const pzSv = activeRows('gerente_zona_zona', 'usuario_id', gSv.id);
+  const pzHn = activeRows('gerente_zona_zona', 'usuario_id', gHn.id);
+  assert.equal(pzSv[0].pais, 'EL SALVADOR');
+  assert.equal(pzHn[0].pais, 'HONDURAS');
+  assert.equal(pzSv[0].zona_id, pzHn[0].zona_id, 'comparten el mismo número de Zona (201)');
+  assert.notEqual(pzSv[0].pais, pzHn[0].pais);
 });
 
 test('Carga masiva — Sección 3: una relación que depende de un CREAR con error en USUARIOS nunca se cuenta como válida, aunque el rol declarado sea correcto', async () => {

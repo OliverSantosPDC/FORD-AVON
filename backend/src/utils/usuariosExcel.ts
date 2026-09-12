@@ -20,13 +20,17 @@ import ExcelJS from 'exceljs';
  *                            cartera real; solo lectura, no se procesa como datos a importar)
  *   INSTRUCCIONES          — guía (no se procesa)
  *
- * ID_PAIS_ZONA (Sección 4-8): llave estable "CODIGO_PAIS-ZONA" (ej. "GT-107")
- * que identifica sin ambigüedad un par País+Zona, incluso cuando el mismo
- * número de Zona se repite en países distintos (ej. Zona 107 existe en
- * GUATEMALA y en REPUBLICA DOMINICANA). Es el campo PRINCIPAL para asignar
- * territorio a Gestores/Gerentes de zona; PAIS y ZONA se conservan como
- * columnas informativas/alternativas (compatibilidad con archivos previos:
- * si ID_PAIS_ZONA se deja vacío, PAIS+ZONA se siguen validando tal cual).
+ * ID_PAIS_ZONA (Sección 4-8): llave estable "ZONA" + "PAIS" CONCATENADOS SIN
+ * SEPARADOR NI ABREVIATURA (ej. "102GUATEMALA", "108REPUBLICA DOMINICANA") que
+ * identifica sin ambigüedad un par País+Zona, incluso cuando el mismo número
+ * de Zona se repite en países distintos (ej. Zona 108 existe en GUATEMALA y
+ * en REPUBLICA DOMINICANA: "108GUATEMALA" ≠ "108REPUBLICA DOMINICANA"). Usa
+ * SIEMPRE el nombre completo del país tal como existe en cartera/Supabase —
+ * nunca un código ISO 3166 ni un mapa manual de abreviaturas. Es el campo
+ * PRINCIPAL para asignar territorio a Gestores/Gerentes de zona; PAIS y ZONA
+ * se conservan como columnas informativas/alternativas (compatibilidad con
+ * archivos previos: si ID_PAIS_ZONA se deja vacío, PAIS+ZONA se siguen
+ * validando tal cual).
  *
  * No incluye una hoja ZONA_SECTOR: Sector es un dato de `cartera`, no una
  * relación de alcance en ScopeService/applyScope (que no tiene dimensión de
@@ -41,27 +45,11 @@ export const SHEET_GESTOR_PAIS_ZONA = 'GESTOR_PAIS_ZONA';
 export const SHEET_GERENTE_PAIS_ZONA = 'GERENTE_PAIS_ZONA';
 export const SHEET_PAIS_ZONA = 'PAIS_ZONA';
 
-/** Código corto de País para construir el ID_PAIS_ZONA (ej. "GT-107"). Cubre
- *  los países reales de la cartera actual; un país no listado deriva un
- *  código de sus iniciales, así que la función nunca falla ni inventa Zonas. */
-const PAIS_CODIGO: Record<string, string> = {
-  GUATEMALA: 'GT',
-  'EL SALVADOR': 'SV',
-  HONDURAS: 'HN',
-  NICARAGUA: 'NI',
-  PANAMA: 'PA',
-  'REPUBLICA DOMINICANA': 'RD'
-};
-
-const codigoPais = (pais: string): string => {
-  const key = pais.trim().toUpperCase();
-  if (PAIS_CODIGO[key]) return PAIS_CODIGO[key];
-  const palabras = key.split(/\s+/).filter(Boolean);
-  return (palabras.length > 1 ? palabras.map((p) => p[0]).join('') : key).slice(0, 3);
-};
-
-/** Construye el ID_PAIS_ZONA estable para un par País+Zona real (Sección 4). */
-export const idPaisZonaDe = (pais: string, zona: string): string => `${codigoPais(pais)}-${zona.trim()}`;
+/** Construye el ID_PAIS_ZONA estable para un par País+Zona real (Sección 4):
+ *  ZONA seguido del NOMBRE COMPLETO del País, sin separador ni abreviatura
+ *  (ej. "102GUATEMALA", "108REPUBLICA DOMINICANA"). Usa el nombre de país tal
+ *  como viene de cartera/Supabase — nunca un código ISO 3166 ni un mapa manual. */
+export const idPaisZonaDe = (pais: string, zona: string): string => `${zona.trim()}${pais.trim()}`;
 
 export interface FilaUsuarioImport {
   hoja: typeof SHEET_USUARIOS;
@@ -89,7 +77,7 @@ export interface FilaPaisZonaImport {
   hoja: string;
   fila: number;
   email: string;
-  /** Llave "CODIGO_PAIS-ZONA" opcional (ej. "GT-107"); si viene, es la fuente
+  /** Llave "ZONAPAIS" opcional (ej. "102GUATEMALA"); si viene, es la fuente
    *  principal y PAIS/ZONA se resuelven a partir de ella (Sección 5/6). */
   idPaisZona: string;
   pais: string;
@@ -248,7 +236,7 @@ export const generarPlantilla = async (
     ['SUPERVISOR_GERENTE', 'Un renglón por cada Gerente de zona asignado a un Supervisor (Nivel 3 -> Nivel 5). Varios renglones = varios Gerentes.'],
     ['GESTOR_PAIS_ZONA', 'Opcional. Restringe ADICIONALMENTE el alcance de un Gestor a País-Zona exactos (si se omite, el gestor conserva su alcance actual por NOMBRE_CARTERA). Un renglón por CADA PAR País-Zona.'],
     ['GERENTE_PAIS_ZONA', 'Obligatorio para que un Gerente de zona tenga alcance real. Un renglón por CADA PAR País-Zona.'],
-    ['ID_PAIS_ZONA (RECOMENDADO)', 'Para asignar País-Zona a Gestores o Gerentes de zona utilice el ID_PAIS_ZONA de la hoja PAIS_ZONA (ej. "GT-107"), eligiéndolo de la lista desplegable de esa columna. Si se usa ID_PAIS_ZONA, las columnas PAIS/ZONA de esa fila pueden dejarse en blanco: se completan solas al validar.'],
+    ['ID_PAIS_ZONA (RECOMENDADO)', 'Para asignar País-Zona a Gestores o Gerentes de zona utilice el ID_PAIS_ZONA de la hoja PAIS_ZONA (ej. "102GUATEMALA", formado por la ZONA seguida del nombre completo del País, sin espacio ni abreviatura), eligiéndolo de la lista desplegable de esa columna. Si se usa ID_PAIS_ZONA, las columnas PAIS/ZONA de esa fila pueden dejarse en blanco: se completan solas al validar.'],
     ['PAIS / ZONA (compatibilidad)', 'Alternativa a ID_PAIS_ZONA: escribir PAIS y ZONA directamente (formato de archivos anteriores, sigue funcionando). Siempre se leen como PAR en la MISMA fila, nunca como dos listas independientes: "GUATEMALA,107" y "REPUBLICA DOMINICANA,107" son DOS asignaciones distintas, aunque compartan el número de Zona.'],
     ['PAIS_ZONA', 'Hoja de referencia (no se importa): catálogo de todos los pares País-Zona vigentes en cartera al momento de descargar la plantilla, con su ID_PAIS_ZONA. Úsela para copiar el ID correcto o elegirlo desde la lista desplegable en GESTOR_PAIS_ZONA/GERENTE_PAIS_ZONA.'],
     ['Sincronización', 'Si un usuario aparece en USUARIOS (creado o actualizado), sus relaciones de alcance se SINCRONIZAN por completo con lo indicado en las hojas de relación: lo que no aparece en el archivo para ese usuario se elimina/desactiva. Si una hoja de relación completa no existe en el archivo, ese tipo de relación no se modifica para nadie.'],

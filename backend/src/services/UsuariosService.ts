@@ -704,10 +704,13 @@ interface ContextoMasivo {
   rolesPorClave: Map<string, { id: string; nivel: number | null }>;
   carteraGestores: Set<string>;
   carteraPaisZona: Set<string>;
-  /** ID_PAIS_ZONA ("GT-107") -> par real (Sección 4-8), construido con la
+  /** ID_PAIS_ZONA ("102GUATEMALA": ZONA + nombre completo del País, sin
+   *  separador ni abreviatura) -> par real (Sección 4-8), construido con la
    *  MISMA función (`idPaisZonaDe`) que genera la plantilla: nunca se infiere
    *  País desde Zona, y el mismo número de Zona en países distintos produce
-   *  IDs distintos. */
+   *  IDs distintos (ej. "108GUATEMALA" ≠ "108REPUBLICA DOMINICANA"). Clave
+   *  normalizada en mayúsculas para que la comparación no dependa de cómo
+   *  haya tecleado el valor la persona en Excel. */
   paisZonaPorId: Map<string, PaisZona>;
   zonaIdPorNombre: Map<string, string>;
   perfilesPorEmail: Map<string, PerfilExistente>;
@@ -746,7 +749,7 @@ const cargarContextoMasivo = async (parsed: ParsedWorkbook): Promise<ContextoMas
     rolesPorClave: new Map(catalogos.roles.map((r) => [r.clave, { id: r.id, nivel: r.nivel }])),
     carteraGestores: new Set(catalogos.carteraGestores.map((g) => g.toLowerCase())),
     carteraPaisZona: new Set(catalogos.carteraPaisZona.map((pz) => paisZonaKey(pz.pais, pz.zona))),
-    paisZonaPorId: new Map(catalogos.carteraPaisZona.map((pz) => [idPaisZonaDe(pz.pais, pz.zona), pz])),
+    paisZonaPorId: new Map(catalogos.carteraPaisZona.map((pz) => [idPaisZonaDe(pz.pais, pz.zona).toUpperCase(), pz])),
     zonaIdPorNombre,
     perfilesPorEmail
   };
