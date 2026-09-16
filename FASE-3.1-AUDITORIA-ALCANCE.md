@@ -1,6 +1,16 @@
 # FORD-AVON — FASE 3.1
 ## Auditoría de alcance y seguridad de datos (solo diagnóstico y plan)
 
+> ⚠️ **DOCUMENTO HISTÓRICO / SUPERADO.** Describe el estado del código en la
+> FASE 3.1 (antes de implementar ScopeService/ScopeFilter). Ya NO refleja el
+> comportamiento actual: `requireAuth` protege dashboard/cartera/inteligencia,
+> `ScopeService.resolveScopeContext` + `ScopeFilter.applyScope` son la única
+> autoridad de alcance (ver `backend/src/services/ScopeService.ts`), y las
+> opciones de los filtros de persona (Gestor/Gerente de zona) salen de
+> `gestoresEnAlcance`/`gerentesZonaEnAlcance` (usuarios/roles/relaciones),
+> nunca de `cartera.gestor`. Se conserva solo como registro histórico de la
+> auditoría original; no usar como referencia de la arquitectura vigente.
+
 > Documento de auditoría. **No** se modificó código, ni se crearon SQL/migraciones. Espera confirmación antes de FASE 3.2.
 
 ---

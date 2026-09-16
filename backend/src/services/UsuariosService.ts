@@ -1290,9 +1290,14 @@ export const aplicarWorkbook = async (
 /* ============================================================================
  * GRUPOS Y NIVELES — visuales (Sección 10). Un renglón por usuario con rol
  * dependiente (liderazgo/supervisor/gestor/gerente_zona), calculado SIEMPRE a
- * partir de las relaciones reales configuradas (nunca de ASIGNACION). Los
- * conteos por País/Zona/Sector se derivan de `cartera` vía el nombre real de
- * cada gestor (mismo puente que usa ScopeService).
+ * partir de las relaciones reales configuradas (nunca de ASIGNACION). El
+ * País/Zona alcanzado por un Gestor es la UNIÓN (nunca un fallback
+ * condicional) de su `gestor_pais_zona` explícito y las filas de `cartera`
+ * cuyo `gestor` (texto) coincide con su nombre registrado — el mismo
+ * principio OR independiente que usa ScopeFilter.applyScope para autorizar
+ * datos; jamás "si no hay explícito, usar cartera" (eso dejaba a un
+ * Liderazgo/Supervisor viendo 0 País/Zona de un Gestor que SÍ tiene alcance
+ * real vía gestor_pais_zona pero ningún match de nombre en cartera).
  * ========================================================================== */
 
 export interface AlcanceResumenItem {
@@ -1408,6 +1413,28 @@ export const obtenerResumenAlcance = async (): Promise<{ totalUsuarios: number; 
   /** País/Zona asignados a un gerente de zona (profiles.id), para heredar hacia arriba. */
   const paisZonaDeGerente = (gerenteUserId: string): Array<{ pais: string; zona: string }> => zonasPorGerente.get(gerenteUserId) ?? [];
 
+  const dedupPares = (pares: Array<{ pais: string; zona: string }>): Array<{ pais: string; zona: string }> => {
+    const seen = new Set<string>();
+    const out: Array<{ pais: string; zona: string }> = [];
+    for (const p of pares) {
+      const key = `${p.pais.toLowerCase()}||${p.zona.toLowerCase()}`;
+      if (!p.pais || !p.zona || seen.has(key)) continue;
+      seen.add(key);
+      out.push(p);
+    }
+    return out;
+  };
+
+  /** País/Zona alcanzado por un Gestor (gestores.id): UNIÓN de su
+   *  gestor_pais_zona explícito Y las filas de cartera con match de nombre —
+   *  nunca uno u otro condicionalmente (ver comentario de sección arriba). */
+  const paisZonaDeGestorId = (gestorId: string): Array<{ pais: string; zona: string }> => {
+    const explicito = zonasPorGestorId.get(gestorId) ?? [];
+    const nombre = nombrePorGestorId.get(gestorId) ?? '';
+    const porNombre = nombre ? carteraDe([nombre]).map((f) => ({ pais: f.pais, zona: f.zona })) : [];
+    return dedupPares([...explicito, ...porNombre]);
+  };
+
   const items: AlcanceResumenItem[] = perfilRows.map((p) => {
     const roleRaw = Array.isArray(p.roles) ? p.roles[0] : p.roles;
     const roleClave = roleRaw?.clave ?? null;
@@ -1417,37 +1444,32 @@ export const obtenerResumenAlcance = async (): Promise<{ totalUsuarios: number; 
     if (roleClave === 'liderazgo') {
       const supervisorIds = uniq(supervisoresPorLiderazgo.get(p.id) ?? []);
       const gestorIds = uniq(supervisorIds.flatMap((sid) => gestoresPorSupervisor.get(sid) ?? []));
-      const nombres = gestorIds.map((gid) => nombrePorGestorId.get(gid) ?? '').filter(Boolean);
-      const filas = carteraDe(nombres);
+      const pzGestores = gestorIds.flatMap((gid) => paisZonaDeGestorId(gid));
       const gerenteIds = uniq(supervisorIds.flatMap((sid) => gerentesPorSupervisor.get(sid) ?? []));
       const pzGerentes = gerenteIds.flatMap((gid) => paisZonaDeGerente(gid));
+      const pz = dedupPares([...pzGestores, ...pzGerentes]);
       return {
         ...base, totalSupervisores: supervisorIds.length, totalGestores: gestorIds.length,
-        paises: uniq([...filas.map((f) => f.pais), ...pzGerentes.map((z) => z.pais)]),
-        zonas: uniq([...filas.map((f) => f.zona), ...pzGerentes.map((z) => z.zona)])
+        paises: uniq(pz.map((z) => z.pais)),
+        zonas: uniq(pz.map((z) => z.zona))
       };
     }
     if (roleClave === 'supervisor') {
       const gestorIds = uniq(gestoresPorSupervisor.get(p.id) ?? []);
-      const nombres = gestorIds.map((gid) => nombrePorGestorId.get(gid) ?? '').filter(Boolean);
-      const filas = carteraDe(nombres);
+      const pzGestores = gestorIds.flatMap((gid) => paisZonaDeGestorId(gid));
       const gerenteIds = uniq(gerentesPorSupervisor.get(p.id) ?? []);
       const pzGerentes = gerenteIds.flatMap((gid) => paisZonaDeGerente(gid));
+      const pz = dedupPares([...pzGestores, ...pzGerentes]);
       return {
         ...base, totalGestores: gestorIds.length,
-        paises: uniq([...filas.map((f) => f.pais), ...pzGerentes.map((z) => z.pais)]),
-        zonas: uniq([...filas.map((f) => f.zona), ...pzGerentes.map((z) => z.zona)])
+        paises: uniq(pz.map((z) => z.pais)),
+        zonas: uniq(pz.map((z) => z.zona))
       };
     }
     if (roleClave === 'gestor') {
       const gestorId = gestorIdPorUsuario.get(p.id);
-      const explicit = gestorId ? zonasPorGestorId.get(gestorId) ?? [] : [];
-      if (explicit.length > 0) {
-        return { ...base, totalZonas: uniq(explicit.map((e) => e.zona)).length, paises: uniq(explicit.map((e) => e.pais)), zonas: uniq(explicit.map((e) => e.zona)) };
-      }
-      const nombre = gestorId ? nombrePorGestorId.get(gestorId) ?? '' : '';
-      const filas = nombre ? carteraDe([nombre]) : [];
-      return { ...base, totalZonas: uniq(filas.map((f) => f.zona)).length, paises: uniq(filas.map((f) => f.pais)), zonas: uniq(filas.map((f) => f.zona)) };
+      const pz = gestorId ? paisZonaDeGestorId(gestorId) : [];
+      return { ...base, totalZonas: uniq(pz.map((z) => z.zona)).length, paises: uniq(pz.map((z) => z.pais)), zonas: uniq(pz.map((z) => z.zona)) };
     }
     if (roleClave === 'gerente_zona') {
       const asignadas = zonasPorGerente.get(p.id) ?? [];
