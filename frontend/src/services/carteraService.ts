@@ -2,7 +2,6 @@ import {
   CarteraRecord,
   DashboardResponse,
   DashboardFilterParams,
-  InteligenciaResponse,
 } from '../types/cartera';
 import { apiFetch } from './apiClient';
 
@@ -45,16 +44,6 @@ export const fetchDashboard = async (
 
   if (!response.ok) {
     throw new Error(messageForStatus(response.status, 'No se pudo obtener la información del dashboard.'));
-  }
-
-  return response.json();
-};
-
-export const fetchInteligencia = async (): Promise<InteligenciaResponse> => {
-  const response = await apiFetch(`/api/inteligencia`);
-
-  if (!response.ok) {
-    throw new Error(messageForStatus(response.status, 'No se pudo obtener la información del centro de inteligencia.'));
   }
 
   return response.json();
