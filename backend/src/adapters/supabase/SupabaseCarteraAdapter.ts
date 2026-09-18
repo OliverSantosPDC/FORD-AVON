@@ -58,7 +58,15 @@ export class SupabaseCarteraAdapter implements CarteraDataSource {
     for (let page = 0; page < pages; page += 1) {
       const from = page * this.pageSize;
       const to = from + this.pageSize - 1;
-      requests.push(client.from(this.table).select(DASHBOARD_COLUMNS).range(from, to));
+      // CRÍTICO: `.order('id')` es obligatorio en una paginación por `range()`.
+      // Sin un orden explícito, PostgREST/Postgres NO garantiza qué filas caen
+      // en cada página — especialmente al lanzar todas las páginas en paralelo
+      // (Promise.all): sin orden, cada request puede recibir un plan de
+      // ejecución distinto, causando que algunas filas se OMITAN (nunca
+      // aparecen en ninguna página) o se DUPLIQUEN, de forma no determinística
+      // entre cargas. Ordenar por `id` (identity PK, estable) hace que cada
+      // rango de `range()` sea un slice determinista del mismo orden total.
+      requests.push(client.from(this.table).select(DASHBOARD_COLUMNS).order('id', { ascending: true }).range(from, to));
     }
 
     const results = await Promise.all(requests);

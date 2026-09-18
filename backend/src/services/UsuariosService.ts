@@ -207,7 +207,10 @@ const distinctCarteraPaisZona = async (): Promise<PaisZona[]> => {
   const pares = new Set<string>();
   for (let page = 0; page < 60; page += 1) {
     const from = page * pageSize;
-    const { data, error } = await client.from(SUPABASE_CARTERA_TABLE).select('pais, zona').range(from, from + pageSize - 1);
+    // `.order('id')` obligatorio: sin orden explícito, `range()` no garantiza
+    // qué filas caen en cada página (ver SupabaseCarteraAdapter.getCartera) —
+    // podía omitir país/zona reales de cartera de forma no determinística.
+    const { data, error } = await client.from(SUPABASE_CARTERA_TABLE).select('pais, zona').order('id', { ascending: true }).range(from, from + pageSize - 1);
     if (error) throw new UsuariosError(`No se pudo leer el catálogo de país/zona de cartera: ${error.message}`);
     const rows = (data ?? []) as Array<{ pais?: unknown; zona?: unknown }>;
     for (const r of rows) {
@@ -1335,7 +1338,8 @@ const cargarCarteraResumen = async (): Promise<CarteraFila[]> => {
   const out: CarteraFila[] = [];
   for (let page = 0; page < 60; page += 1) {
     const from = page * pageSize;
-    const { data, error } = await client.from(SUPABASE_CARTERA_TABLE).select('gestor, pais, zona, sector').range(from, from + pageSize - 1);
+    // `.order('id')` obligatorio: ver nota en SupabaseCarteraAdapter.getCartera.
+    const { data, error } = await client.from(SUPABASE_CARTERA_TABLE).select('gestor, pais, zona, sector').order('id', { ascending: true }).range(from, from + pageSize - 1);
     if (error) throw new UsuariosError(`No se pudo leer cartera para el resumen de alcance: ${error.message}`);
     const rows = (data ?? []) as Array<Record<string, unknown>>;
     for (const r of rows) {
