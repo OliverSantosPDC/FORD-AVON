@@ -546,44 +546,70 @@ const getUniqueOptions = (rows: CarteraRow[], keyVariants: string[]): string[] =
 /**
  * OPCIONES de la dimensión Gestor/Gerente: el catálogo SIEMPRE sale de
  * `personas` (usuarios/roles/relaciones — ver ScopeService.gestoresEnAlcance /
- * gerentesZonaEnAlcance), nunca de `getUniqueOptions` sobre `cartera`. Cada
- * persona entra en la lista si alcanza alguna de las `filasElegibles` (las
- * filas ya acotadas por las DEMÁS dimensiones seleccionadas): por su propio
- * País-Zona (siempre) o, SOLO para Gestor (`permitirNombre = true`), por
- * coincidir con `cartera.gestor` — el mismo puente de texto curado que usa
- * ScopeFilter.applyScope para autorización real. Así, un Gestor nuevo sin
- * ninguna fila con su nombre en cartera (solo con gestor_pais_zona) sigue
- * apareciendo mientras su asignación intersecte el universo filtrado.
+ * gerentesZonaEnAlcance), nunca de `getUniqueOptions` sobre `cartera`.
+ *
+ * IDENTIDAD vs. ALCANCE GEOGRÁFICO (separados, nunca mezclados):
+ * - Si NO hay ningún filtro País/Zona activo, el catálogo es la lista
+ *   COMPLETA de `personas` (identidad + autorización, ya resuelta por
+ *   ScopeService) — SIN exigir que la persona tenga ninguna relación
+ *   País-Zona configurada ni ninguna fila visible en cartera. Una persona
+ *   con 0 relaciones geográficas SIGUE siendo una persona autorizada válida
+ *   (p. ej. un Gerente de zona real, supervisado por el usuario conectado,
+ *   al que aún no se le configuró ningún `gerente_zona_zona` — "persona
+ *   existente sin alcance geográfico" es distinto de "persona inexistente").
+ * - Si SÍ hay un filtro País y/o Zona activo, la lista se acota a las
+ *   personas cuyo PROPIO País-Zona (gestor_pais_zona/gerente_zona_zona)
+ *   coincide con los valores SELECCIONADOS — nunca contra qué filas de
+ *   cartera resultan visibles: una persona sin relaciones nunca podrá
+ *   satisfacer un filtro geográfico explícito (correcto: no tiene zona ahí),
+ *   pero eso no debe vaciar el catálogo completo cuando no se ha pedido
+ *   ningún recorte geográfico.
+ * - SOLO para Gestor (`permitirNombre = true`) se admite además coincidir
+ *   por nombre con `cartera.gestor` — el mismo puente de texto curado
+ *   (`gestores.nombre_cartera`) que ScopeFilter.applyScope YA usa para
+ *   autorización real (`ctx.scope.gestores`).
  *
  * Gerente de zona NUNCA usa coincidencia de nombre (`permitirNombre = false`
  * siempre): no existe un campo curado equivalente a `nombre_cartera`, y
  * ScopeFilter.applyScope tampoco autoriza Gerentes por nombre — solo por
- * `gerente_zona_zona`. Sin este límite, un usuario real con rol gerente_zona
- * pero SIN relaciones configuradas aparecía igual como opción por
- * coincidir su nombre con el texto operativo `cartera.gerente_zona` de
- * cuentas de OTRO Gestor (bug real de producción: Cristina Garcia/Ircania
- * Guerrero/Julissa Rodriguez/Leydi Perez/Stephanie German, 0 relaciones
- * `gerente_zona_zona`, apareciendo como opción de Gerente al filtrar por
- * Gestor = Angie Buch, solo porque sus nombres coinciden con
- * `cartera.gerente_zona` en las cuentas de Angie).
+ * `gerente_zona_zona`. (Bug real de producción ya corregido: Cristina
+ * Garcia/Ircania Guerrero/Julissa Rodriguez/Leydi Perez/Stephanie German —
+ * Gerentes reales, supervisados por el usuario conectado, con 0 relaciones
+ * `gerente_zona_zona` — primero aparecían por coincidir su nombre con
+ * `cartera.gerente_zona` de cuentas de OTRO Gestor; al quitar ese puente,
+ * el requisito de intersectar filas VISIBLES los dejaba fuera del catálogo
+ * por completo — "Sin opciones" — en vez de aparecer como personas
+ * autorizadas con alcance geográfico vacío.)
  */
-const opcionesPersonas = (personas: PersonaFiltro[], filasElegibles: CarteraRow[], nameKeys: string[], permitirNombre: boolean): string[] => {
-  const paresPresentes = new Set<string>();
+const opcionesPersonas = (
+  personas: PersonaFiltro[],
+  filasElegibles: CarteraRow[],
+  nameKeys: string[],
+  permitirNombre: boolean,
+  filtrosPais: string[],
+  filtrosZona: string[]
+): string[] => {
   const nombresPresentes = new Set<string>();
-  filasElegibles.forEach((row) => {
-    if (permitirNombre) {
+  if (permitirNombre) {
+    filasElegibles.forEach((row) => {
       const nombre = getFieldValue(row, nameKeys).toLocaleLowerCase();
       if (nombre) nombresPresentes.add(nombre);
-    }
-    const pais = getFieldValue(row, ['pais']);
-    const zona = getFieldValue(row, ['zona']);
-    if (pais && zona) paresPresentes.add(paisZonaKey(pais, zona));
-  });
+    });
+  }
+
+  const paisSet = new Set(filtrosPais.map((v) => v.trim().toLocaleLowerCase()).filter(Boolean));
+  const zonaSet = new Set(filtrosZona.map((v) => v.trim().toLocaleLowerCase()).filter(Boolean));
+  const hayFiltroGeografico = paisSet.size > 0 || zonaSet.size > 0;
 
   return personas
     .filter((persona) => {
       if (permitirNombre && nombresPresentes.has(persona.nombre.trim().toLocaleLowerCase())) return true;
-      return persona.paisZona.some((pz) => paresPresentes.has(paisZonaKey(pz.pais, pz.zona)));
+      if (!hayFiltroGeografico) return true;
+      return persona.paisZona.some(
+        (pz) =>
+          (paisSet.size === 0 || paisSet.has(pz.pais.trim().toLocaleLowerCase())) &&
+          (zonaSet.size === 0 || zonaSet.has(pz.zona.trim().toLocaleLowerCase()))
+      );
     })
     .map((persona) => persona.nombre)
     .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
@@ -596,8 +622,8 @@ export const buildFilterOptions = (
 ): FilterOptions => ({
   pais: getUniqueOptions(filterRows(rows, filters, personas, 'pais'), ['pais']),
   zona: getUniqueOptions(filterRows(rows, filters, personas, 'zona'), ['zona']),
-  gestor: opcionesPersonas(personas.gestores, filterRows(rows, filters, personas, 'gestor'), ['gestor'], true),
-  gerente: opcionesPersonas(personas.gerentes, filterRows(rows, filters, personas, 'gerente'), ['gerente', 'gerente_zona'], false),
+  gestor: opcionesPersonas(personas.gestores, filterRows(rows, filters, personas, 'gestor'), ['gestor'], true, filters.pais, filters.zona),
+  gerente: opcionesPersonas(personas.gerentes, filterRows(rows, filters, personas, 'gerente'), ['gerente', 'gerente_zona'], false, filters.pais, filters.zona),
   pd: getUniqueOptions(filterRows(rows, filters, personas, 'pd'), ['pd_actual', 'pd']),
   campania: getUniqueOptions(filterRows(rows, filters, personas, 'campania'), ['campania_adeuda', 'campania', 'campaña', 'campaign'])
 });

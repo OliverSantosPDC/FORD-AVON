@@ -60,21 +60,36 @@ const coincideFiltroGestor = (r: Row, valores: string[] | undefined, personasPor
 /**
  * OPCIONES de Gestor: SIEMPRE desde `personasGestor` (usuarios/roles/
  * gestor_pais_zona — ver ScopeService.gestoresEnAlcance), nunca desde
- * `uniq(filas, 'gestor')` sobre cartera. Una persona entra si alcanza alguna
- * de las `filas` (ya acotadas por las demás dimensiones): por nombre o
- * porque su propio País-Zona intersecta el de esas filas.
+ * `uniq(filas, 'gestor')` sobre cartera. IDENTIDAD (pertenecer a
+ * `personasGestor`, ya acotado por el alcance jerárquico del usuario
+ * conectado) es independiente de ALCANCE GEOGRÁFICO (`gestor_pais_zona`):
+ * una persona con 0 relaciones geográficas sigue siendo una persona
+ * autorizada y no debe desaparecer del catálogo solo por eso (mismo
+ * principio aplicado a Gerente de zona en `carteraAggregations.ts` —
+ * ver `opcionesPersonas`). Solo cuando el usuario tiene un filtro
+ * País/Zona ACTIVO se acota la lista a las personas cuyo propio
+ * País-Zona coincide con los valores SELECCIONADOS (nunca contra qué
+ * filas resultan visibles).
  */
-const opcionesGestor = (filas: Row[], personasGestor: PersonaFiltro[]): string[] => {
-  const paresPresentes = new Set<string>();
+const opcionesGestor = (filas: Row[], personasGestor: PersonaFiltro[], filtrosPais: string[] | undefined, filtrosZona: string[] | undefined): string[] => {
   const nombresPresentes = new Set<string>();
   filas.forEach((r) => {
     const nombre = s(r.gestor).toUpperCase();
     if (nombre) nombresPresentes.add(nombre);
-    const pais = s(r.pais); const zona = s(r.zona);
-    if (pais && zona) paresPresentes.add(paisZonaKey(pais, zona));
   });
+  const paisSet = new Set((filtrosPais ?? []).map((v) => v.trim().toUpperCase()).filter(Boolean));
+  const zonaSet = new Set((filtrosZona ?? []).map((v) => v.trim().toUpperCase()).filter(Boolean));
+  const hayFiltroGeografico = paisSet.size > 0 || zonaSet.size > 0;
   return personasGestor
-    .filter((p) => nombresPresentes.has(p.nombre.toUpperCase()) || p.paisZona.some((pz) => paresPresentes.has(paisZonaKey(pz.pais, pz.zona))))
+    .filter((p) => {
+      if (nombresPresentes.has(p.nombre.toUpperCase())) return true;
+      if (!hayFiltroGeografico) return true;
+      return p.paisZona.some(
+        (pz) =>
+          (paisSet.size === 0 || paisSet.has(s(pz.pais).trim().toUpperCase())) &&
+          (zonaSet.size === 0 || zonaSet.has(s(pz.zona).trim().toUpperCase()))
+      );
+    })
     .map((p) => p.nombre)
     .sort();
 };
@@ -105,7 +120,7 @@ export const construirFilterOptionsCentro = (scopedRows: Row[], filtros: CentroF
     sector: uniq(filasPara('sector'), 'sector'),
     pd: uniq(filasPara('pd'), 'pd_actual', 'pd'),
     riesgo: uniq(filasPara('riesgo'), 'riesgo', 'nivel_riesgo', 'riesgo_pd'),
-    gestor: opcionesGestor(filasPara('gestor'), personasGestor)
+    gestor: opcionesGestor(filasPara('gestor'), personasGestor, filtros.pais, filtros.zona)
   };
 };
 export interface Hallazgo { categoria: 'Gestión' | 'Cartera' | 'Calendario' | 'Operación'; nivel: 'Crítico' | 'Atención' | 'Informativo' | 'Positivo'; titulo: string; detalle: string; valor?: string; }

@@ -11,30 +11,49 @@
  *   Cristina Garcia, Ircania Guerrero, Julissa Rodriguez, Leydi Perez,
  *   Stephanie German
  * — los CINCO son usuarios reales con `roles.clave = 'gerente_zona'`
- * (nivel 5, activos), PERO ninguno tiene NINGUNA fila en
+ * (nivel 5, activos, supervisados por daniel.monge@grupopdc.com vía
+ * `supervisor_gerente_zona` vigente), PERO ninguno tiene NINGUNA fila en
  * `gerente_zona_zona` (0 relaciones vigentes, verificado con SQL). Su única
- * conexión con esas cuentas es que su nombre coincide, por casualidad
+ * conexión con esas cuentas era que su nombre coincidía, por casualidad
  * operativa, con el texto libre `cartera.gerente_zona` de las cuentas que
- * en realidad pertenecen al alcance del GESTOR Angie — exactamente el
- * patrón prohibido "NOMBRE DE CUENTA → GERENTE".
+ * en realidad pertenecen al alcance del GESTOR Angie — el patrón prohibido
+ * "NOMBRE DE CUENTA → GERENTE".
  *
- * CAUSA RAÍZ: `carteraAggregations.ts` (`rowMatchesPersonaFilter`/
- * `opcionesPersonas`) aplicaba la MISMA lógica de puente de texto a Gestor
- * Y a Gerente. Para Gestor es legítimo: `gestores.nombre_cartera` es un
- * campo curado por un administrador y ScopeFilter.applyScope YA lo usa
- * como dimensión real de autorización (`ctx.scope.gestores`). Para
- * Gerente de zona NO existe ningún campo equivalente, y
- * ScopeFilter.applyScope NUNCA autoriza por nombre a un Gerente (no existe
- * `gerenteField` en `ApplyScopeOptions`) — su única fuente real es
- * `gerente_zona_zona`. Al reutilizar el mismo puente para Gerente, un
- * usuario real con el rol correcto pero CERO relaciones configuradas
- * aparecía igual como opción seleccionable, y seleccionarlo devolvía
- * cuentas que jamás le pertenecen.
+ * CAUSA RAÍZ #1 (corregida primero, commit f7201af): `carteraAggregations.ts`
+ * (`rowMatchesPersonaFilter`/`opcionesPersonas`) aplicaba la MISMA lógica de
+ * puente de texto a Gestor Y a Gerente. Para Gestor es legítimo:
+ * `gestores.nombre_cartera` es un campo curado por un administrador y
+ * ScopeFilter.applyScope YA lo usa como dimensión real de autorización
+ * (`ctx.scope.gestores`). Para Gerente de zona NO existe ningún campo
+ * equivalente, y ScopeFilter.applyScope NUNCA autoriza por nombre a un
+ * Gerente (no existe `gerenteField` en `ApplyScopeOptions`) — su única
+ * fuente real es `gerente_zona_zona`.
  *
- * CORRECCIÓN: `rowMatchesPersonaFilter`/`opcionesPersonas` reciben ahora un
- * parámetro `permitirNombre` — `true` solo para Gestor, `false` siempre
- * para Gerente. El catálogo/selección de Gerente depende EXCLUSIVAMENTE de
- * `gerente_zona_zona` (vía `gerentesZonaEnAlcance`).
+ * CAUSA RAÍZ #2 (regresión introducida por la corrección #1, corregida
+ * ahora): al quitar el puente de texto, `opcionesPersonas` seguía exigiendo
+ * que el `paisZona` PROPIO de la persona intersectara los pares
+ * País-Zona de las filas de cartera VISIBLES. Una persona con 0 relaciones
+ * `gerente_zona_zona` (como los 5 Gerentes reales de este caso) JAMÁS puede
+ * satisfacer esa intersección — el filtro Gerente completo quedaba en
+ * "Sin opciones" para cualquier usuario cuyo alcance de Gerentes autorizados
+ * fuera enteramente de personas sin relación geográfica configurada (el caso
+ * exacto de daniel.monge@grupopdc.com con sus 5 Gerentes supervisados).
+ *
+ * CORRECCIÓN FINAL: separación de IDENTIDAD y ALCANCE GEOGRÁFICO.
+ *  - IDENTIDAD = usuario + rol + relación jerárquica (`gerentesZonaEnAlcance`,
+ *    vía `supervisor_gerente_zona`/`liderazgo_supervisor`, NUNCA cartera).
+ *    Una persona con 0 zonas SIGUE siendo una persona Gerente autorizada.
+ *  - ALCANCE GEOGRÁFICO = `gerente_zona_zona` (o `gestor_pais_zona` para
+ *    Gestor). Solo se usa para ACOTAR el catálogo cuando el usuario
+ *    selecciona explícitamente un filtro País y/o Zona — nunca de forma
+ *    implícita contra qué filas de cartera resultan visibles.
+ *  - DATOS = cartera. Nunca fuente de identidad ni de catálogo.
+ * `opcionesPersonas` (`carteraAggregations.ts`) ahora recibe los valores
+ * SELECCIONADOS de País/Zona (`filtrosPais`/`filtrosZona`): sin filtro
+ * geográfico activo, devuelve el catálogo COMPLETO de personas en alcance
+ * (identidad); con filtro activo, acota por el `paisZona` PROPIO de cada
+ * persona contra los valores seleccionados. `permitirNombre` (true solo para
+ * Gestor) sigue siendo un camino adicional de inclusión, nunca el único.
  *
  * Ejercita el código YA COMPILADO en dist/ (funciones puras, sin Supabase).
  *
@@ -71,9 +90,12 @@ const PERSONAS_GESTOR = [
   { nombre: 'Angie Buch', paisZona: ['133', '140', '154', '126', '146', '999'].map((z) => ({ pais: 'REPUBLICA DOMINICANA', zona: z })) }
 ];
 
-/* Gerentes: 5 usuarios REALES con rol gerente_zona pero SIN ninguna relación
- * gerente_zona_zona (paisZona: []) — el caso exacto de producción — más UNO
- * con una relación real sobre zona 999. */
+/* Gerentes: 5 usuarios REALES con rol gerente_zona, supervisados por el
+ * usuario conectado (daniel.monge@grupopdc.com en producción), pero SIN
+ * ninguna relación gerente_zona_zona (paisZona: []) — el caso exacto de
+ * producción — más UNO con una relación real sobre zona 999. Todos ya
+ * pasaron el filtro de alcance jerárquico de `gerentesZonaEnAlcance`: están
+ * en esta lista PORQUE el usuario conectado los supervisa, no por cartera. */
 const PERSONAS_GERENTE = [
   { nombre: 'Cristina Garcia', paisZona: [] },
   { nombre: 'Ircania Guerrero', paisZona: [] },
@@ -84,21 +106,33 @@ const PERSONAS_GERENTE = [
 ];
 const PERSONAS = { gestores: PERSONAS_GESTOR, gerentes: PERSONAS_GERENTE };
 
-test('filterOptions.gerente: NINGUNO de los 5 usuarios reales sin relación gerente_zona_zona aparece, aunque su nombre coincida con cartera.gerente_zona de las cuentas de Angie', () => {
+const NOMBRES_SIN_RELACION = ['Cristina Garcia', 'Ircania Guerrero', 'Julissa Rodriguez', 'Leydi Perez', 'Stephanie German'];
+
+test('CORREGIDO (ya no "Sin opciones"): sin filtro geográfico activo, los 5 Gerentes reales con 0 relaciones SÍ aparecen en el catálogo — siguen siendo personas Gerente autorizadas, solo con alcance geográfico vacío', () => {
   const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Angie Buch'] }, PERSONAS);
-  for (const nombre of ['Cristina Garcia', 'Ircania Guerrero', 'Julissa Rodriguez', 'Leydi Perez', 'Stephanie German']) {
-    assert.ok(!opts.gerente.includes(nombre), `"${nombre}" no debe aparecer como opción de Gerente: 0 relaciones gerente_zona_zona.`);
+  for (const nombre of NOMBRES_SIN_RELACION) {
+    assert.ok(opts.gerente.includes(nombre), `"${nombre}" debe aparecer como opción de Gerente: es una persona autorizada (identidad), aunque tenga 0 relaciones gerente_zona_zona (alcance).`);
   }
 });
 
-test('filterOptions.gerente: el Gerente CON relación real sí aparece', () => {
-  const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Angie Buch'] }, PERSONAS);
-  assert.ok(opts.gerente.includes('Gerente Con Relacion'));
+test('Pero seleccionar uno de esos 5 nombres SIGUE devolviendo 0 filas: nunca las cuentas de otro Gestor por coincidencia de texto con cartera.gerente_zona', () => {
+  for (const nombre of NOMBRES_SIN_RELACION) {
+    const filtrado = filterCarteraRows(CARTERA, { ...EMPTY_FILTERS, gerente: [nombre] }, PERSONAS);
+    assert.deepEqual(filtrado, [], `Seleccionar "${nombre}" debe devolver 0 cuentas: 0 relaciones gerente_zona_zona = 0 alcance geográfico.`);
+  }
 });
 
-test('Seleccionar un nombre sin relación gerente_zona_zona como Gerente devuelve 0 filas (nunca las cuentas de otro Gestor por coincidencia de texto)', () => {
-  const filtrado = filterCarteraRows(CARTERA, { ...EMPTY_FILTERS, gerente: ['Cristina Garcia'] }, PERSONAS);
-  assert.deepEqual(filtrado, []);
+test('Con un filtro de País/Zona activo que NO coincide con su (vacío) paisZona, los 5 SÍ se acotan fuera del catálogo — el recorte geográfico usa el valor SELECCIONADO, nunca las filas visibles', () => {
+  const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Angie Buch'], zona: ['999'] }, PERSONAS);
+  for (const nombre of NOMBRES_SIN_RELACION) {
+    assert.ok(!opts.gerente.includes(nombre), `Con Zona=999 seleccionada, "${nombre}" no tiene ninguna relación sobre esa zona: no debe aparecer.`);
+  }
+  assert.ok(opts.gerente.includes('Gerente Con Relacion'), 'El Gerente con relación real sobre zona 999 sí debe aparecer con ese filtro activo.');
+});
+
+test('filterOptions.gerente: el Gerente CON relación real sí aparece (con y sin filtro geográfico)', () => {
+  const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Angie Buch'] }, PERSONAS);
+  assert.ok(opts.gerente.includes('Gerente Con Relacion'));
 });
 
 test('Seleccionar el Gerente CON relación real filtra correctamente a su zona', () => {
