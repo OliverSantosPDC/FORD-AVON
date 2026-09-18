@@ -16,6 +16,26 @@ const s = (v: unknown) => (v === null || v === undefined ? '' : String(v));
 const field = (r: Row, ...keys: string[]): unknown => { for (const k of keys) { const v = r[k]; if (v !== null && v !== undefined && String(v).trim() !== '') return v; } return undefined; };
 const r2 = (n: number) => Number(n.toFixed(2));
 
+/**
+ * Resuelve nombres (tal como aparecen en `cartera.gestor` o en la selección de
+ * Asignación) contra la IDENTIDAD REAL vigente: `gestores.id` de un registro
+ * vinculado a un usuario (`usuario_id IS NOT NULL`) y activo. Única fuente de
+ * verdad — nunca `cartera`, nunca aproximación/fuzzy: solo coincidencia EXACTA
+ * de `nombre_cartera`. Un nombre que no resuelve queda simplemente ausente del
+ * mapa devuelto (el llamador decide si eso bloquea o solo omite el registro).
+ */
+const resolverGestorIdsPorNombre = async (nombres: string[]): Promise<Map<string, string>> => {
+  const map = new Map<string, string>();
+  const unicos = [...new Set(nombres.filter(Boolean))];
+  if (unicos.length === 0) return map;
+  const { data, error } = await c().from('gestores').select('id, nombre_cartera, usuario_id').eq('activo', true).in('nombre_cartera', unicos);
+  if (error) throw new AsignacionError(`No se pudo validar los gestores: ${error.message}`);
+  for (const row of (data ?? []) as Array<{ id: string; nombre_cartera: string | null; usuario_id: string | null }>) {
+    if (row.nombre_cartera && row.usuario_id) map.set(row.nombre_cartera, row.id);
+  }
+  return map;
+};
+
 export interface ReglaAsignacion {
   ambito?: 'GLOBAL' | 'PAIS' | 'ZONA';
   grupoPrioritarioPct: number;          // % de cartera al grupo prioritario (p.ej. 80)
@@ -95,17 +115,45 @@ export const simular = (rows: Row[], regla: ReglaAsignacion): { gestores: SimGes
   return { gestores: salida, totalCuentas: rows.length };
 };
 
-/** Aplica la asignación: registra en `asignaciones` solo las cuentas que cambian de gestor. */
+/**
+ * Aplica la asignación: registra en `asignaciones` solo las cuentas que
+ * cambian de gestor. IDENTIDAD: `gestor_nuevo_id` es la fuente definitiva del
+ * gestor efectivo — se resuelve EXCLUSIVAMENTE contra `gestores` (usuario_id
+ * vinculado + activo). Un `nuevo` propuesto que no resuelve a un Gestor real
+ * NUNCA se inserta (no se inventa una identidad): esa cuenta se omite de este
+ * lote, sin bloquear el resto.
+ */
 export const aplicar = async (ctx: ScopeContext, rows: Row[], regla: ReglaAsignacion): Promise<{ afectadas: number }> => {
   const propuesta = calcularPropuesta(rows, regla);
-  const registros: Array<Record<string, unknown>> = [];
+  const candidatos: Array<{ codigo: string; actual: string; nuevo: string; pais: string | null }> = [];
   rows.forEach((r) => {
     const cod = s(field(r, 'codigo', 'code'));
     const actual = s(field(r, 'gestor'));
     const nuevo = propuesta.get(cod);
     if (!cod || !nuevo || nuevo === actual) return;
-    registros.push({ codigo: cod, gestor_anterior: actual || null, gestor_nuevo: nuevo, tipo: 'AUTO', regla: regla as unknown as Record<string, unknown>, pais: s(field(r, 'pais')) || null, asignado_por: ctx.userId });
+    candidatos.push({ codigo: cod, actual, nuevo, pais: s(field(r, 'pais')) || null });
   });
+  if (candidatos.length === 0) return { afectadas: 0 };
+
+  const nombres = [...new Set(candidatos.flatMap((cand) => [cand.actual, cand.nuevo]))];
+  const idsPorNombre = await resolverGestorIdsPorNombre(nombres);
+
+  const registros: Array<Record<string, unknown>> = [];
+  for (const cand of candidatos) {
+    const nuevoId = idsPorNombre.get(cand.nuevo);
+    if (!nuevoId) continue; // Sin identidad real validada: se omite, nunca se persiste un gestor_nuevo huérfano.
+    registros.push({
+      codigo: cand.codigo,
+      gestor_anterior: cand.actual || null,
+      gestor_anterior_id: idsPorNombre.get(cand.actual) ?? null,
+      gestor_nuevo: cand.nuevo,
+      gestor_nuevo_id: nuevoId,
+      tipo: 'AUTO',
+      regla: regla as unknown as Record<string, unknown>,
+      pais: cand.pais,
+      asignado_por: ctx.userId
+    });
+  }
   if (registros.length === 0) return { afectadas: 0 };
   // Inserción por lotes (evita payloads enormes).
   for (let i = 0; i < registros.length; i += 1000) {
@@ -134,8 +182,14 @@ export const reasignarManual = async (
   const { data: gestorRow } = await c().from('gestores').select('id, usuario_id').eq('nombre_cartera', gestorNuevo).eq('activo', true).limit(1);
   const destino = (gestorRow as Array<{ id: string; usuario_id: string | null }> | null)?.[0];
   if (!destino || !destino.usuario_id) throw new AsignacionError('El gestor destino no existe o está inactivo.');
+  // gestor_anterior_id es best-effort (solo texto histórico/descriptivo): si no
+  // resuelve a un Gestor vigente, queda NULL, sin bloquear la reasignación.
+  const gestorAnteriorId = input.gestorAnterior
+    ? (await resolverGestorIdsPorNombre([input.gestorAnterior])).get(input.gestorAnterior) ?? null
+    : null;
   const { data, error } = await c().from('asignaciones').insert({
-    codigo, gestor_anterior: input.gestorAnterior ?? null, gestor_nuevo: gestorNuevo, tipo: 'MANUAL', motivo, pais: input.pais ?? null, asignado_por: ctx.userId
+    codigo, gestor_anterior: input.gestorAnterior ?? null, gestor_anterior_id: gestorAnteriorId,
+    gestor_nuevo: gestorNuevo, gestor_nuevo_id: destino.id, tipo: 'MANUAL', motivo, pais: input.pais ?? null, asignado_por: ctx.userId
   }).select('id').single();
   if (error) throw new AsignacionError(`No se pudo registrar la reasignación: ${error.message}`);
   const id = (data as { id: string }).id;

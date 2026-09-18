@@ -46,23 +46,51 @@ export class CarteraService {
 
   /**
    * GESTOR EFECTIVO (centralizado). Devuelve la asignación VIGENTE por cuenta:
-   * la más reciente en `asignaciones` (AUTO o MANUAL) gana. Una sola consulta
-   * (sin N+1). La cartera original NO se modifica: solo se usa para resolver
-   * el gestor efectivo en memoria.
+   * la más reciente en `asignaciones` (AUTO o MANUAL) gana. La cartera original
+   * NO se modifica: solo se usa para resolver el gestor efectivo en memoria.
+   *
+   * IDENTIDAD: el nombre devuelto sale EXCLUSIVAMENTE de `gestor_nuevo_id` →
+   * `gestores.nombre_cartera` (la MISMA tabla maestra que usa el catálogo de
+   * personas de ScopeService) — nunca del texto libre `gestor_nuevo`. Una fila
+   * de `asignaciones` sin `gestor_nuevo_id` (legado, o cuyo Gestor fue
+   * desactivado/desvinculado después de escribirla) simplemente no aporta
+   * gestor efectivo para esa cuenta: nunca se inventa ni se usa el texto crudo.
    */
   private async getAsignacionesVigentes(): Promise<Map<string, string>> {
     const map = new Map<string, string>();
     const { data, error } = await getSupabaseClient()
       .from('asignaciones')
-      .select('codigo, gestor_nuevo, created_at')
+      .select('codigo, gestor_nuevo_id, created_at')
       .order('created_at', { ascending: false })
       .limit(200000);
     if (error || !data) return map;
-    for (const row of data as Array<{ codigo: string | null; gestor_nuevo: string | null }>) {
+
+    // Como viene ordenado desc por fecha, la PRIMERA aparición de cada código es la vigente.
+    const idPorCodigo = new Map<string, string>();
+    for (const row of data as Array<{ codigo: string | null; gestor_nuevo_id: string | null }>) {
       const codigo = row.codigo ?? '';
-      const gestor = row.gestor_nuevo ?? '';
-      // Como viene ordenado desc por fecha, la PRIMERA aparición de cada código es la vigente.
-      if (codigo && gestor && !map.has(codigo)) map.set(codigo, gestor);
+      const gestorId = row.gestor_nuevo_id ?? '';
+      if (codigo && gestorId && !idPorCodigo.has(codigo)) idPorCodigo.set(codigo, gestorId);
+    }
+    if (idPorCodigo.size === 0) return map;
+
+    // Re-valida usuario_id/activo AHORA (no solo al momento de escribir la
+    // asignación): si el Gestor fue desactivado/desvinculado después, deja de
+    // ser un gestor efectivo válido.
+    const idsUnicos = [...new Set(idPorCodigo.values())];
+    const { data: gestoresData } = await getSupabaseClient()
+      .from('gestores')
+      .select('id, nombre_cartera, usuario_id')
+      .eq('activo', true)
+      .in('id', idsUnicos);
+    const nombrePorId = new Map<string, string>();
+    for (const g of (gestoresData ?? []) as Array<{ id: string; nombre_cartera: string | null; usuario_id: string | null }>) {
+      if (g.nombre_cartera && g.usuario_id) nombrePorId.set(g.id, g.nombre_cartera);
+    }
+
+    for (const [codigo, gestorId] of idPorCodigo) {
+      const nombre = nombrePorId.get(gestorId);
+      if (nombre) map.set(codigo, nombre);
     }
     return map;
   }
