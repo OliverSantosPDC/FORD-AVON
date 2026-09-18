@@ -470,24 +470,42 @@ const personasPorNombre = (personas: PersonaFiltro[]): Map<string, PersonaFiltro
 
 /**
  * ¿La fila queda incluida por la selección de Gestor/Gerente? Coincide si:
- * (a) el nombre de la fila (cartera.gestor/gerente_zona) es uno de los
- *     seleccionados — puente de compatibilidad para cuando SÍ coincide —, O
+ * (a) `permitirNombre` está activo Y el nombre de la fila (cartera.gestor)
+ *     es uno de los seleccionados — puente de compatibilidad, SOLO válido
+ *     para Gestor: `gestores.nombre_cartera` es un campo curado por un
+ *     administrador específicamente como puente con `cartera.gestor`, y es
+ *     una de las dimensiones que ScopeFilter.applyScope YA usa para
+ *     autorización real (`ctx.scope.gestores`) —, O
  * (b) el País-Zona EXACTO de la fila está entre los de alguna persona
  *     seleccionada (`gestor_pais_zona`/`gerente_zona_zona`), aunque su nombre
  *     NUNCA exista en `cartera` — mismo principio OR que ScopeFilter.applyScope,
- *     aplicado ahora a la SELECCIÓN del filtro (nunca `row.gestor === nombre`
- *     como única condición).
+ *     aplicado ahora a la SELECCIÓN del filtro.
+ *
+ * Gerente de zona NUNCA tiene un campo equivalente a `nombre_cartera`: su
+ * única fuente de alcance real, incluso en ScopeFilter.applyScope, es
+ * `gerente_zona_zona` (no existe `gerenteField` en ApplyScopeOptions). Por
+ * eso `permitirNombre` debe ser `false` para la dimensión Gerente — de lo
+ * contrario, un usuario real con rol gerente_zona pero SIN ninguna relación
+ * `gerente_zona_zona` configurada aparecería igual como opción (y sería
+ * seleccionable) solo porque su nombre coincide con el texto operativo
+ * `cartera.gerente_zona` de cuentas que en realidad pertenecen al alcance de
+ * OTRO Gestor — exactamente "NOMBRE DE CUENTA → GERENTE", el patrón
+ * prohibido (bug real confirmado en producción con Angie Buch/Cristina
+ * Garcia/Ircania Guerrero/Julissa Rodriguez/Leydi Perez/Stephanie German).
  */
 const rowMatchesPersonaFilter = (
   row: CarteraRow,
   values: string[],
   nameKeys: string[],
-  personasPorNombreLower: Map<string, PersonaFiltro>
+  personasPorNombreLower: Map<string, PersonaFiltro>,
+  permitirNombre: boolean
 ): boolean => {
   if (!values.length) return true;
   const seleccionadas = values.map((v) => v.trim().toLocaleLowerCase());
-  const rowNombre = getFieldValue(row, nameKeys).toLocaleLowerCase();
-  if (rowNombre && seleccionadas.includes(rowNombre)) return true;
+  if (permitirNombre) {
+    const rowNombre = getFieldValue(row, nameKeys).toLocaleLowerCase();
+    if (rowNombre && seleccionadas.includes(rowNombre)) return true;
+  }
 
   const rowPais = getFieldValue(row, ['pais']);
   const rowZona = getFieldValue(row, ['zona']);
@@ -512,8 +530,8 @@ const filterRows = (
   return rows.filter((row) => {
     if (excludeField !== 'pais' && !rowMatchesFilter(row, filters.pais, ['pais'])) return false;
     if (excludeField !== 'zona' && !rowMatchesFilter(row, filters.zona, ['zona'])) return false;
-    if (excludeField !== 'gestor' && !rowMatchesPersonaFilter(row, filters.gestor, ['gestor'], gestoresPorNombre)) return false;
-    if (excludeField !== 'gerente' && !rowMatchesPersonaFilter(row, filters.gerente, ['gerente', 'gerente_zona'], gerentesPorNombre)) return false;
+    if (excludeField !== 'gestor' && !rowMatchesPersonaFilter(row, filters.gestor, ['gestor'], gestoresPorNombre, true)) return false;
+    if (excludeField !== 'gerente' && !rowMatchesPersonaFilter(row, filters.gerente, ['gerente', 'gerente_zona'], gerentesPorNombre, false)) return false;
     if (excludeField !== 'pd' && !rowMatchesFilter(row, filters.pd, ['pd_actual', 'pd'])) return false;
     if (excludeField !== 'campania' && !rowMatchesFilter(row, filters.campania, ['campania_adeuda', 'campania', 'campaña', 'campaign'])) return false;
     return true;
@@ -530,19 +548,33 @@ const getUniqueOptions = (rows: CarteraRow[], keyVariants: string[]): string[] =
  * `personas` (usuarios/roles/relaciones — ver ScopeService.gestoresEnAlcance /
  * gerentesZonaEnAlcance), nunca de `getUniqueOptions` sobre `cartera`. Cada
  * persona entra en la lista si alcanza alguna de las `filasElegibles` (las
- * filas ya acotadas por las DEMÁS dimensiones seleccionadas): por nombre
- * (cuando coincide con `cartera.gestor`/`gerente_zona`) o porque su propio
- * País-Zona intersecta el de esas filas — así una persona sin ninguna fila
- * con su nombre en cartera (p. ej. un Gestor nuevo, con gestor_pais_zona pero
- * 0 coincidencias de nombre) sigue apareciendo mientras su asignación
- * intersecte el universo filtrado.
+ * filas ya acotadas por las DEMÁS dimensiones seleccionadas): por su propio
+ * País-Zona (siempre) o, SOLO para Gestor (`permitirNombre = true`), por
+ * coincidir con `cartera.gestor` — el mismo puente de texto curado que usa
+ * ScopeFilter.applyScope para autorización real. Así, un Gestor nuevo sin
+ * ninguna fila con su nombre en cartera (solo con gestor_pais_zona) sigue
+ * apareciendo mientras su asignación intersecte el universo filtrado.
+ *
+ * Gerente de zona NUNCA usa coincidencia de nombre (`permitirNombre = false`
+ * siempre): no existe un campo curado equivalente a `nombre_cartera`, y
+ * ScopeFilter.applyScope tampoco autoriza Gerentes por nombre — solo por
+ * `gerente_zona_zona`. Sin este límite, un usuario real con rol gerente_zona
+ * pero SIN relaciones configuradas aparecía igual como opción por
+ * coincidir su nombre con el texto operativo `cartera.gerente_zona` de
+ * cuentas de OTRO Gestor (bug real de producción: Cristina Garcia/Ircania
+ * Guerrero/Julissa Rodriguez/Leydi Perez/Stephanie German, 0 relaciones
+ * `gerente_zona_zona`, apareciendo como opción de Gerente al filtrar por
+ * Gestor = Angie Buch, solo porque sus nombres coinciden con
+ * `cartera.gerente_zona` en las cuentas de Angie).
  */
-const opcionesPersonas = (personas: PersonaFiltro[], filasElegibles: CarteraRow[], nameKeys: string[]): string[] => {
+const opcionesPersonas = (personas: PersonaFiltro[], filasElegibles: CarteraRow[], nameKeys: string[], permitirNombre: boolean): string[] => {
   const paresPresentes = new Set<string>();
   const nombresPresentes = new Set<string>();
   filasElegibles.forEach((row) => {
-    const nombre = getFieldValue(row, nameKeys).toLocaleLowerCase();
-    if (nombre) nombresPresentes.add(nombre);
+    if (permitirNombre) {
+      const nombre = getFieldValue(row, nameKeys).toLocaleLowerCase();
+      if (nombre) nombresPresentes.add(nombre);
+    }
     const pais = getFieldValue(row, ['pais']);
     const zona = getFieldValue(row, ['zona']);
     if (pais && zona) paresPresentes.add(paisZonaKey(pais, zona));
@@ -550,7 +582,7 @@ const opcionesPersonas = (personas: PersonaFiltro[], filasElegibles: CarteraRow[
 
   return personas
     .filter((persona) => {
-      if (nombresPresentes.has(persona.nombre.trim().toLocaleLowerCase())) return true;
+      if (permitirNombre && nombresPresentes.has(persona.nombre.trim().toLocaleLowerCase())) return true;
       return persona.paisZona.some((pz) => paresPresentes.has(paisZonaKey(pz.pais, pz.zona)));
     })
     .map((persona) => persona.nombre)
@@ -564,8 +596,8 @@ export const buildFilterOptions = (
 ): FilterOptions => ({
   pais: getUniqueOptions(filterRows(rows, filters, personas, 'pais'), ['pais']),
   zona: getUniqueOptions(filterRows(rows, filters, personas, 'zona'), ['zona']),
-  gestor: opcionesPersonas(personas.gestores, filterRows(rows, filters, personas, 'gestor'), ['gestor']),
-  gerente: opcionesPersonas(personas.gerentes, filterRows(rows, filters, personas, 'gerente'), ['gerente', 'gerente_zona']),
+  gestor: opcionesPersonas(personas.gestores, filterRows(rows, filters, personas, 'gestor'), ['gestor'], true),
+  gerente: opcionesPersonas(personas.gerentes, filterRows(rows, filters, personas, 'gerente'), ['gerente', 'gerente_zona'], false),
   pd: getUniqueOptions(filterRows(rows, filters, personas, 'pd'), ['pd_actual', 'pd']),
   campania: getUniqueOptions(filterRows(rows, filters, personas, 'campania'), ['campania_adeuda', 'campania', 'campaña', 'campaign'])
 });
@@ -583,8 +615,8 @@ export const filterCarteraRows = (rows: CarteraRow[], filters: DashboardMultiFil
 
   return rows.filter((row) => {
     if (!rowMatchesFilter(row, filters.pais, ['pais'])) return false;
-    if (!rowMatchesPersonaFilter(row, filters.gestor, ['gestor'], gestoresPorNombre)) return false;
-    if (!rowMatchesPersonaFilter(row, filters.gerente, ['gerente', 'gerente_zona'], gerentesPorNombre)) return false;
+    if (!rowMatchesPersonaFilter(row, filters.gestor, ['gestor'], gestoresPorNombre, true)) return false;
+    if (!rowMatchesPersonaFilter(row, filters.gerente, ['gerente', 'gerente_zona'], gerentesPorNombre, false)) return false;
     if (!rowMatchesFilter(row, filters.zona, ['zona'])) return false;
     if (!rowMatchesFilter(row, filters.pd, ['pd_actual', 'pd'])) return false;
     if (!rowMatchesFilter(row, filters.campania, ['campania_adeuda', 'campania', 'campaña', 'campaign'])) return false;
