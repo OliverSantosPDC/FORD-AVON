@@ -85,9 +85,12 @@ const CARTERA = [
   { codigo: 'CTA-6', gestor: 'ANGIE DYANA BUCH DÍAZ', gerente_zona: 'Gerente Con Relacion', pais: 'REPUBLICA DOMINICANA', zona: '999' }
 ];
 
+const SUP_DANIEL = 'sup-daniel-monge';
+
 const PERSONAS_GESTOR = [
   // Angie: identidad vigente (usuario_id vinculado), 10 relaciones en la vida real; aquí solo las 6 zonas del fixture.
-  { nombre: 'Angie Buch', paisZona: ['133', '140', '154', '126', '146', '999'].map((z) => ({ pais: 'REPUBLICA DOMINICANA', zona: z })) }
+  // Supervisor real: daniel.monge@grupopdc.com (supervisor_gestor) — única relación real con los Gerentes de abajo.
+  { nombre: 'Angie Buch', paisZona: ['133', '140', '154', '126', '146', '999'].map((z) => ({ pais: 'REPUBLICA DOMINICANA', zona: z })), supervisorIds: [SUP_DANIEL] }
 ];
 
 /* Gerentes: 5 usuarios REALES con rol gerente_zona, supervisados por el
@@ -97,12 +100,17 @@ const PERSONAS_GESTOR = [
  * pasaron el filtro de alcance jerárquico de `gerentesZonaEnAlcance`: están
  * en esta lista PORQUE el usuario conectado los supervisa, no por cartera. */
 const PERSONAS_GERENTE = [
-  { nombre: 'Cristina Garcia', paisZona: [] },
-  { nombre: 'Ircania Guerrero', paisZona: [] },
-  { nombre: 'Julissa Rodriguez', paisZona: [] },
-  { nombre: 'Leydi Perez', paisZona: [] },
-  { nombre: 'Stephanie German', paisZona: [] },
-  { nombre: 'Gerente Con Relacion', paisZona: [{ pais: 'REPUBLICA DOMINICANA', zona: '999' }] }
+  { nombre: 'Cristina Garcia', paisZona: [], supervisorIds: [SUP_DANIEL] },
+  { nombre: 'Ircania Guerrero', paisZona: [], supervisorIds: [SUP_DANIEL] },
+  { nombre: 'Julissa Rodriguez', paisZona: [], supervisorIds: [SUP_DANIEL] },
+  { nombre: 'Leydi Perez', paisZona: [], supervisorIds: [SUP_DANIEL] },
+  { nombre: 'Stephanie German', paisZona: [], supervisorIds: [SUP_DANIEL] },
+  { nombre: 'Gerente Con Relacion', paisZona: [{ pais: 'REPUBLICA DOMINICANA', zona: '999' }], supervisorIds: [SUP_DANIEL] },
+  // Gerente real pero de OTRO Supervisor (p. ej. Oliver Santos): NUNCA debe
+  // aparecer al seleccionar Angie Buch (Gestor de Daniel Monge) — prueba la
+  // relación cruzada Gestor↔Gerente vía Supervisor compartido (única
+  // relación real entre ambos, confirmada en la auditoría de Supabase).
+  { nombre: 'Gerente De Otro Supervisor', paisZona: [{ pais: 'REPUBLICA DOMINICANA', zona: '133' }], supervisorIds: ['sup-oliver-santos'] }
 ];
 const PERSONAS = { gestores: PERSONAS_GESTOR, gerentes: PERSONAS_GERENTE };
 
@@ -158,11 +166,21 @@ test('Gerente con MÚLTIPLES zonas aparece una sola vez y conserva todas sus rel
     gestores: PERSONAS_GESTOR,
     gerentes: [
       ...PERSONAS_GERENTE,
-      { nombre: 'Gerente Multizona', paisZona: [{ pais: 'REPUBLICA DOMINICANA', zona: '133' }, { pais: 'REPUBLICA DOMINICANA', zona: '146' }] }
+      { nombre: 'Gerente Multizona', paisZona: [{ pais: 'REPUBLICA DOMINICANA', zona: '133' }, { pais: 'REPUBLICA DOMINICANA', zona: '146' }], supervisorIds: [SUP_DANIEL] }
     ]
   };
   const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Angie Buch'] }, personasConMultizona);
   assert.equal(opts.gerente.filter((n) => n === 'Gerente Multizona').length, 1);
   const filtrado = filterCarteraRows(CARTERA, { ...EMPTY_FILTERS, gerente: ['Gerente Multizona'] }, personasConMultizona);
   assert.deepEqual(filtrado.map((r) => r.codigo).sort(), ['CTA-1', 'CTA-5']);
+});
+
+test('RELACIÓN CRUZADA Gestor↔Gerente (única relación real: mismo Supervisor): seleccionar Angie Buch (Daniel Monge) NUNCA muestra un Gerente de OTRO Supervisor (Oliver Santos), aunque esté en el alcance global del catálogo', () => {
+  const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Angie Buch'] }, PERSONAS);
+  assert.ok(!opts.gerente.includes('Gerente De Otro Supervisor'), 'No comparte Supervisor con Angie Buch: no debe aparecer al seleccionarla.');
+});
+
+test('Sin ningún Gestor seleccionado, el Gerente de otro Supervisor SÍ aparece (catálogo completo del alcance, sin recorte cruzado)', () => {
+  const opts = buildFilterOptions(CARTERA, EMPTY_FILTERS, PERSONAS);
+  assert.ok(opts.gerente.includes('Gerente De Otro Supervisor'));
 });

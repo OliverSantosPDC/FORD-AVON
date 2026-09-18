@@ -452,6 +452,16 @@ const rowMatchesFilter = (row: CarteraRow, values: string[], keys: string[]): bo
 export interface PersonaFiltro {
   nombre: string;
   paisZona: Array<{ pais: string; zona: string }>;
+  /** `profiles.id` de sus Supervisores vigentes (`supervisor_gestor` /
+   *  `supervisor_gerente_zona`, ver ScopeService). Única relación REAL entre
+   *  Gestor y Gerente de zona en el modelo actual: no existe una tabla de
+   *  relación directa Gestor→Gerente — ambos dependen del mismo Supervisor
+   *  como ramas paralelas (auditoría Supabase, project vuazzailuqgbjnnbdtrg:
+   *  `supervisor_gestor` y `supervisor_gerente_zona` son las únicas tablas
+   *  que conectan a un Supervisor con sus Gestores/Gerentes respectivamente).
+   *  Se usa EXCLUSIVAMENTE para acotar el catálogo cruzado en
+   *  `opcionesPersonas` cuando el usuario selecciona Gestor y/o Gerente. */
+  supervisorIds: string[];
 }
 
 export interface PersonasEnAlcance {
@@ -580,6 +590,22 @@ const getUniqueOptions = (rows: CarteraRow[], keyVariants: string[]): string[] =
  * el requisito de intersectar filas VISIBLES los dejaba fuera del catálogo
  * por completo — "Sin opciones" — en vez de aparecer como personas
  * autorizadas con alcance geográfico vacío.)
+ *
+ * RELACIÓN CRUZADA Gestor↔Gerente (`supervisoresPermitidos`): auditoría real
+ * de Supabase (project vuazzailuqgbjnnbdtrg) confirmó que el modelo actual
+ * NO tiene una tabla de relación directa Gestor→Gerente. La única relación
+ * real es estructural: ambos dependen del mismo Supervisor, en dos ramas
+ * paralelas (`supervisor_gestor` y `supervisor_gerente_zona`). Por eso,
+ * cuando el usuario tiene seleccionado un Gestor y/o un Gerente, la OTRA
+ * dimensión se acota a las personas que comparten AL MENOS UN Supervisor con
+ * la/las persona(s) seleccionada(s) — nunca a "todas las personas del
+ * alcance del usuario conectado" (eso permitiría, p. ej., que seleccionar al
+ * Gestor Angie Buch, supervisada por Daniel Monge, siguiera mostrando
+ * Gerentes de Oliver Santos). `supervisoresPermitidos = null` significa "sin
+ * selección activa en la otra dimensión" (sin recorte); un `Set` vacío
+ * significa "la persona seleccionada no tiene Supervisor vigente" y por lo
+ * tanto NINGUNA persona de la otra dimensión puede compartir uno — 0
+ * opciones, correcto (nunca se amplía el alcance).
  */
 const opcionesPersonas = (
   personas: PersonaFiltro[],
@@ -587,7 +613,8 @@ const opcionesPersonas = (
   nameKeys: string[],
   permitirNombre: boolean,
   filtrosPais: string[],
-  filtrosZona: string[]
+  filtrosZona: string[],
+  supervisoresPermitidos: Set<string> | null
 ): string[] => {
   const nombresPresentes = new Set<string>();
   if (permitirNombre) {
@@ -603,6 +630,7 @@ const opcionesPersonas = (
 
   return personas
     .filter((persona) => {
+      if (supervisoresPermitidos && !persona.supervisorIds.some((id) => supervisoresPermitidos.has(id))) return false;
       if (permitirNombre && nombresPresentes.has(persona.nombre.trim().toLocaleLowerCase())) return true;
       if (!hayFiltroGeografico) return true;
       return persona.paisZona.some(
@@ -615,18 +643,53 @@ const opcionesPersonas = (
     .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 };
 
+/** Supervisores vigentes de la(s) persona(s) actualmente SELECCIONADA(s) en
+ *  un filtro (por nombre) — usado para acotar la dimensión Gestor↔Gerente
+ *  cruzada (ver `opcionesPersonas`). `null` = sin selección (sin recorte). */
+const supervisorIdsDeSeleccion = (personas: PersonaFiltro[], seleccionados: string[]): Set<string> | null => {
+  if (seleccionados.length === 0) return null;
+  const nombres = new Set(seleccionados.map((v) => v.trim().toLocaleLowerCase()));
+  const ids = new Set<string>();
+  personas.forEach((persona) => {
+    if (nombres.has(persona.nombre.trim().toLocaleLowerCase())) {
+      persona.supervisorIds.forEach((id) => ids.add(id));
+    }
+  });
+  return ids;
+};
+
 export const buildFilterOptions = (
   rows: CarteraRow[],
   filters: DashboardMultiFilterParams,
   personas: PersonasEnAlcance
-): FilterOptions => ({
-  pais: getUniqueOptions(filterRows(rows, filters, personas, 'pais'), ['pais']),
-  zona: getUniqueOptions(filterRows(rows, filters, personas, 'zona'), ['zona']),
-  gestor: opcionesPersonas(personas.gestores, filterRows(rows, filters, personas, 'gestor'), ['gestor'], true, filters.pais, filters.zona),
-  gerente: opcionesPersonas(personas.gerentes, filterRows(rows, filters, personas, 'gerente'), ['gerente', 'gerente_zona'], false, filters.pais, filters.zona),
-  pd: getUniqueOptions(filterRows(rows, filters, personas, 'pd'), ['pd_actual', 'pd']),
-  campania: getUniqueOptions(filterRows(rows, filters, personas, 'campania'), ['campania_adeuda', 'campania', 'campaña', 'campaign'])
-});
+): FilterOptions => {
+  const supervisoresDeGestorSeleccionado = supervisorIdsDeSeleccion(personas.gestores, filters.gestor);
+  const supervisoresDeGerenteSeleccionado = supervisorIdsDeSeleccion(personas.gerentes, filters.gerente);
+  return {
+    pais: getUniqueOptions(filterRows(rows, filters, personas, 'pais'), ['pais']),
+    zona: getUniqueOptions(filterRows(rows, filters, personas, 'zona'), ['zona']),
+    gestor: opcionesPersonas(
+      personas.gestores,
+      filterRows(rows, filters, personas, 'gestor'),
+      ['gestor'],
+      true,
+      filters.pais,
+      filters.zona,
+      supervisoresDeGerenteSeleccionado
+    ),
+    gerente: opcionesPersonas(
+      personas.gerentes,
+      filterRows(rows, filters, personas, 'gerente'),
+      ['gerente', 'gerente_zona'],
+      false,
+      filters.pais,
+      filters.zona,
+      supervisoresDeGestorSeleccionado
+    ),
+    pd: getUniqueOptions(filterRows(rows, filters, personas, 'pd'), ['pd_actual', 'pd']),
+    campania: getUniqueOptions(filterRows(rows, filters, personas, 'campania'), ['campania_adeuda', 'campania', 'campaña', 'campaign'])
+  };
+};
 
 /**
  * Filtra las filas por los mismos criterios del dashboard (equivalente al

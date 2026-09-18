@@ -184,6 +184,56 @@ const paisZonaPorGerenteId = async (gerenteUserIds: string[]): Promise<Map<strin
   return map;
 };
 
+/** Supervisores VIGENTES de uno o varios `gestores.id`, AGRUPADOS por
+ *  gestor_id (`supervisor_gestor`). Auditoría real de Supabase (project
+ *  vuazzailuqgbjnnbdtrg): NO existe una relación directa Gestor→Gerente de
+ *  zona en el modelo actual — ambos dependen del mismo Supervisor en dos
+ *  ramas paralelas (`supervisor_gestor` / `supervisor_gerente_zona`). Esta
+ *  es la única fuente real para acotar el catálogo cruzado Gestor↔Gerente en
+ *  los filtros (ver `PersonaFiltro.supervisorIds`, `carteraAggregations.ts`). */
+const supervisoresPorGestorId = async (gestorIds: string[]): Promise<Map<string, string[]>> => {
+  const map = new Map<string, string[]>();
+  if (gestorIds.length === 0) return map;
+  const today = serverDate();
+  const { data, error } = await getSupabaseClient()
+    .from('supervisor_gestor')
+    .select('gestor_id, supervisor_id')
+    .in('gestor_id', gestorIds)
+    .eq('activo', true)
+    .lte('fecha_inicio', today)
+    .or(`fecha_fin.is.null,fecha_fin.gte.${today}`);
+  if (error) throw new ScopeResolutionError(`No se pudieron leer los supervisores de los gestores: ${error.message}`);
+  for (const r of (data ?? []) as Array<{ gestor_id: string; supervisor_id: string }>) {
+    const list = map.get(r.gestor_id) ?? [];
+    list.push(r.supervisor_id);
+    map.set(r.gestor_id, list);
+  }
+  return map;
+};
+
+/** Supervisores VIGENTES de uno o varios Gerentes de zona (por `profiles.id`),
+ *  AGRUPADOS por usuario_id (`supervisor_gerente_zona`). Ver
+ *  `supervisoresPorGestorId` — misma relación, rama paralela. */
+const supervisoresPorGerenteId = async (gerenteUserIds: string[]): Promise<Map<string, string[]>> => {
+  const map = new Map<string, string[]>();
+  if (gerenteUserIds.length === 0) return map;
+  const today = serverDate();
+  const { data, error } = await getSupabaseClient()
+    .from('supervisor_gerente_zona')
+    .select('gerente_zona_id, supervisor_id')
+    .in('gerente_zona_id', gerenteUserIds)
+    .eq('activo', true)
+    .lte('fecha_inicio', today)
+    .or(`fecha_fin.is.null,fecha_fin.gte.${today}`);
+  if (error) throw new ScopeResolutionError(`No se pudieron leer los supervisores de los gerentes de zona: ${error.message}`);
+  for (const r of (data ?? []) as Array<{ gerente_zona_id: string; supervisor_id: string }>) {
+    const list = map.get(r.gerente_zona_id) ?? [];
+    list.push(r.supervisor_id);
+    map.set(r.gerente_zona_id, list);
+  }
+  return map;
+};
+
 /** País/Zona explícitos (narrowing adicional) de uno o varios `gestores.id`, vigentes. */
 const paisZonaDeGestores = async (gestorIds: string[]): Promise<Array<{ pais: string; zona: string }>> => {
   const map = await paisZonaPorGestorId(gestorIds);
@@ -434,9 +484,14 @@ export const gestoresEnAlcance = async (ctx: ScopeContext): Promise<PersonaFiltr
       : [];
   if (rows.length === 0) return [];
   const pares = await paisZonaPorGestorId(rows.map((r) => r.id));
+  const supervisores = await supervisoresPorGestorId(rows.map((r) => r.id));
   return rows
     .filter((r) => r.nombre_cartera)
-    .map((r) => ({ nombre: r.nombre_cartera as string, paisZona: pares.get(r.id) ?? [] }));
+    .map((r) => ({
+      nombre: r.nombre_cartera as string,
+      paisZona: pares.get(r.id) ?? [],
+      supervisorIds: supervisores.get(r.id) ?? []
+    }));
 };
 
 /**
@@ -460,7 +515,12 @@ export const gerentesZonaEnAlcance = async (ctx: ScopeContext): Promise<PersonaF
   const rows = (data ?? []) as Array<{ id: string; nombre: string; apellido: string | null }>;
   if (rows.length === 0) return [];
   const pares = await paisZonaPorGerenteId(rows.map((r) => r.id));
-  return rows.map((r) => ({ nombre: `${r.nombre}${r.apellido ? ` ${r.apellido}` : ''}`.trim(), paisZona: pares.get(r.id) ?? [] }));
+  const supervisores = await supervisoresPorGerenteId(rows.map((r) => r.id));
+  return rows.map((r) => ({
+    nombre: `${r.nombre}${r.apellido ? ` ${r.apellido}` : ''}`.trim(),
+    paisZona: pares.get(r.id) ?? [],
+    supervisorIds: supervisores.get(r.id) ?? []
+  }));
 };
 
 /**
