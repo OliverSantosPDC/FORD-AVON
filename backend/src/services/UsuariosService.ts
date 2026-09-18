@@ -251,7 +251,12 @@ export const obtenerCatalogos = async (): Promise<Catalogos> => {
   return {
     roles: ((roles ?? []) as Array<Record<string, unknown>>).map((r) => ({ id: String(r.id), clave: String(r.clave), nombre: String(r.nombre), nivel: (r.nivel as number | null) ?? null })),
     zonas: ((zonas ?? []) as Array<Record<string, unknown>>).map((z) => ({ id: String(z.id), nombre: String(z.nombre), codigo: (z.codigo as string | null) ?? null })),
-    gestores: ((gestores ?? []) as Array<Record<string, unknown>>).map((g) => ({ id: String(g.id), nombreCartera: (g.nombre_cartera as string | null) ?? null, usuarioId: (g.usuario_id as string | null) ?? null })),
+    // Excluye filas huérfanas (usuario_id = null, ver sincronizarRelaciones):
+    // el catálogo de "Gestores para asignar a un Supervisor" solo debe listar
+    // Gestores vinculados a un usuario actual, nunca registros históricos.
+    gestores: ((gestores ?? []) as Array<Record<string, unknown>>)
+      .filter((g) => g.usuario_id)
+      .map((g) => ({ id: String(g.id), nombreCartera: (g.nombre_cartera as string | null) ?? null, usuarioId: (g.usuario_id as string | null) ?? null })),
     carteraPaisZona,
     supervisores: ((supervisores ?? []) as Array<Record<string, unknown>>).map((s) => ({ id: String(s.id), nombre: String(s.nombre ?? ''), apellido: (s.apellido as string | null) ?? null })),
     gerentesZona: ((gerentesZona ?? []) as Array<Record<string, unknown>>).map((s) => ({ id: String(s.id), nombre: String(s.nombre ?? ''), apellido: (s.apellido as string | null) ?? null }))
@@ -272,7 +277,10 @@ const limpiarRelacionesAjenas = async (userId: string, roleClave: string | null)
     const { data: gRow } = await client.from('gestores').select('id').eq('usuario_id', userId).eq('activo', true).limit(1);
     const gestorId = (gRow ?? [])[0]?.id as string | undefined;
     if (gestorId) await client.from('gestor_pais_zona').update({ activo: false }).eq('gestor_id', gestorId);
-    await client.from('gestores').update({ usuario_id: null }).eq('usuario_id', userId);
+    // Desactiva también la fila `gestores` al desvincular (nunca dejarla
+    // "activo=true" huérfana): de lo contrario sigue apareciendo en cualquier
+    // catálogo/filtro de personas como un registro histórico sin dueño.
+    await client.from('gestores').update({ usuario_id: null, activo: false }).eq('usuario_id', userId);
   }
   if (roleClave !== 'supervisor') {
     await client.from('supervisor_gestor').update({ activo: false }).eq('supervisor_id', userId);
@@ -306,8 +314,14 @@ const sincronizarRelaciones = async (
   // gestor → gestores.usuario_id + nombre_cartera (puente con cartera.gestor)
   let gestorIdVinculado: string | null = null;
   if (roleClave === 'gestor' && input.nombreCartera) {
-    // Desvincula cualquier gestor previo de este usuario y (re)asigna el elegido.
-    await client.from('gestores').update({ usuario_id: null }).eq('usuario_id', userId);
+    // Desvincula cualquier gestor previo de este usuario y (re)asigna el
+    // elegido. La fila previa se DESACTIVA al desvincular (nunca queda
+    // "activo=true" sin usuario_id): así, si NOMBRE_CARTERA cambia de texto
+    // entre ediciones (p. ej. "Bryan Rodriguez" -> "BRYAN DAVID RODRIGUEZ
+    // LARIOS"), la fila antigua deja de contar como persona en cualquier
+    // catálogo/filtro — antes quedaba huérfana pero activa, produciendo
+    // nombres duplicados en el filtro de Gestor (bug confirmado en producción).
+    await client.from('gestores').update({ usuario_id: null, activo: false }).eq('usuario_id', userId);
     const { data: existente } = await client.from('gestores').select('id').eq('nombre_cartera', input.nombreCartera).limit(1);
     const row = (existente ?? [])[0] as { id?: string } | undefined;
     if (row?.id) {
@@ -497,7 +511,8 @@ const ejecutarEliminacionUsuario = async (id: string): Promise<void> => {
   //    quita LAS ASIGNACIONES (quién supervisa/depende de quién): nunca borra
   //    a los usuarios "hijos" (Gestores/Gerentes de zona de un Supervisor
   //    eliminado siguen existiendo como cuentas independientes).
-  await client.from('gestores').update({ usuario_id: null }).eq('usuario_id', id);
+  // Desactiva la fila `gestores` al desvincular (nunca dejarla huérfana pero activa).
+  await client.from('gestores').update({ usuario_id: null, activo: false }).eq('usuario_id', id);
   await client.from('supervisor_gestor').delete().eq('supervisor_id', id);
   await client.from('supervisor_gerente_zona').delete().or(`supervisor_id.eq.${id},gerente_zona_id.eq.${id}`);
   await client.from('liderazgo_supervisor').delete().or(`liderazgo_id.eq.${id},supervisor_id.eq.${id}`);

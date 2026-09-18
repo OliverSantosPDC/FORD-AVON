@@ -45,7 +45,13 @@ const db = {
     // gestorB: SU NOMBRE NO EXISTE EN NINGUNA FILA DE cartera.gestor (prueba crítica Sección 24).
     { id: 'g-B', usuario_id: 'user-gestorB', nombre_cartera: 'GESTOR FANTASMA SIN CARTERA', activo: true },
     // gestorC: pertenece a un Supervisor NO relacionado (aislamiento).
-    { id: 'g-C', usuario_id: 'user-gestorC', nombre_cartera: 'GESTOR DE OTRO SUPERVISOR', activo: true }
+    { id: 'g-C', usuario_id: 'user-gestorC', nombre_cartera: 'GESTOR DE OTRO SUPERVISOR', activo: true },
+    // g-A-viejo: fila HUÉRFANA (usuario_id = null) del MISMO gestorA — simula el
+    // bug real de producción: NOMBRE_CARTERA cambió de texto en una edición
+    // posterior ("Bryan Rodriguez" -> "BRYAN DAVID RODRIGUEZ LARIOS"), la fila
+    // vieja quedó "activo = true" pero sin usuario_id. NUNCA debe aparecer como
+    // persona (ni en el catálogo del Administrador ni en el de su Supervisor).
+    { id: 'g-A-viejo', usuario_id: null, nombre_cartera: 'GESTOR REAL EN CARTERA (NOMBRE HISTORICO HUERFANO)', activo: true }
   ],
   gestor_pais_zona: [
     // gestorB NO tiene coincidencia de nombre en cartera: su ÚNICA fuente de alcance es este País-Zona.
@@ -241,6 +247,22 @@ test('gestoresEnAlcance (ADMINISTRADOR): ve TODOS los gestores activos del siste
   const ctx = await resolveScopeContext({ userId: 'user-admin', roleClave: 'administrador', permissions: [] });
   const gestores = await gestoresEnAlcance(ctx);
   assert.deepEqual(gestores.map((g) => g.nombre).sort(), ['GESTOR DE OTRO SUPERVISOR', 'GESTOR FANTASMA SIN CARTERA', 'GESTOR REAL EN CARTERA']);
+});
+
+test('PRUEBA ESPECÍFICA (nombres duplicados en producción): una fila `gestores` huérfana (usuario_id=null, activo=true) del MISMO gestor NUNCA aparece como persona independiente — ni para el Administrador ni para su Supervisor', async () => {
+  const ctxAdmin = await resolveScopeContext({ userId: 'user-admin', roleClave: 'administrador', permissions: [] });
+  const gestoresAdmin = await gestoresEnAlcance(ctxAdmin);
+  const nombresAdmin = gestoresAdmin.map((g) => g.nombre);
+  // "GESTOR REAL EN CARTERA" (vinculado, g-A) aparece EXACTAMENTE una vez.
+  assert.equal(nombresAdmin.filter((n) => n === 'GESTOR REAL EN CARTERA').length, 1);
+  // Su variante huérfana NUNCA aparece, sin importar que esté activo=true.
+  assert.ok(!nombresAdmin.includes('GESTOR REAL EN CARTERA (NOMBRE HISTORICO HUERFANO)'));
+
+  const ctxSup1 = await resolveScopeContext({ userId: 'user-sup1', roleClave: 'supervisor', permissions: [] });
+  const gestoresSup1 = await gestoresEnAlcance(ctxSup1);
+  const nombresSup1 = gestoresSup1.map((g) => g.nombre);
+  assert.equal(nombresSup1.filter((n) => n === 'GESTOR REAL EN CARTERA').length, 1);
+  assert.ok(!nombresSup1.includes('GESTOR REAL EN CARTERA (NOMBRE HISTORICO HUERFANO)'));
 });
 
 test('gestoresEnAlcance (SUPERVISOR no relacionado): ve SOLO el suyo, aislado', async () => {

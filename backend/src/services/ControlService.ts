@@ -208,8 +208,10 @@ export const gestoresParaCalidad = async (ctx: ScopeContext): Promise<Array<{ us
   let q: any = cl.from('gestores').select('usuario_id, nombre_cartera').eq('activo', true);
   if (!ctx.isGlobal) q = q.in('id', ctx.gestorIds.length ? ctx.gestorIds : ['00000000-0000-0000-0000-000000000000']);
   const { data } = await q;
+  // Excluye filas huérfanas (usuario_id = null): un registro de `gestores` sin
+  // usuario vinculado es histórico, nunca un Gestor evaluable real.
   return ((data ?? []) as Array<{ usuario_id: string | null; nombre_cartera: string | null }>)
-    .filter((g) => g.nombre_cartera)
+    .filter((g) => g.nombre_cartera && g.usuario_id)
     .map((g) => ({ usuarioId: g.usuario_id, nombre: g.nombre_cartera as string }));
 };
 

@@ -161,7 +161,13 @@ test('eliminarUsuario — elimina correctamente y no deja relaciones huérfanas 
   assert.deepEqual(deleteUserCalls, ['user-a']);
   assert.equal(db.profiles.some((p) => p.id === 'user-a'), false, 'el perfil debe quedar eliminado');
   assert.equal(db.supervisor_gestor.some((r) => r.supervisor_id === 'user-a'), false, 'sin relaciones huérfanas en supervisor_gestor');
-  assert.equal(db.gestores.find((g) => g.id === 'gestores-row-1').usuario_id, null, 'gestores.usuario_id debe quedar desvinculado, no huérfano');
+  const gestorRow = db.gestores.find((g) => g.id === 'gestores-row-1');
+  assert.equal(gestorRow.usuario_id, null, 'gestores.usuario_id debe quedar desvinculado, no huérfano');
+  // Además de desvincular, debe DESACTIVARSE (nunca "activo=true" sin
+  // usuario_id): de lo contrario la fila sigue apareciendo como persona
+  // fantasma en cualquier catálogo/filtro (bug real confirmado en producción
+  // con nombres duplicados de Gestor, p. ej. "Bryan Rodriguez").
+  assert.equal(gestorRow.activo, false, 'gestores.activo debe quedar en false al desvincular, nunca huérfana pero activa');
 });
 
 test('eliminarUsuario — un error "{}" de Auth Admin nunca llega crudo al usuario', async () => {

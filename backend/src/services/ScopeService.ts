@@ -99,16 +99,23 @@ const hasActiveGlobalAccess = async (userId: string): Promise<boolean> => {
   return (data?.length ?? 0) > 0;
 };
 
-/** Gestores activos (id + nombre_cartera) dado un conjunto de `gestores.id`. */
+/** Gestores activos (id + nombre_cartera) dado un conjunto de `gestores.id`.
+ *  Solo cuentan como GESTOR real los vinculados a un usuario actual
+ *  (`usuario_id`): una fila `gestores` con `usuario_id = null` es un registro
+ *  huérfano/histórico (nombre_cartera reemplazado en una edición posterior,
+ *  ver `sincronizarRelaciones`), nunca una identidad válida — no debe aportar
+ *  alcance ni aparecer como opción en ningún filtro/catálogo. */
 const gestoresPorIds = async (gestorIds: string[]): Promise<Array<{ id: string; nombre_cartera: string | null }>> => {
   if (gestorIds.length === 0) return [];
   const { data, error } = await getSupabaseClient()
     .from('gestores')
-    .select('id, nombre_cartera')
+    .select('id, nombre_cartera, usuario_id')
     .in('id', gestorIds)
     .eq('activo', true);
   if (error) throw new ScopeResolutionError(`No se pudieron leer los gestores: ${error.message}`);
-  return (data ?? []) as Array<{ id: string; nombre_cartera: string | null }>;
+  return ((data ?? []) as Array<{ id: string; nombre_cartera: string | null; usuario_id: string | null }>)
+    .filter((g) => g.usuario_id)
+    .map((g) => ({ id: g.id, nombre_cartera: g.nombre_cartera }));
 };
 
 /** Resuelve nombres de zona para un conjunto de `zona_id`, en un solo query. */
@@ -390,11 +397,18 @@ const resolveGerenteZonaScope = async (ctx: ScopeContext): Promise<ScopeContext>
   return ctx;
 };
 
-/** Todos los gestores activos (Administrador: ve todos los del sistema). */
+/** Todos los gestores activos (Administrador: ve todos los del sistema).
+ *  Excluye filas huérfanas (`usuario_id = null`, ver `gestoresPorIds`): el
+ *  catálogo de personas del Administrador NUNCA debe mostrar registros
+ *  históricos sin un usuario actual detrás — exactamente el bug confirmado
+ *  en producción (nombres duplicados: "Bryan Rodriguez" vinculado + "BRYAN
+ *  DAVID RODRIGUEZ LARIOS" huérfano, ambos con `activo = true`). */
 const todosGestoresActivos = async (): Promise<Array<{ id: string; nombre_cartera: string | null }>> => {
-  const { data, error } = await getSupabaseClient().from('gestores').select('id, nombre_cartera').eq('activo', true);
+  const { data, error } = await getSupabaseClient().from('gestores').select('id, nombre_cartera, usuario_id').eq('activo', true);
   if (error) throw new ScopeResolutionError(`No se pudieron leer los gestores: ${error.message}`);
-  return (data ?? []) as Array<{ id: string; nombre_cartera: string | null }>;
+  return ((data ?? []) as Array<{ id: string; nombre_cartera: string | null; usuario_id: string | null }>)
+    .filter((g) => g.usuario_id)
+    .map((g) => ({ id: g.id, nombre_cartera: g.nombre_cartera }));
 };
 
 const roleIdPorClave = async (clave: string): Promise<string | null> => {

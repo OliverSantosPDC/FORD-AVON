@@ -127,8 +127,13 @@ export const reasignarManual = async (
   if (!codigo) throw new AsignacionError('La cuenta es obligatoria.');
   if (!gestorNuevo) throw new AsignacionError('El gestor destino es obligatorio.');
   if (!motivo) throw new AsignacionError('El motivo es obligatorio.');
-  const { data: gestorRow } = await c().from('gestores').select('id').eq('nombre_cartera', gestorNuevo).eq('activo', true).limit(1);
-  if (!gestorRow || (gestorRow as unknown[]).length === 0) throw new AsignacionError('El gestor destino no existe o está inactivo.');
+  // El destino debe ser un Gestor REAL (vinculado a un usuario actual): una
+  // fila `gestores` con usuario_id = null es un registro huérfano/histórico,
+  // nunca un destino válido de reasignación (nunca confiar solo en el
+  // dropdown del frontend — revalidar aquí).
+  const { data: gestorRow } = await c().from('gestores').select('id, usuario_id').eq('nombre_cartera', gestorNuevo).eq('activo', true).limit(1);
+  const destino = (gestorRow as Array<{ id: string; usuario_id: string | null }> | null)?.[0];
+  if (!destino || !destino.usuario_id) throw new AsignacionError('El gestor destino no existe o está inactivo.');
   const { data, error } = await c().from('asignaciones').insert({
     codigo, gestor_anterior: input.gestorAnterior ?? null, gestor_nuevo: gestorNuevo, tipo: 'MANUAL', motivo, pais: input.pais ?? null, asignado_por: ctx.userId
   }).select('id').single();
