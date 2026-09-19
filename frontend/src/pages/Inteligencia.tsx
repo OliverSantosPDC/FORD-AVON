@@ -17,11 +17,11 @@ import type { DashboardKpi, DashboardMultiFilterParams } from '../types/cartera'
 const EMPTY_FILTROS: DashboardMultiFilterParams = { pais: [], gestor: [], gerente: [], zona: [], pd: [], campania: [] };
 
 /** DashboardFilters expone los mismos 6 campos que el Dashboard (país/gestor/gerente/zona/
- *  pd/campaña), pero el backend de Centro de Inteligencia (CentroFiltros) solo entiende
- *  país/zona/pd/gestor. Gerente y campaña quedan visibles en el filtro (mismo componente,
- *  mismo comportamiento) pero no tienen efecto aquí al no existir en este backend. */
+ *  pd/campaña); el backend de Centro de Inteligencia (CentroFiltros) los entiende TODOS
+ *  (construirFilterOptionsCentro delega en buildFilterOptions, la misma función que usa
+ *  Dashboard/Control Operativo/Gestión) — mismo objeto de filtros, mismo comportamiento. */
 const toCentroFiltros = (f: DashboardMultiFilterParams): CentroFiltros => ({
-  pais: f.pais, zona: f.zona, pd: f.pd, gestor: f.gestor
+  pais: f.pais, zona: f.zona, pd: f.pd, gestor: f.gestor, gerente: f.gerente, campania: f.campania
 });
 
 const money = (v: number | null, code = 'USD') =>
@@ -116,11 +116,10 @@ const InteligenciaPage = () => {
   };
   useEffect(() => { void cargar(filtros); /* eslint-disable-next-line */ }, [filtros]);
 
-  // DashboardFilters requiere los 6 campos del Dashboard; gerente/campaña no existen en
-  // el backend de Centro de Inteligencia, por lo que se muestran vacíos (sin datos).
+  // Mismas 6 opciones que Dashboard/Control Operativo/Gestión (buildFilterOptions).
   const opts = {
-    pais: data?.filterOptions.pais ?? [], gestor: data?.filterOptions.gestor ?? [], gerente: [] as string[],
-    zona: data?.filterOptions.zona ?? [], pd: data?.filterOptions.pd ?? [], campania: [] as string[]
+    pais: data?.filterOptions.pais ?? [], gestor: data?.filterOptions.gestor ?? [], gerente: data?.filterOptions.gerente ?? [],
+    zona: data?.filterOptions.zona ?? [], pd: data?.filterOptions.pd ?? [], campania: data?.filterOptions.campania ?? []
   };
   // Misma lógica del Dashboard: la tasa configurada (Configuración > Tasas de Conversión)
   // se aplica siempre a la moneda seleccionada, sin excepción para USD.

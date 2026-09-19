@@ -1,9 +1,8 @@
 import { Request, Response } from 'express';
-import { CarteraService } from '../services/CarteraService';
+import { CarteraService, personasEnAlcance } from '../services/CarteraService';
 import { CarteraRepository } from '../repositories/CarteraRepository';
 import { getCarteraDataSource } from '../config/dataSource';
 import { getCentroInteligencia, construirFilterOptionsCentro, type CentroFiltros } from '../services/InteligenciaService';
-import { gestoresEnAlcance } from '../services/ScopeService';
 
 const carteraService = new CarteraService(new CarteraRepository(getCarteraDataSource()));
 
@@ -21,23 +20,29 @@ export class InteligenciaController {
       const q = req.query as Record<string, unknown>;
       const filtros: CentroFiltros = {
         pais: parseFilter(q.pais), zona: parseFilter(q.zona), pd: parseFilter(q.pd),
-        gestor: parseFilter(q.gestor), sector: parseFilter(q.sector), riesgo: parseFilter(q.riesgo)
+        gestor: parseFilter(q.gestor), gerente: parseFilter(q.gerente), campania: parseFilter(q.campania),
+        sector: parseFilter(q.sector), riesgo: parseFilter(q.riesgo)
       };
       // Opciones de filtro EN CASCADA (Sección 6): las filas ya vienen con el
-      // Scope de seguridad aplicado (frontera en listCartera); cada dimensión
-      // respeta las DEMÁS dimensiones ya seleccionadas (construirFilterOptionsCentro,
-      // misma lógica probada en InteligenciaService). El catálogo de Gestores
-      // sale de usuarios/roles/gestor_pais_zona (ScopeService.gestoresEnAlcance),
-      // acotado al alcance del usuario CONECTADO — nunca de cartera.gestor.
-      const [scopedAll, personasGestor] = await Promise.all([
+      // Scope de seguridad aplicado (frontera en listCartera). País/Zona/Gestor/
+      // Gerente/PD/Campaña usan `construirFilterOptionsCentro`, que a su vez
+      // delega en `buildFilterOptions` — la MISMA función de Dashboard/Control
+      // Operativo/Gestión (carteraAggregations.ts), nunca una reimplementación
+      // paralela. El catálogo de personas sale de `personasEnAlcance`
+      // (usuarios/roles/gestor_pais_zona/gerente_zona_zona — CarteraService,
+      // fuente única también para Dashboard), acotado al alcance del usuario
+      // CONECTADO — nunca de cartera.gestor/cartera.gerente_zona.
+      const [scopedAll, personas] = await Promise.all([
         carteraService.listCartera({}, undefined, ctx),
-        gestoresEnAlcance(ctx)
+        personasEnAlcance(ctx)
       ]);
-      const filterOptions = construirFilterOptionsCentro(scopedAll, filtros, personasGestor);
+      const filterOptions = construirFilterOptionsCentro(scopedAll, filtros, personas);
 
-      // Filtros que aplica listCartera (pais/zona/pd/gestor/gerente/campania).
+      // Filtros que aplica listCartera (pais/zona/pd/gestor/gerente/campania) —
+      // mismo motor de filtrado (filterCarteraRows) que usan Dashboard/Control
+      // Operativo/Gestión, vía listCartera.
       const rows = await carteraService.listCartera(
-        { pais: filtros.pais, zona: filtros.zona, pd: filtros.pd, gestor: filtros.gestor },
+        { pais: filtros.pais, zona: filtros.zona, pd: filtros.pd, gestor: filtros.gestor, gerente: filtros.gerente, campania: filtros.campania },
         undefined,
         ctx
       );

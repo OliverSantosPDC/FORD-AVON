@@ -33,8 +33,9 @@ import { getSupabaseClient } from '../config/supabaseClient';
  *  aplicación del filtro: SIEMPRE desde usuarios/roles/relaciones
  *  (ScopeService), acotado al alcance del usuario CONECTADO — nunca desde
  *  `cartera.gestor`/`cartera.gerente_zona`. Única función para Dashboard,
- *  Centro de Inteligencia y Control Operativo (reutilizan este mismo origen). */
-const personasEnAlcance = async (scopeContext: ScopeContext): Promise<PersonasEnAlcance> => ({
+ *  Centro de Inteligencia, Control Operativo y Gestión (exportada para que
+ *  ningún otro módulo reconstruya su propio catálogo de personas). */
+export const personasEnAlcance = async (scopeContext: ScopeContext): Promise<PersonasEnAlcance> => ({
   gestores: await gestoresEnAlcance(scopeContext),
   gerentes: await gerentesZonaEnAlcance(scopeContext)
 });

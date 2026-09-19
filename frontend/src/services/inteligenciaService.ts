@@ -1,7 +1,7 @@
 import { apiFetch } from './apiClient';
 
 export interface CentroFiltros {
-  pais?: string[]; zona?: string[]; pd?: string[]; gestor?: string[]; sector?: string[]; riesgo?: string[];
+  pais?: string[]; zona?: string[]; pd?: string[]; gestor?: string[]; gerente?: string[]; campania?: string[]; sector?: string[]; riesgo?: string[];
 }
 export interface CentroGrupo { clave: string; saldoAsignadoUsd: number; saldoActualUsd: number; recuperadoUsd: number; cuentas: number; pctRecuperacion: number; }
 export interface CentroMontoGrupo { clave: string; montoUsd: number; }
@@ -41,7 +41,7 @@ export interface CentroInteligencia {
   historico: CentroHistorico[];
   calidad: { notaGlobal: number | null; evaluaciones: number; penalizaciones: Array<{ clave: string; total: number }> };
   filtros: CentroFiltros;
-  filterOptions: { pais: string[]; zona: string[]; sector: string[]; pd: string[]; riesgo: string[]; gestor: string[] };
+  filterOptions: { pais: string[]; zona: string[]; gestor: string[]; gerente: string[]; pd: string[]; campania: string[]; sector: string[]; riesgo: string[] };
 }
 
 const qs = (f: CentroFiltros): string => {

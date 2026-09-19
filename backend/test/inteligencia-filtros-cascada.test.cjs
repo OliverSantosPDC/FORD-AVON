@@ -11,6 +11,16 @@
  * (`construirFilterOptionsCentro`, función pura, sin Supabase).
  *
  * Ejecutar (tras `npm run build`): node --test test/inteligencia-filtros-cascada.test.cjs
+ *
+ * ACTUALIZACIÓN (consolidación del filtro común Dashboard/Centro/Control
+ * Operativo/Gestión): `construirFilterOptionsCentro` ya NO recibe un array
+ * plano de Gestores — recibe `PersonasEnAlcance` (`{ gestores, gerentes }`),
+ * la MISMA forma que usa `buildFilterOptions`, porque ahora delega en esa
+ * función para las 6 dimensiones comunes en vez de reimplementarlas. Estas
+ * pruebas pasan `{ gestores: PERSONAS_GESTOR, gerentes: [] }`; el
+ * comportamiento verificado (cascada, "GESTOR NUEVO" sin fila en
+ * cartera.gestor, autoexclusión de País, Zona homónima entre países) es
+ * exactamente el mismo — ver también filtro-comun-centro-inteligencia.test.cjs.
  */
 
 const test = require('node:test');
@@ -44,9 +54,10 @@ const PERSONAS_GESTOR = [
   { nombre: 'GESTOR RD 2', paisZona: [{ pais: 'REPUBLICA DOMINICANA', zona: '110' }] },
   { nombre: 'GESTOR NUEVO', paisZona: [{ pais: 'REPUBLICA DOMINICANA', zona: '110' }] }
 ];
+const PERSONAS = { gestores: PERSONAS_GESTOR, gerentes: [] };
 
 test('Sin filtros seleccionados: cada dimensión muestra TODAS las opciones del universo scopeado', () => {
-  const opts = construirFilterOptionsCentro(ROWS, {}, PERSONAS_GESTOR);
+  const opts = construirFilterOptionsCentro(ROWS, {}, PERSONAS);
   assert.deepEqual(opts.pais, ['GUATEMALA', 'REPUBLICA DOMINICANA']);
   assert.deepEqual(opts.zona.sort(), ['107', '108', '110']);
   assert.deepEqual(opts.sector.sort(), ['SECTOR-A', 'SECTOR-B', 'SECTOR-C', 'SECTOR-D']);
@@ -56,7 +67,7 @@ test('Sin filtros seleccionados: cada dimensión muestra TODAS las opciones del 
 });
 
 test('Seleccionar un País acota Zona/Sector/PD/Gestor a ese País (cascada real)', () => {
-  const opts = construirFilterOptionsCentro(ROWS, { pais: ['GUATEMALA'] }, PERSONAS_GESTOR);
+  const opts = construirFilterOptionsCentro(ROWS, { pais: ['GUATEMALA'] }, PERSONAS);
   assert.deepEqual(opts.zona.sort(), ['107', '108']);
   assert.deepEqual(opts.sector.sort(), ['SECTOR-A', 'SECTOR-B']);
   assert.deepEqual(opts.gestor.sort(), ['GESTOR GT 1', 'GESTOR GT 2']);
@@ -65,27 +76,27 @@ test('Seleccionar un País acota Zona/Sector/PD/Gestor a ese País (cascada real
 });
 
 test('Seleccionar País + Zona acota además el Sector/PD a esa combinación exacta', () => {
-  const opts = construirFilterOptionsCentro(ROWS, { pais: ['GUATEMALA'], zona: ['107'] }, PERSONAS_GESTOR);
+  const opts = construirFilterOptionsCentro(ROWS, { pais: ['GUATEMALA'], zona: ['107'] }, PERSONAS);
   assert.deepEqual(opts.sector, ['SECTOR-A']);
   assert.deepEqual(opts.pd, ['PD1']);
 });
 
 test('107GUATEMALA vs 107REPUBLICA DOMINICANA: seleccionar el País correcto nunca mezcla sectores de la Zona homónima del otro País', () => {
-  const optsGt = construirFilterOptionsCentro(ROWS, { pais: ['GUATEMALA'], zona: ['107'] }, PERSONAS_GESTOR);
-  const optsRd = construirFilterOptionsCentro(ROWS, { pais: ['REPUBLICA DOMINICANA'], zona: ['107'] }, PERSONAS_GESTOR);
+  const optsGt = construirFilterOptionsCentro(ROWS, { pais: ['GUATEMALA'], zona: ['107'] }, PERSONAS);
+  const optsRd = construirFilterOptionsCentro(ROWS, { pais: ['REPUBLICA DOMINICANA'], zona: ['107'] }, PERSONAS);
   assert.deepEqual(optsGt.sector, ['SECTOR-A']);
   assert.deepEqual(optsRd.sector, ['SECTOR-C']);
   assert.notDeepEqual(optsGt.sector, optsRd.sector);
 });
 
 test('Seleccionar un Gestor acota País/Zona a las de ese Gestor (cascada también funciona "hacia arriba")', () => {
-  const opts = construirFilterOptionsCentro(ROWS, { gestor: ['GESTOR RD 2'] }, PERSONAS_GESTOR);
+  const opts = construirFilterOptionsCentro(ROWS, { gestor: ['GESTOR RD 2'] }, PERSONAS);
   assert.deepEqual(opts.zona, ['110']);
   assert.deepEqual(opts.sector, ['SECTOR-D']);
 });
 
 test('Seleccionar "GESTOR NUEVO" (sin coincidencia de nombre en cartera.gestor) filtra por SU País-Zona asignado', () => {
-  const opts = construirFilterOptionsCentro(ROWS, { gestor: ['GESTOR NUEVO'] }, PERSONAS_GESTOR);
+  const opts = construirFilterOptionsCentro(ROWS, { gestor: ['GESTOR NUEVO'] }, PERSONAS);
   // Su gestor_pais_zona es REPUBLICA DOMINICANA/110: debe acotar a esa fila,
   // NUNCA a "ninguna" (que sería el resultado de comparar por texto contra
   // cartera.gestor, ya que ninguna fila dice "GESTOR NUEVO").
@@ -95,7 +106,7 @@ test('Seleccionar "GESTOR NUEVO" (sin coincidencia de nombre en cartera.gestor) 
 });
 
 test('Filtro que no coincide con ninguna fila: la dimensión dependiente queda vacía (nunca inventa opciones)', () => {
-  const opts = construirFilterOptionsCentro(ROWS, { pais: ['PANAMA'] }, PERSONAS_GESTOR);
+  const opts = construirFilterOptionsCentro(ROWS, { pais: ['PANAMA'] }, PERSONAS);
   assert.deepEqual(opts.zona, []);
   assert.deepEqual(opts.sector, []);
   assert.deepEqual(opts.gestor, []);

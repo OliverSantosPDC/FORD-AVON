@@ -3,7 +3,7 @@ import type { ScopeContext } from './ScopeService';
 import { applyScope } from './ScopeFilter';
 import { listarEventos } from './CalendarService';
 import { getMetaGlobalComputada } from './MetasService';
-import type { PersonaFiltro } from '../utils/carteraAggregations';
+import { buildFilterOptions, filterCarteraRows, type CarteraRow, type DashboardMultiFilterParams, type PersonasEnAlcance } from '../utils/carteraAggregations';
 
 /**
  * Centro de Inteligencia: agrega en el backend (una sola carga) métricas ejecutivas
@@ -20,8 +20,8 @@ const field = (r: Row, ...keys: string[]): unknown => { for (const k of keys) { 
 const pct = (part: number, whole: number) => (whole === 0 ? 0 : Number(((part / whole) * 100).toFixed(2)));
 const round2 = (n: number) => Number(n.toFixed(2));
 
-export interface CentroFiltros { pais?: string[]; zona?: string[]; pd?: string[]; gestor?: string[]; sector?: string[]; riesgo?: string[]; }
-export interface CentroFilterOptions { pais: string[]; zona: string[]; sector: string[]; pd: string[]; riesgo: string[]; gestor: string[]; }
+export interface CentroFiltros { pais?: string[]; zona?: string[]; pd?: string[]; gestor?: string[]; gerente?: string[]; campania?: string[]; sector?: string[]; riesgo?: string[]; }
+export interface CentroFilterOptions { pais: string[]; zona: string[]; gestor: string[]; gerente: string[]; pd: string[]; campania: string[]; sector: string[]; riesgo: string[]; }
 
 const uniq = (rows: Row[], ...keys: string[]): string[] =>
   [...new Set(rows.map((r) => { for (const k of keys) { const v = r[k]; if (v !== null && v !== undefined && String(v).trim() !== '') return String(v); } return ''; }).filter(Boolean))].sort();
@@ -33,85 +33,32 @@ const coincideFiltro = (r: Row, valores: string[] | undefined, keys: string[]): 
   return false;
 };
 
-const paisZonaKey = (pais: unknown, zona: unknown): string => `${s(pais).trim().toUpperCase()}||${s(zona).trim().toUpperCase()}`;
-
-/**
- * ¿La fila queda incluida por la selección de Gestor? Coincide ÚNICAMENTE
- * si el País-Zona EXACTO de la fila está entre los `gestor_pais_zona` de
- * alguna persona seleccionada — nunca por el texto libre `cartera.gestor`
- * (auditoría real: el puente de texto coincidía con 0/18,107 filas de
- * producción, ver `carteraAggregations.ts`/`ScopeFilter.ts`).
- */
-const coincideFiltroGestor = (r: Row, valores: string[] | undefined, personasPorNombre: Map<string, PersonaFiltro>): boolean => {
-  if (!valores?.length) return true;
-  const seleccionadas = new Set(valores.map((v) => v.toUpperCase()));
-  const rowPais = s(r.pais); const rowZona = s(r.zona);
-  if (!rowPais || !rowZona) return false;
-  const rowKey = paisZonaKey(rowPais, rowZona);
-  for (const nombre of seleccionadas) {
-    const persona = personasPorNombre.get(nombre);
-    if (persona && persona.paisZona.some((pz) => paisZonaKey(pz.pais, pz.zona) === rowKey)) return true;
-  }
-  return false;
-};
-
-/**
- * OPCIONES de Gestor: SIEMPRE desde `personasGestor` (usuarios/roles/
- * gestor_pais_zona — ver ScopeService.gestoresEnAlcance), nunca desde
- * `uniq(filas, 'gestor')` sobre cartera (auditoría real: 0/18,107 filas
- * coincidían por texto). IDENTIDAD (pertenecer a `personasGestor`, ya
- * acotado por el alcance jerárquico del usuario conectado) es independiente
- * de ALCANCE GEOGRÁFICO (`gestor_pais_zona`): una persona con 0 relaciones
- * geográficas sigue siendo una persona autorizada y no debe desaparecer del
- * catálogo solo por eso (mismo principio aplicado a Gerente de zona en
- * `carteraAggregations.ts` — ver `opcionesPersonas`). Solo cuando el
- * usuario tiene un filtro País/Zona ACTIVO se acota la lista a las personas
- * cuyo propio País-Zona coincide con los valores SELECCIONADOS.
- */
-const opcionesGestor = (personasGestor: PersonaFiltro[], filtrosPais: string[] | undefined, filtrosZona: string[] | undefined): string[] => {
-  const paisSet = new Set((filtrosPais ?? []).map((v) => v.trim().toUpperCase()).filter(Boolean));
-  const zonaSet = new Set((filtrosZona ?? []).map((v) => v.trim().toUpperCase()).filter(Boolean));
-  const hayFiltroGeografico = paisSet.size > 0 || zonaSet.size > 0;
-  return personasGestor
-    .filter((p) => {
-      if (!hayFiltroGeografico) return true;
-      return p.paisZona.some(
-        (pz) =>
-          (paisSet.size === 0 || paisSet.has(s(pz.pais).trim().toUpperCase())) &&
-          (zonaSet.size === 0 || zonaSet.has(s(pz.zona).trim().toUpperCase()))
-      );
-    })
-    .map((p) => p.nombre)
-    .sort();
-};
+const centroFiltrosAMulti = (filtros: CentroFiltros): DashboardMultiFilterParams => ({
+  pais: filtros.pais ?? [], zona: filtros.zona ?? [], gestor: filtros.gestor ?? [],
+  gerente: filtros.gerente ?? [], pd: filtros.pd ?? [], campania: filtros.campania ?? []
+});
 
 /**
  * Opciones de filtro EN CASCADA para el Centro de Inteligencia (Sección 6):
- * `scopedRows` ya trae aplicada la frontera de seguridad (ScopeService/
- * applyScope). La dimensión Gestor sale de `personasGestor` (usuarios/roles/
- * relaciones — nunca cartera.gestor como catálogo de personas). Cada
- * dimensión se calcula excluyéndose a sí misma pero respetando las DEMÁS
- * dimensiones ya seleccionadas (mismo principio que `buildFilterOptions` del
- * Dashboard): País acota Zona/Sector/PD/Riesgo/Gestor, Zona acota Sector/PD,
- * etc. — nunca al revés (nunca amplía).
+ * País/Zona/Gestor/Gerente/PD/Campaña se calculan con `buildFilterOptions`,
+ * EXACTAMENTE la misma función que usa Dashboard/Control Operativo/Gestión
+ * (`carteraAggregations.ts`) — nunca una reimplementación paralela. Sector y
+ * Riesgo son EXCLUSIVOS de Centro (no existen en el filtro común, no tienen
+ * columna en `buildFilterOptions`) y se calculan aquí sobre las mismas filas
+ * ya acotadas por los 6 filtros comunes vía `filterCarteraRows` — mismo
+ * principio de cascada (cada dimensión respeta las DEMÁS ya seleccionadas,
+ * nunca al revés), sin duplicar la lógica de las 6 dimensiones comunes.
  */
-export const construirFilterOptionsCentro = (scopedRows: Row[], filtros: CentroFiltros, personasGestor: PersonaFiltro[]): CentroFilterOptions => {
-  const personasPorNombre = new Map(personasGestor.map((p) => [p.nombre.toUpperCase(), p]));
-  const filasPara = (excluida: keyof CentroFiltros): Row[] => scopedRows.filter((r) =>
-    (excluida === 'pais' || coincideFiltro(r, filtros.pais, ['pais'])) &&
-    (excluida === 'zona' || coincideFiltro(r, filtros.zona, ['zona'])) &&
-    (excluida === 'sector' || coincideFiltro(r, filtros.sector, ['sector'])) &&
-    (excluida === 'pd' || coincideFiltro(r, filtros.pd, ['pd_actual', 'pd'])) &&
-    (excluida === 'riesgo' || coincideFiltro(r, filtros.riesgo, ['riesgo', 'nivel_riesgo', 'riesgo_pd'])) &&
-    (excluida === 'gestor' || coincideFiltroGestor(r, filtros.gestor, personasPorNombre))
-  );
+export const construirFilterOptionsCentro = (scopedRows: Row[], filtros: CentroFiltros, personas: PersonasEnAlcance): CentroFilterOptions => {
+  const multi = centroFiltrosAMulti(filtros);
+  const comunes = buildFilterOptions(scopedRows as CarteraRow[], multi, personas);
+  const filasComunes = filterCarteraRows(scopedRows as CarteraRow[], multi, personas);
+  const filasParaSector = filtros.riesgo?.length ? filasComunes.filter((r) => coincideFiltro(r, filtros.riesgo, ['riesgo', 'nivel_riesgo', 'riesgo_pd'])) : filasComunes;
+  const filasParaRiesgo = filtros.sector?.length ? filasComunes.filter((r) => coincideFiltro(r, filtros.sector, ['sector'])) : filasComunes;
   return {
-    pais: uniq(filasPara('pais'), 'pais'),
-    zona: uniq(filasPara('zona'), 'zona'),
-    sector: uniq(filasPara('sector'), 'sector'),
-    pd: uniq(filasPara('pd'), 'pd_actual', 'pd'),
-    riesgo: uniq(filasPara('riesgo'), 'riesgo', 'nivel_riesgo', 'riesgo_pd'),
-    gestor: opcionesGestor(personasGestor, filtros.pais, filtros.zona)
+    ...comunes,
+    sector: uniq(filasParaSector, 'sector'),
+    riesgo: uniq(filasParaRiesgo, 'riesgo', 'nivel_riesgo', 'riesgo_pd')
   };
 };
 export interface Hallazgo { categoria: 'Gestión' | 'Cartera' | 'Calendario' | 'Operación'; nivel: 'Crítico' | 'Atención' | 'Informativo' | 'Positivo'; titulo: string; detalle: string; valor?: string; }
