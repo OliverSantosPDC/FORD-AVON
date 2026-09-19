@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Alert, Box, Button, Checkbox, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle,
   Divider, FormControlLabel, Grid, IconButton, Menu, MenuItem, Paper, Snackbar, Stack, Tab, Table, TableBody, TableCell,
@@ -103,6 +103,10 @@ const ControlOperativoPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  // Si el filtro cambia varias veces seguidas (Gestor A -> B -> C) antes de
+  // que responda la primera carga, una respuesta obsoleta que llegue tarde
+  // NUNCA debe pisar el resultado de una selección más reciente.
+  const loadRequestIdRef = useRef(0);
 
   const [gMetric, setGMetric] = useState<Metric>('saldoLocal'); const [gDir, setGDir] = useState<'asc' | 'desc'>('desc'); const [expG, setExpG] = useState<Set<string>>(new Set());
   const [zMetric, setZMetric] = useState<Metric>('saldoLocal'); const [zDir, setZDir] = useState<'asc' | 'desc'>('desc'); const [expZ, setExpZ] = useState<Set<string>>(new Set());
@@ -159,12 +163,18 @@ const ControlOperativoPage = () => {
   };
 
   const load = async () => {
+    const requestId = ++loadRequestIdRef.current;
     setLoading(true); setError(null);
     try {
       const [d, ge, z, pc, cu, i, pe, ro] = await Promise.all([getControlDashboard(filters), getControlGestores(filters), getControlZonas(filters), getControlPdCampanas(filters), getControlCuentas(filters), getIndicadores(), getPendientes(), getResumenOperativo(filters)]);
+      if (requestId !== loadRequestIdRef.current) return; // obsoleta: llegó después de un filtro más reciente
       setDash(d); setGestores(ge); setZonas(z); setPdCamp(pc); setCuentas(cu); setInd(i); setPend(pe); setResumenOp(ro); setPage(0);
-    } catch (e) { setError(e instanceof Error ? e.message : 'No fue posible cargar el control operativo.'); }
-    finally { setLoading(false); }
+    } catch (e) {
+      if (requestId !== loadRequestIdRef.current) return;
+      setError(e instanceof Error ? e.message : 'No fue posible cargar el control operativo.');
+    } finally {
+      if (requestId === loadRequestIdRef.current) setLoading(false);
+    }
   };
   useEffect(() => { void load(); void loadCalidad(); /* eslint-disable-next-line */ }, [filters]);
 

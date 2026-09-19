@@ -10,7 +10,7 @@ import {
   XAxis,
   YAxis
 } from 'recharts';
-import type { CarteraRecord } from '../../types/cartera';
+import type { PdMigrationItem } from '../../types/cartera';
 import { simboloMoneda } from '../../utils/monedaOptions';
 import ChartCard, { type ChartSortOption } from './ChartCard';
 
@@ -20,13 +20,15 @@ const PD_COLORS: Record<string, string> = {
 };
 const PD_ORDER = ['PD0', 'PD1', 'PD2', 'PD3', 'PD4', 'PD5', 'PD6', 'PD7'];
 
-const normalizePd = (value: unknown) => {
-  const raw = String(value ?? '').trim().toUpperCase();
-  const match = raw.match(/(?:PD|A)([0-7])/);
-  return match ? `PD${match[1]}` : null;
-};
-
-interface Props { cuentas: CarteraRecord[]; moneda: 'USD' | 'LOCAL'; monedaCode: string; tasa: number; }
+interface Props {
+  /** Matriz PD Inicial → PD Actual ya agregada en el backend (dashboard.pdMigration)
+   *  — Fase 2 de la optimización de tiempos de carga: antes este componente
+   *  descargaba la cartera completa vía /api/cartera y la agregaba en el navegador. */
+  pdMigration: PdMigrationItem[];
+  moneda: 'USD' | 'LOCAL';
+  monedaCode: string;
+  tasa: number;
+}
 interface PivotRow { pdActual: string; [key: string]: string | number; }
 interface PdActualDetalle { pdActual: string; saldo: number; cuentas: number; }
 interface SeriesSummary { pdInicial: string; totalSaldo: number; totalCuentas: number; detalle: PdActualDetalle[]; }
@@ -70,22 +72,18 @@ const PDMigrationTooltip = ({
 
 type PdSortKey = 'pd' | 'valor';
 
-const PDMigrationChart = ({ cuentas, moneda, monedaCode, tasa }: Props) => {
+const PDMigrationChart = ({ pdMigration, moneda, monedaCode, tasa }: Props) => {
   const [sortKey, setSortKey] = useState<PdSortKey>('pd');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   const { chartData, activeSeries, totalSaldo, csvRows, seriesSummary } = useMemo(() => {
     const flowMap = new Map<string, number>();
     const countMap = new Map<string, number>();
-    cuentas.forEach((row) => {
-      const inicial = normalizePd(row.pd_inicial);
-      const actual = normalizePd(row.pd_actual);
-      const saldoUsd = Number(row.saldo_inicial_usd ?? 0);
-      const saldo = moneda === 'USD' ? saldoUsd : saldoUsd * tasa;
-      if (!inicial || !actual || !Number.isFinite(saldo) || saldo <= 0) return;
-      const key = `${inicial}|${actual}`;
+    pdMigration.forEach((item) => {
+      const saldo = moneda === 'USD' ? item.saldoInicialUsd : item.saldoInicialUsd * tasa;
+      const key = `${item.pdInicial}|${item.pdActual}`;
       flowMap.set(key, (flowMap.get(key) ?? 0) + saldo);
-      countMap.set(key, (countMap.get(key) ?? 0) + 1);
+      countMap.set(key, (countMap.get(key) ?? 0) + item.cuentas);
     });
 
     const summaryMap = new Map<string, SeriesSummary>();
@@ -147,7 +145,7 @@ const PDMigrationChart = ({ cuentas, moneda, monedaCode, tasa }: Props) => {
       csvRows: flows,
       seriesSummary: summaryMap
     };
-  }, [cuentas, sortKey, sortDir, moneda, tasa]);
+  }, [pdMigration, sortKey, sortDir, moneda, tasa]);
 
   const monedaLabel = simboloMoneda(monedaCode);
 

@@ -146,6 +146,41 @@ export interface DashboardFilterOptions {
   campania: string[];
 }
 
+export interface ResumenPdInicialItem {
+  pd: string;
+  cuentas: number;
+  saldoAsignadoUsd: number;
+  saldoActualUsd: number;
+  recuperadoUsd: number;
+  porcentajeRecuperacionUsd: number;
+}
+
+export interface PdMigrationItem {
+  pdInicial: string;
+  pdActual: string;
+  saldoInicialUsd: number;
+  cuentas: number;
+}
+
+export interface ZonaSectorPorPaisSectorItem {
+  sector: string;
+  saldoActualUsd: number;
+  cuentas: number;
+}
+
+export interface ZonaSectorPorPaisZonaItem {
+  zona: string;
+  saldoActualUsd: number;
+  cuentas: number;
+  sectores: ZonaSectorPorPaisSectorItem[];
+}
+
+export interface ZonaSectorPorPaisItem {
+  paisKey: string;
+  paisNombre: string;
+  zonas: ZonaSectorPorPaisZonaItem[];
+}
+
 export interface DashboardResponse {
   kpis: Kpis;
   paises: AggregationItem[];
@@ -158,24 +193,15 @@ export interface DashboardResponse {
   topZonasDetalle: GroupSummaryItem[];
   resumenCampania: CampaniaSummaryItem[];
   countrySummary: CountrySummaryItem[];
-  zonaSectorSummary: ZonaSectorSummaryItem[];
+  // Fase 2 (optimización de tiempos de carga): reemplazan el fetch aparte a
+  // /api/cartera que hacían DashboardZonaSector/ResumenPdTable/PDMigrationChart
+  // en el navegador. zonaSectorPorPais reemplaza al antiguo zonaSectorSummary
+  // (agrupaba solo por Zona, sin País, y limitaba a 20 filas; sin consumidores).
+  zonaSectorPorPais: ZonaSectorPorPaisItem[];
+  resumenPdInicial: ResumenPdInicialItem[];
+  pdMigration: PdMigrationItem[];
   filterOptions: DashboardFilterOptions;
   cuentas: Record<string, unknown>[];
-}
-
-export interface ZonaSectorSectorItem {
-  sector: string;
-  saldoActualUsd: number;
-  saldoActualLocal: number;
-  cuentas: number;
-}
-
-export interface ZonaSectorSummaryItem {
-  zona: string;
-  saldoActualUsd: number;
-  saldoActualLocal: number;
-  cuentas: number;
-  sectores: ZonaSectorSectorItem[];
 }
 
 export interface InteligenciaResponse {

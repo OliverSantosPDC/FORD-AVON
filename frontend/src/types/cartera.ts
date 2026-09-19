@@ -106,6 +106,26 @@ export interface DashboardFilterOptions {
   campania: string[];
 }
 
+export interface ResumenPdInicialItem {
+  pd: string;
+  cuentas: number;
+  saldoAsignadoUsd: number;
+  saldoActualUsd: number;
+  recuperadoUsd: number;
+  porcentajeRecuperacionUsd: number;
+}
+
+export interface PdMigrationItem {
+  pdInicial: string;
+  pdActual: string;
+  saldoInicialUsd: number;
+  cuentas: number;
+}
+
+export interface ZonaSectorPorPaisSectorItem { sector: string; saldoActualUsd: number; cuentas: number; }
+export interface ZonaSectorPorPaisZonaItem { zona: string; saldoActualUsd: number; cuentas: number; sectores: ZonaSectorPorPaisSectorItem[]; }
+export interface ZonaSectorPorPaisItem { paisKey: string; paisNombre: string; zonas: ZonaSectorPorPaisZonaItem[]; }
+
 export interface DashboardResponse {
   kpis: DashboardKpi;
   paises: DashboardItem[];
@@ -117,24 +137,11 @@ export interface DashboardResponse {
   topZonasDetalle: GroupSummary[];
   resumenCampania: CampaniaSummary[];
   countrySummary: CountrySummary[];
-  zonaSectorSummary: ZonaSectorSummary[];
+  zonaSectorPorPais: ZonaSectorPorPaisItem[];
+  resumenPdInicial: ResumenPdInicialItem[];
+  pdMigration: PdMigrationItem[];
   filterOptions: DashboardFilterOptions;
   cuentas: CarteraRecord[];
-}
-
-export interface ZonaSectorSector {
-  sector: string;
-  saldoActualUsd: number;
-  saldoActualLocal: number;
-  cuentas: number;
-}
-
-export interface ZonaSectorSummary {
-  zona: string;
-  saldoActualUsd: number;
-  saldoActualLocal: number;
-  cuentas: number;
-  sectores: ZonaSectorSector[];
 }
 
 export interface InteligenciaAccount {

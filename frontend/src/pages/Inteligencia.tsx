@@ -107,12 +107,24 @@ const InteligenciaPage = () => {
   const { tasas, error: tasasError } = useTasasConversion();
   const inteligenciaRootRef = useRef<HTMLDivElement | null>(null);
   const [onePagePreviewOpen, setOnePagePreviewOpen] = useState(false);
+  // Si el filtro cambia varias veces seguidas antes de que responda la
+  // primera carga, una respuesta obsoleta que llegue tarde NUNCA debe pisar
+  // el resultado de una selección más reciente.
+  const cargarRequestIdRef = useRef(0);
 
   const cargar = async (f: DashboardMultiFilterParams) => {
+    const requestId = ++cargarRequestIdRef.current;
     setLoading(true); setError(null);
-    try { setData(await getCentroInteligencia(toCentroFiltros(f))); }
-    catch (e) { setError(e instanceof Error ? e.message : 'No fue posible cargar el Centro de Inteligencia.'); }
-    finally { setLoading(false); }
+    try {
+      const centro = await getCentroInteligencia(toCentroFiltros(f));
+      if (requestId !== cargarRequestIdRef.current) return; // obsoleta: llegó después de un filtro más reciente
+      setData(centro);
+    } catch (e) {
+      if (requestId !== cargarRequestIdRef.current) return;
+      setError(e instanceof Error ? e.message : 'No fue posible cargar el Centro de Inteligencia.');
+    } finally {
+      if (requestId === cargarRequestIdRef.current) setLoading(false);
+    }
   };
   useEffect(() => { void cargar(filtros); /* eslint-disable-next-line */ }, [filtros]);
 

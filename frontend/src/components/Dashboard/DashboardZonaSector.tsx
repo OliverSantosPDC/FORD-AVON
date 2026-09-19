@@ -5,13 +5,14 @@ import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import SwapVertIcon from '@mui/icons-material/SwapVert';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
-import type { CarteraRecord } from '../../types/cartera';
-import { getCarteraField, resolveCountry } from '../../utils/carteraAggregations';
+import type { ZonaSectorPorPaisItem } from '../../types/cartera';
 import { simboloMoneda } from '../../utils/monedaOptions';
 
 interface Props {
-  /** Cartera completa ya filtrada (fuente ÚNICA: useCarteraRows en DashboardPage — ver Sección 13 de la auditoría de rendimiento). */
-  cuentas: CarteraRecord[];
+  /** Ya agregado País → Zona → Sector en el backend (dashboard.zonaSectorPorPais)
+   *  — Fase 2 de la optimización de tiempos de carga: antes este componente
+   *  descargaba la cartera completa vía /api/cartera y la agregaba en el navegador. */
+  zonaSectorPorPais: ZonaSectorPorPaisItem[];
   moneda: 'USD' | 'LOCAL';
   monedaCode: string;
   tasa: number;
@@ -27,12 +28,12 @@ type ZonaSortKey = 'valor' | 'nombre';
 
 /**
  * Saldos agrupados por PAÍS → ZONA → SECTOR, expandible por sector.
- * Se calcula en el cliente a partir de la cartera completa (misma fuente que
- * `PDMigrationChart`, vía `/api/cartera` con los filtros activos) para respetar
- * el alcance/scope y los filtros del dashboard sin depender del resumen
- * pre-agregado del backend (que agrupa solo por zona, sin país, y lo limita a 20).
+ * `zonaSectorPorPais` ya llega agrupado y ordenado desde el backend
+ * (dashboard.zonaSectorPorPais, calculado UNA vez junto con el resto del
+ * dashboard); este componente solo añade el importe en moneda LOCAL (usd *
+ * tasa vigente) — un cambio de moneda nunca vuelve a pedir datos.
  */
-const DashboardZonaSector = ({ cuentas, moneda, monedaCode, tasa }: Props) => {
+const DashboardZonaSector = ({ zonaSectorPorPais, moneda, monedaCode, tasa }: Props) => {
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [sortKey, setSortKey] = useState<ZonaSortKey>('valor');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
@@ -40,45 +41,19 @@ const DashboardZonaSector = ({ cuentas, moneda, monedaCode, tasa }: Props) => {
 
   const val = (z: { usd: number; local: number }) => (moneda === 'USD' ? z.usd : z.local);
 
-  const paises = useMemo(() => {
-    const zonas = new Map<string, ZonaAgg>();
-    cuentas.forEach((row) => {
-      const paisRaw = getCarteraField(row, ['pais']);
-      const country = resolveCountry(paisRaw);
-      const paisKey = country?.abbr ?? String(paisRaw ?? 'Sin país').trim().toUpperCase();
-      const paisNombre = country?.name ?? String(paisRaw ?? 'Sin país');
-      const zonaRaw = getCarteraField(row, ['zona']);
-      const zona = zonaRaw ? String(zonaRaw) : 'Sin zona';
-      const sectorRaw = getCarteraField(row, ['sector']);
-      const sector = sectorRaw ? String(sectorRaw) : 'Sin sector';
-      const usd = Number(getCarteraField(row, ['saldo_actual_usd']) ?? 0);
-      const local = (Number.isFinite(usd) ? usd : 0) * tasa;
-
-      const zonaKey = `${paisKey}|||${zona}`;
-      const z = zonas.get(zonaKey) ?? { paisKey, paisNombre, zona, usd: 0, local: 0, cuentas: 0, sectores: [] as SectorAgg[] };
-      z.usd += Number.isFinite(usd) ? usd : 0;
-      z.local += Number.isFinite(local) ? local : 0;
-      z.cuentas += 1;
-
-      let s = z.sectores.find((item) => item.sector === sector);
-      if (!s) { s = { sector, usd: 0, local: 0, cuentas: 0 }; z.sectores.push(s); }
-      s.usd += Number.isFinite(usd) ? usd : 0;
-      s.local += Number.isFinite(local) ? local : 0;
-      s.cuentas += 1;
-
-      zonas.set(zonaKey, z);
-    });
-
-    const porPais = new Map<string, PaisGroup>();
-    zonas.forEach((z) => {
-      const grupo = porPais.get(z.paisKey) ?? { paisKey: z.paisKey, paisNombre: z.paisNombre, zonas: [] as ZonaAgg[] };
-      z.sectores.sort((a, b) => b.usd - a.usd);
-      grupo.zonas.push(z);
-      porPais.set(z.paisKey, grupo);
-    });
-
-    return Array.from(porPais.values()).sort((a, b) => a.paisNombre.localeCompare(b.paisNombre, 'es', { sensitivity: 'base' }));
-  }, [cuentas, tasa]);
+  const paises = useMemo<PaisGroup[]>(() => zonaSectorPorPais.map((grupo) => ({
+    paisKey: grupo.paisKey,
+    paisNombre: grupo.paisNombre,
+    zonas: grupo.zonas.map((z) => ({
+      paisKey: grupo.paisKey,
+      paisNombre: grupo.paisNombre,
+      zona: z.zona,
+      usd: z.saldoActualUsd,
+      local: z.saldoActualUsd * tasa,
+      cuentas: z.cuentas,
+      sectores: z.sectores.map((s) => ({ sector: s.sector, usd: s.saldoActualUsd, local: s.saldoActualUsd * tasa, cuentas: s.cuentas }))
+    }))
+  })), [zonaSectorPorPais, tasa]);
 
   const paisesOrdenados = useMemo(() => {
     return paises.map((grupo) => ({

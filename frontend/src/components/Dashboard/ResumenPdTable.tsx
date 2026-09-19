@@ -1,14 +1,16 @@
 import { useMemo, useState } from 'react';
 import { Box, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TableSortLabel, Typography } from '@mui/material';
-import type { CarteraRecord } from '../../types/cartera';
+import type { ResumenPdInicialItem } from '../../types/cartera';
 import TableActionsMenu from '../common/TableActionsMenu';
 import { copyRowsToClipboard, exportRowsToCsv, exportRowsToExcel } from '../../utils/tableExport';
 import { getPdEstado, getPdIndex } from '../../utils/carteraAggregations';
 import { simboloMoneda } from '../../utils/monedaOptions';
 
 interface ResumenPdTableProps {
-  /** Cartera completa ya filtrada (fuente ÚNICA: useCarteraRows en DashboardPage — ver Sección 13 de la auditoría de rendimiento). */
-  cuentasRaw: CarteraRecord[];
+  /** Ya agregado por PD inicial en el backend (dashboard.resumenPdInicial) —
+   *  Fase 2 de la optimización de tiempos de carga: antes este componente
+   *  descargaba la cartera completa vía /api/cartera y la agregaba en el navegador. */
+  resumenPdInicial: ResumenPdInicialItem[];
   moneda: 'USD' | 'LOCAL';
   monedaCode: string;
   tasa: number;
@@ -25,14 +27,6 @@ interface PdRow {
   saldoActualLocal: number;
   recuperadoLocal: number;
 }
-
-const PD_ORDER = ['PD0', 'PD1', 'PD2', 'PD3', 'PD4', 'PD5', 'PD6', 'PD7'];
-
-const normalizePd = (value: unknown) => {
-  const raw = String(value ?? '').trim().toUpperCase();
-  const match = raw.match(/(?:PD|A)([0-7])/);
-  return match ? `PD${match[1]}` : null;
-};
 
 type ColumnId =
   | 'pd'
@@ -52,47 +46,29 @@ const columns: { id: ColumnId; label: string; align: 'center'; width: number }[]
 const formatCurrency = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 const formatPercent = (value: number) => `${value.toFixed(2)}%`;
 
-// Resumen agrupado por PD INICIAL (pd_inicial), calculado en el cliente a partir de la
-// cartera completa (mismo patrón/fuente que "Movimiento de Cartera por PD"), ya que el
-// resumen agregado por el backend agrupa por pd_actual.
-const ResumenPdTable = ({ cuentasRaw, moneda, monedaCode, tasa }: ResumenPdTableProps) => {
+// Resumen agrupado por PD INICIAL (pd_inicial) — ya agregado en el backend
+// (dashboard.resumenPdInicial, distinto del resumen por PD ACTUAL que usa
+// "Movimiento de Cartera por PD"). Aquí solo se añade el importe LOCAL
+// (usd * tasa vigente); un cambio de moneda nunca vuelve a pedir datos.
+const ResumenPdTable = ({ resumenPdInicial, moneda, monedaCode, tasa }: ResumenPdTableProps) => {
   const [order, setOrder] = useState<'asc' | 'desc'>('asc');
   const [orderBy, setOrderBy] = useState<ColumnId>('pd');
 
-  const data = useMemo<PdRow[]>(() => {
-    const totals = new Map<string, { asignadoUsd: number; actualUsd: number; asignadoLocal: number; actualLocal: number; cuentas: number }>();
-    cuentasRaw.forEach((row) => {
-      const pdInicial = normalizePd(row.pd_inicial);
-      if (!pdInicial) return;
-      const asignadoUsd = Number(row.saldo_inicial_usd ?? 0);
-      const actualUsd = Number(row.saldo_actual_usd ?? 0);
-      const existing = totals.get(pdInicial) ?? { asignadoUsd: 0, actualUsd: 0, asignadoLocal: 0, actualLocal: 0, cuentas: 0 };
-      existing.asignadoUsd += Number.isFinite(asignadoUsd) ? asignadoUsd : 0;
-      existing.actualUsd += Number.isFinite(actualUsd) ? actualUsd : 0;
-      existing.cuentas += 1;
-      totals.set(pdInicial, existing);
-    });
-    // Local = Usd * tasa oficial configurada (Configuración > Tasas de Conversión).
-    totals.forEach((values) => { values.asignadoLocal = values.asignadoUsd * tasa; values.actualLocal = values.actualUsd * tasa; });
-
-    return PD_ORDER.filter((pd) => totals.has(pd)).map((pd) => {
-      const values = totals.get(pd)!;
-      const recuperadoUsd = values.asignadoUsd - values.actualUsd;
-      const porcentajeRecuperacionUsd = values.asignadoUsd === 0 ? 0 : Number(((recuperadoUsd / values.asignadoUsd) * 100).toFixed(2));
-      const recuperadoLocal = values.asignadoLocal - values.actualLocal;
-      return {
-        pd,
-        cuentas: values.cuentas,
-        saldoAsignadoUsd: values.asignadoUsd,
-        saldoActualUsd: values.actualUsd,
-        recuperadoUsd,
-        porcentajeRecuperacionUsd,
-        saldoAsignadoLocal: values.asignadoLocal,
-        saldoActualLocal: values.actualLocal,
-        recuperadoLocal
-      };
-    });
-  }, [cuentasRaw, tasa]);
+  const data = useMemo<PdRow[]>(() => resumenPdInicial.map((item) => {
+    const asignadoLocal = item.saldoAsignadoUsd * tasa;
+    const actualLocal = item.saldoActualUsd * tasa;
+    return {
+      pd: item.pd,
+      cuentas: item.cuentas,
+      saldoAsignadoUsd: item.saldoAsignadoUsd,
+      saldoActualUsd: item.saldoActualUsd,
+      recuperadoUsd: item.recuperadoUsd,
+      porcentajeRecuperacionUsd: item.porcentajeRecuperacionUsd,
+      saldoAsignadoLocal: asignadoLocal,
+      saldoActualLocal: actualLocal,
+      recuperadoLocal: asignadoLocal - actualLocal
+    };
+  }), [resumenPdInicial, tasa]);
 
   const getSortValue = (row: PdRow, columnId: ColumnId): number => {
     switch (columnId) {

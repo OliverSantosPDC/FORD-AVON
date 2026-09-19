@@ -37,10 +37,11 @@ const buildQueryString = (filters?: DashboardFilterParams) => {
 };
 
 export const fetchDashboard = async (
-  filters?: DashboardFilterParams
+  filters?: DashboardFilterParams,
+  signal?: AbortSignal
 ): Promise<DashboardResponse> => {
   const queryString = buildQueryString(filters);
-  const response = await apiFetch(`/api/dashboard${queryString}`, { cache: 'no-store' });
+  const response = await apiFetch(`/api/dashboard${queryString}`, { cache: 'no-store', signal });
 
   if (!response.ok) {
     throw new Error(messageForStatus(response.status, 'No se pudo obtener la información del dashboard.'));

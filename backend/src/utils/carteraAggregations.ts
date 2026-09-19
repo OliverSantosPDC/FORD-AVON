@@ -97,6 +97,8 @@ export const FIELD_KEYS = {
   gerente: ['gerente_zona', 'gerente'],
   zona: ['zona'],
   pd: ['pd_actual', 'pd'],
+  pdInicial: ['pd_inicial'],
+  pdActual: ['pd_actual', 'pd'],
   campania: ['campania_adeuda', 'campania', 'campaña', 'campaign'],
   codigo: ['codigo', 'code', 'id'],
   sector: ['sector'],
@@ -404,6 +406,147 @@ export const aggregateResumenCampania = (records: CarteraRow[]): CampaniaSummary
   });
 
   return result.sort((a, b) => b.saldoAsignadoUsd - a.saldoAsignadoUsd);
+};
+
+export interface ZonaSectorPorPaisSectorItem { sector: string; saldoActualUsd: number; cuentas: number; }
+export interface ZonaSectorPorPaisZonaItem { zona: string; saldoActualUsd: number; cuentas: number; sectores: ZonaSectorPorPaisSectorItem[]; }
+export interface ZonaSectorPorPaisItem { paisKey: string; paisNombre: string; zonas: ZonaSectorPorPaisZonaItem[]; }
+
+/**
+ * Saldo actual agrupado País → Zona → Sector (sin límite de filas), antes
+ * calculado en el cliente (DashboardZonaSector.tsx) a partir de la cartera
+ * completa descargada vía /api/cartera. Reemplaza a `aggregateZonaSector`
+ * (agrupaba solo por Zona, sin País, y limitaba a 20 — comprobado sin
+ * ningún consumidor real en el frontend, se elimina en vez de mantener dos
+ * resúmenes de zona distintos). Solo USD: el cliente sigue multiplicando
+ * por la tasa vigente para LOCAL, así que un cambio de moneda no repite
+ * esta agregación ni pide datos de nuevo.
+ */
+export const calculateZonaSectorPorPais = (records: CarteraRow[]): ZonaSectorPorPaisItem[] => {
+  const zonas = new Map<string, { paisKey: string; paisNombre: string; zona: string; usd: number; cuentas: number; sectores: Map<string, { usd: number; cuentas: number }> }>();
+  for (const row of records) {
+    const country = resolveCountry(getField(row, FIELD_KEYS.pais));
+    const paisRaw = getField(row, FIELD_KEYS.pais);
+    const paisKey = country?.abbr ?? String(paisRaw ?? 'Sin país').trim().toUpperCase();
+    const paisNombre = country?.name ?? String(paisRaw ?? 'Sin país');
+    const zona = getString(row, FIELD_KEYS.zona) || 'Sin zona';
+    const sector = getString(row, FIELD_KEYS.sector) || 'Sin sector';
+    const usd = getNumber(row, FIELD_KEYS.saldoActualUsd);
+    const key = `${paisKey}|||${zona}`;
+    const z = zonas.get(key) ?? { paisKey, paisNombre, zona, usd: 0, cuentas: 0, sectores: new Map<string, { usd: number; cuentas: number }>() };
+    z.usd += usd;
+    z.cuentas += 1;
+    const s = z.sectores.get(sector) ?? { usd: 0, cuentas: 0 };
+    s.usd += usd;
+    s.cuentas += 1;
+    z.sectores.set(sector, s);
+    zonas.set(key, z);
+  }
+
+  const porPais = new Map<string, ZonaSectorPorPaisItem>();
+  zonas.forEach((z) => {
+    const grupo = porPais.get(z.paisKey) ?? { paisKey: z.paisKey, paisNombre: z.paisNombre, zonas: [] as ZonaSectorPorPaisZonaItem[] };
+    grupo.zonas.push({
+      zona: z.zona,
+      saldoActualUsd: z.usd,
+      cuentas: z.cuentas,
+      sectores: Array.from(z.sectores.entries())
+        .map(([sector, s]) => ({ sector, saldoActualUsd: s.usd, cuentas: s.cuentas }))
+        .sort((a, b) => b.saldoActualUsd - a.saldoActualUsd)
+    });
+    porPais.set(z.paisKey, grupo);
+  });
+
+  return Array.from(porPais.values()).sort((a, b) => a.paisNombre.localeCompare(b.paisNombre, 'es', { sensitivity: 'base' }));
+};
+
+/** Bucket de PD (PD0-PD7) a partir de un valor crudo (ej. "PD3", "A3", "3").
+ *  MISMA regex que el frontend (ResumenPdTable.tsx/PDMigrationChart.tsx,
+ *  `normalizePd`): los resultados deben ser idénticos byte a byte a los que
+ *  antes calculaba el navegador sobre la cartera completa. */
+const PD_BUCKETS = ['PD0', 'PD1', 'PD2', 'PD3', 'PD4', 'PD5', 'PD6', 'PD7'];
+const normalizePdBucket = (value: unknown): string | null => {
+  const raw = String(value ?? '').trim().toUpperCase();
+  const match = raw.match(/(?:PD|A)([0-7])/);
+  return match ? `PD${match[1]}` : null;
+};
+
+export interface ResumenPdInicialItem {
+  pd: string;
+  cuentas: number;
+  saldoAsignadoUsd: number;
+  saldoActualUsd: number;
+  recuperadoUsd: number;
+  porcentajeRecuperacionUsd: number;
+}
+
+/**
+ * Resumen agrupado por PD INICIAL (`pd_inicial`), antes calculado en el
+ * cliente (ResumenPdTable.tsx) a partir de la cartera completa descargada
+ * vía `/api/cartera` — el `resumenPD` existente agrupa por PD ACTUAL, una
+ * dimensión distinta, así que no podía reutilizarse. Se calcula aquí sobre
+ * las mismas filas (`rawFiltered`) que ya están en memoria para las demás
+ * agregaciones del dashboard: cero consultas adicionales a Supabase, cero
+ * filas transferidas al navegador para este cálculo. USD siempre; LOCAL se
+ * sigue multiplicando por la tasa en el cliente (igual que el resto del
+ * dashboard), así que un cambio de moneda no repite esta agregación.
+ */
+export const calculateResumenPdInicial = (records: CarteraRow[]): ResumenPdInicialItem[] => {
+  const totals = new Map<string, { asignadoUsd: number; actualUsd: number; cuentas: number }>();
+  for (const row of records) {
+    const pd = normalizePdBucket(getField(row, FIELD_KEYS.pdInicial));
+    if (!pd) continue;
+    const existing = totals.get(pd) ?? { asignadoUsd: 0, actualUsd: 0, cuentas: 0 };
+    existing.asignadoUsd += getNumber(row, FIELD_KEYS.saldoAsignadoUsd);
+    existing.actualUsd += getNumber(row, FIELD_KEYS.saldoActualUsd);
+    existing.cuentas += 1;
+    totals.set(pd, existing);
+  }
+  return PD_BUCKETS.filter((pd) => totals.has(pd)).map((pd) => {
+    const v = totals.get(pd)!;
+    const recuperadoUsd = v.asignadoUsd - v.actualUsd;
+    const porcentajeRecuperacionUsd = v.asignadoUsd === 0 ? 0 : Number(((recuperadoUsd / v.asignadoUsd) * 100).toFixed(2));
+    return { pd, cuentas: v.cuentas, saldoAsignadoUsd: v.asignadoUsd, saldoActualUsd: v.actualUsd, recuperadoUsd, porcentajeRecuperacionUsd };
+  });
+};
+
+export interface PdMigrationItem {
+  pdInicial: string;
+  pdActual: string;
+  saldoInicialUsd: number;
+  cuentas: number;
+}
+
+/**
+ * Matriz PD Inicial → PD Actual (a lo sumo 8×8 = 64 celdas), antes calculada
+ * en el cliente (PDMigrationChart.tsx) a partir de la cartera completa.
+ * `saldoInicialUsd` es la suma de `saldo_inicial_usd` de cada combinación
+ * (mismo campo/signo que usaba el cálculo en el navegador); el cliente sigue
+ * decidiendo USD/LOCAL multiplicando por la tasa vigente, así que la matriz
+ * se calcula UNA vez sin importar la moneda seleccionada.
+ */
+export const calculatePdMigration = (records: CarteraRow[]): PdMigrationItem[] => {
+  const totals = new Map<string, { saldo: number; cuentas: number }>();
+  for (const row of records) {
+    const pdInicial = normalizePdBucket(getField(row, FIELD_KEYS.pdInicial));
+    const pdActual = normalizePdBucket(getField(row, FIELD_KEYS.pdActual));
+    if (!pdInicial || !pdActual) continue;
+    const saldoUsd = getNumber(row, FIELD_KEYS.saldoAsignadoUsd);
+    if (saldoUsd <= 0) continue;
+    const key = `${pdInicial}|${pdActual}`;
+    const existing = totals.get(key) ?? { saldo: 0, cuentas: 0 };
+    existing.saldo += saldoUsd;
+    existing.cuentas += 1;
+    totals.set(key, existing);
+  }
+  const result: PdMigrationItem[] = [];
+  totals.forEach((v, key) => {
+    const [pdInicial, pdActual] = key.split('|');
+    result.push({ pdInicial, pdActual, saldoInicialUsd: v.saldo, cuentas: v.cuentas });
+  });
+  return result.sort((a, b) =>
+    PD_BUCKETS.indexOf(a.pdInicial) - PD_BUCKETS.indexOf(b.pdInicial) || PD_BUCKETS.indexOf(a.pdActual) - PD_BUCKETS.indexOf(b.pdActual)
+  );
 };
 
 // --- Filtros (cascada) y detalle de cuentas ---

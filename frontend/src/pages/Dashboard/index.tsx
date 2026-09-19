@@ -14,7 +14,6 @@ import ResumenPdTable from '../../components/Dashboard/ResumenPdTable';
 import ResumenCampaniaTable from '../../components/Dashboard/ResumenCampaniaTable';
 import OnePagePreviewDialog from '../../components/Dashboard/OnePagePreviewDialog';
 import { useDashboard } from '../../hooks/useDashboard';
-import { useCarteraRows } from '../../hooks/useCarteraRows';
 import { useTasasConversion } from '../../hooks/useTasasConversion';
 import { MONEDA_OPTIONS } from '../../utils/monedaOptions';
 import type { DashboardFilterOptions, DashboardFilterParams, DashboardMultiFilterParams, DashboardKpi } from '../../types/cartera';
@@ -29,10 +28,6 @@ const DashboardPage = () => {
   const [monedaFiltro, setMonedaFiltro] = useState<string>('USD');
   const dashboardFilters: DashboardFilterParams = useMemo(() => ({ pais: filters.pais, gestor: filters.gestor, gerente: filters.gerente, zona: filters.zona, pd: filters.pd, campania: filters.campania }), [filters]);
   const { data: dashboard, loading, error } = useDashboard(dashboardFilters);
-  // Fuente ÚNICA de /api/cartera para DashboardCharts/PDMigrationChart/
-  // DashboardZonaSector/ResumenPdTable (antes: cada uno hacía su propio fetch
-  // idéntico — 4 requests redundantes por carga/cambio de filtro).
-  const cuentasCompletas = useCarteraRows(dashboardFilters);
   const dashboardRootRef = useRef<HTMLDivElement | null>(null);
   const [onePagePreviewOpen, setOnePagePreviewOpen] = useState(false);
 
@@ -136,16 +131,16 @@ const DashboardPage = () => {
       <Box sx={{ gridColumn: '1 / -1' }}>
         <Box sx={{ display: 'grid', gap: 2, mt: 1 }}>
           <DashboardCharts
-            cuentas={cuentasCompletas}
+            countrySummary={dashboard.countrySummary}
             moneda="LOCAL"
             monedaCode={monedaCode}
             tasa={tasaActual}
-            pdMigrationChart={<PDMigrationChart cuentas={cuentasCompletas} moneda="LOCAL" monedaCode={monedaCode} tasa={tasaActual} />}
-            zonaSector={<DashboardZonaSector cuentas={cuentasCompletas} moneda="LOCAL" monedaCode={monedaCode} tasa={tasaActual} />}
+            pdMigrationChart={<PDMigrationChart pdMigration={dashboard.pdMigration} moneda="LOCAL" monedaCode={monedaCode} tasa={tasaActual} />}
+            zonaSector={<DashboardZonaSector zonaSectorPorPais={dashboard.zonaSectorPorPais} moneda="LOCAL" monedaCode={monedaCode} tasa={tasaActual} />}
           />
         </Box>
       </Box>
-      <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><ResumenPdTable cuentasRaw={cuentasCompletas} moneda="LOCAL" monedaCode={monedaCode} tasa={tasaActual} /></Box>
+      <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><ResumenPdTable resumenPdInicial={dashboard.resumenPdInicial} moneda="LOCAL" monedaCode={monedaCode} tasa={tasaActual} /></Box>
       <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><ResumenCampaniaTable data={resumenCampaniaConTasa} moneda="LOCAL" monedaCode={monedaCode} /></Box>
       <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><TopGestoresTable data={topGestoresConTasa} moneda="LOCAL" monedaCode={monedaCode} /></Box>
       <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><TopZonasTable data={topZonasConTasa} moneda="LOCAL" monedaCode={monedaCode} /></Box>

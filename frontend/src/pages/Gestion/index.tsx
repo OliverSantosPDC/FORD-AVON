@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle,
   Divider, Grid, IconButton, Menu, MenuItem, Paper, Snackbar, Stack, Tab, Table, TableBody, TableCell, TableContainer,
@@ -128,6 +128,10 @@ const GestionPage = () => {
   const [page, setPage] = useState(0);
   const [rpp, setRpp] = useState(25);
   const [toast, setToast] = useState<string | null>(null);
+  // Si el filtro cambia varias veces seguidas antes de que responda la
+  // primera carga, una respuesta obsoleta que llegue tarde NUNCA debe pisar
+  // el resultado de una selección más reciente.
+  const loadRequestIdRef = useRef(0);
 
   const [zMetric, setZMetric] = useState<Metric>('saldoLocal'); const [zDir, setZDir] = useState<'asc' | 'desc'>('desc');
   const [pMetric, setPMetric] = useState<Metric>('saldoUsd'); const [pDir, setPDir] = useState<'asc' | 'desc'>('desc');
@@ -158,12 +162,18 @@ const GestionPage = () => {
   }, []);
 
   const load = async () => {
+    const requestId = ++loadRequestIdRef.current;
     setLoading(true); setError(null);
     try {
       const [d, c, z, pc] = await Promise.all([getGestionDashboard(filters), getGestionCuentas(filters), getZonasPd(filters), getPdCampanas(filters)]);
+      if (requestId !== loadRequestIdRef.current) return; // obsoleta: llegó después de un filtro más reciente
       setDashboard(d); setCuentas(c); setZonas(z); setPdCamp(pc); setPage(0);
-    } catch (err) { setError(err instanceof Error ? err.message : 'No fue posible cargar la gestión.'); }
-    finally { setLoading(false); }
+    } catch (err) {
+      if (requestId !== loadRequestIdRef.current) return;
+      setError(err instanceof Error ? err.message : 'No fue posible cargar la gestión.');
+    } finally {
+      if (requestId === loadRequestIdRef.current) setLoading(false);
+    }
   };
   useEffect(() => { void load(); /* eslint-disable-next-line */ }, [filters]);
   useEffect(() => { if (tab === 1) getCartas().then(setCartas).catch(() => undefined); }, [tab]);

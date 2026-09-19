@@ -12,14 +12,15 @@ import {
   XAxis,
   YAxis
 } from 'recharts';
-import type { CarteraRecord } from '../../types/cartera';
-import { getCarteraField, carteraFieldKeys, resolveCountry } from '../../utils/carteraAggregations';
+import type { CountrySummary } from '../../types/cartera';
 import { simboloMoneda } from '../../utils/monedaOptions';
 import ChartCard, { type ChartSortOption } from './ChartCard';
 
 interface DashboardChartsProps {
-  /** Cartera completa ya filtrada (fuente ÚNICA: useCarteraRows en DashboardPage — ver Sección 13 de la auditoría de rendimiento). */
-  cuentas: CarteraRecord[];
+  /** Ya agregado por país en el backend (dashboard.countrySummary) — Fase 2 de la
+   *  optimización de tiempos de carga: antes este componente descargaba la cartera
+   *  completa vía /api/cartera y la agregaba en el navegador. */
+  countrySummary: CountrySummary[];
   moneda: 'USD' | 'LOCAL';
   monedaCode: string;
   /** Tasa oficial (Configuración > Tasas de Conversión) para convertir USD a monedaCode. */
@@ -72,32 +73,21 @@ const byPaisNombre = (a: PaisRow, b: PaisRow) =>
 
 type CountrySortKey = 'valor' | 'nombre';
 
-const DashboardCharts = ({ cuentas, moneda, monedaCode, tasa, pdMigrationChart, zonaSector }: DashboardChartsProps) => {
+const DashboardCharts = ({ countrySummary, moneda, monedaCode, tasa, pdMigrationChart, zonaSector }: DashboardChartsProps) => {
   const [horizSortKey, setHorizSortKey] = useState<CountrySortKey>('valor');
   const [horizSortDir, setHorizSortDir] = useState<'asc' | 'desc'>('desc');
   const [comboSortKey, setComboSortKey] = useState<CountrySortKey>('nombre');
   const [comboSortDir, setComboSortDir] = useState<'asc' | 'desc'>('asc');
 
-  // Totales Usd y Local por país, calculados en el cliente a partir de la cartera
-  // completa (misma fuente/patrón que DashboardZonaSector y PDMigrationChart) para
-  // poder ofrecer ambos importes sin depender del resumen agregado del backend
-  // (CountrySummary), que sólo trae Usd.
-  const paisSummary = useMemo(() => {
-    const map = new Map<string, PaisAgg>();
-    cuentas.forEach((row) => {
-      const country = resolveCountry(getCarteraField(row, carteraFieldKeys.pais));
-      if (!country) return;
-      const asignadoUsd = Number(getCarteraField(row, carteraFieldKeys.saldoAsignadoUsd) ?? 0);
-      const actualUsd = Number(getCarteraField(row, carteraFieldKeys.saldoActualUsd) ?? 0);
-      const existing = map.get(country.name) ?? { pais: country.name, asignadoUsd: 0, actualUsd: 0, asignadoLocal: 0, actualLocal: 0 };
-      existing.asignadoUsd += Number.isFinite(asignadoUsd) ? asignadoUsd : 0;
-      existing.actualUsd += Number.isFinite(actualUsd) ? actualUsd : 0;
-      map.set(country.name, existing);
-    });
-    // Local = Usd * tasa oficial configurada (Configuración > Tasas de Conversión).
-    map.forEach((value) => { value.asignadoLocal = value.asignadoUsd * tasa; value.actualLocal = value.actualUsd * tasa; });
-    return Array.from(map.values());
-  }, [cuentas, tasa]);
+  // Totales Usd (backend) convertidos a Local con la tasa vigente. Un cambio
+  // de moneda NUNCA vuelve a pedir datos: countrySummary ya está en memoria.
+  const paisSummary = useMemo<PaisAgg[]>(() => countrySummary.map((c) => ({
+    pais: c.pais,
+    asignadoUsd: c.saldoAsignadoUsd,
+    actualUsd: c.saldoActualUsd,
+    asignadoLocal: c.saldoAsignadoUsd * tasa,
+    actualLocal: c.saldoActualUsd * tasa
+  })), [countrySummary, tasa]);
 
   // Resuelve los totales a la moneda actualmente seleccionada (misma fuente que KpiCards).
   const paisRows = useMemo<PaisRow[]>(() => paisSummary.map((p) => ({

@@ -9,14 +9,16 @@ import {
   InteligenciaAccount,
   RiesgoItem,
   RankingGestorItem,
-  RankingPaisItem,
-  ZonaSectorSummaryItem
+  RankingPaisItem
 } from '../models/Cartera';
 import {
   aggregateTopGestores,
   aggregateTopZonas,
   aggregateResumenCampania,
   aggregateCountrySummary,
+  calculateResumenPdInicial,
+  calculatePdMigration,
+  calculateZonaSectorPorPais,
   buildFilterOptions,
   filterCarteraRows,
   overlayIdentidadReal,
@@ -252,7 +254,14 @@ export class CarteraService {
     const topZonasDetalle = step('aggregateTopZonas (detalle, sin filtros)', () => aggregateTopZonas(rows, 20));
     const resumenCampania = step('aggregateResumenCampania', () => aggregateResumenCampania(rawFiltered));
     const countrySummary = step('aggregateCountrySummary', () => aggregateCountrySummary(rawFiltered));
-    const zonaSectorSummary = step('aggregateZonaSector', () => aggregateZonaSector(filtered));
+    // Calculadas sobre `rawFiltered` (ya en memoria, cero consultas extra a
+    // Supabase): antes las calculaba el navegador (DashboardZonaSector.tsx/
+    // ResumenPdTable.tsx/PDMigrationChart.tsx) a partir de un fetch aparte a
+    // /api/cartera con la cartera filtrada COMPLETA (miles de filas) — ver
+    // Fase 2 de la optimización de tiempos de carga.
+    const zonaSectorPorPais = step('calculateZonaSectorPorPais', () => calculateZonaSectorPorPais(rawFiltered));
+    const resumenPdInicial = step('calculateResumenPdInicial', () => calculateResumenPdInicial(rawFiltered));
+    const pdMigration = step('calculatePdMigration', () => calculatePdMigration(rawFiltered));
     const filterOptions = step('buildFilterOptions', () => buildFilterOptions(rows, multi, personas));
     const cuentas = step('cuentas (rawFiltered.slice 100)', () => rawFiltered.slice(0, 100));
 
@@ -267,7 +276,9 @@ export class CarteraService {
       topZonasDetalle,
       resumenCampania,
       countrySummary,
-      zonaSectorSummary,
+      zonaSectorPorPais,
+      resumenPdInicial,
+      pdMigration,
       filterOptions,
       cuentas
     };
@@ -483,39 +494,6 @@ const calculateTopZonas = (items: Cartera[]) => {
     .map(([zona, values]) => ({ zona, saldoActualUsd: values.saldoActualUsd, saldoActualLocal: values.saldoActualLocal, cuentas: values.cuentas }))
     .sort((a, b) => b.saldoActualUsd - a.saldoActualUsd)
     .slice(0, 10);
-};
-
-// Saldos agrupados por Zona y, dentro de cada zona, por Sector. Respeta el mismo
-// conjunto `filtered` (ya con scope + filtros del dashboard aplicados).
-const aggregateZonaSector = (items: Cartera[]): ZonaSectorSummaryItem[] => {
-  const zonas = new Map<string, { usd: number; local: number; cuentas: number; sectores: Map<string, { usd: number; local: number; cuentas: number }> }>();
-  items.forEach((item) => {
-    const zona = item.zona || 'Sin zona';
-    const sectorRaw = getField(item.original ?? {}, 'sector');
-    const sector = sectorRaw ? String(sectorRaw) : 'Sin sector';
-    const z = zonas.get(zona) ?? { usd: 0, local: 0, cuentas: 0, sectores: new Map() };
-    z.usd += item.saldoActual;
-    z.local += item.saldoActualLocal;
-    z.cuentas += 1;
-    const s = z.sectores.get(sector) ?? { usd: 0, local: 0, cuentas: 0 };
-    s.usd += item.saldoActual;
-    s.local += item.saldoActualLocal;
-    s.cuentas += 1;
-    z.sectores.set(sector, s);
-    zonas.set(zona, z);
-  });
-  return Array.from(zonas.entries())
-    .map(([zona, z]) => ({
-      zona,
-      saldoActualUsd: z.usd,
-      saldoActualLocal: z.local,
-      cuentas: z.cuentas,
-      sectores: Array.from(z.sectores.entries())
-        .map(([sector, s]) => ({ sector, saldoActualUsd: s.usd, saldoActualLocal: s.local, cuentas: s.cuentas }))
-        .sort((a, b) => b.saldoActualUsd - a.saldoActualUsd)
-    }))
-    .sort((a, b) => b.saldoActualUsd - a.saldoActualUsd)
-    .slice(0, 20);
 };
 
 const calculateResumenPD = (items: Cartera[]) => {
