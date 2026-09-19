@@ -54,7 +54,11 @@ const db = {
     { id: 'g-A-viejo', usuario_id: null, nombre_cartera: 'GESTOR REAL EN CARTERA (NOMBRE HISTORICO HUERFANO)', activo: true }
   ],
   gestor_pais_zona: [
-    // gestorB NO tiene coincidencia de nombre en cartera: su ÚNICA fuente de alcance es este País-Zona.
+    // gestorA: su alcance es EXCLUSIVAMENTE este País-Zona (el puente de texto
+    // por `cartera.gestor` fue eliminado — nunca autoriza nada, auditoría real:
+    // coincidía con 0/18,107 filas de producción).
+    { id: 'gpz-0', gestor_id: 'g-A', zona_id: 'zona-108', pais: 'GUATEMALA', activo: true, fecha_inicio: AYER, fecha_fin: null },
+    // gestorB: su ÚNICA fuente de alcance es este País-Zona (su nombre tampoco existe en cartera.gestor).
     { id: 'gpz-1', gestor_id: 'g-B', zona_id: 'zona-107', pais: 'GUATEMALA', activo: true, fecha_inicio: AYER, fecha_fin: null }
   ],
   gerente_zona_zona: [
@@ -64,6 +68,7 @@ const db = {
   ],
   zonas: [
     { id: 'zona-107', nombre: '107', activo: true },
+    { id: 'zona-108', nombre: '108', activo: true },
     { id: 'zona-201', nombre: '201', activo: true }
   ],
   roles: [
@@ -136,11 +141,12 @@ const distDir = path.join(__dirname, '..', 'dist');
 const { resolveScopeContext, gestoresEnAlcance, gerentesZonaEnAlcance } = require(path.join(distDir, 'services', 'ScopeService.js'));
 const { applyScope } = require(path.join(distDir, 'services', 'ScopeFilter.js'));
 
-/* ===== Cartera ficticia. IMPORTANTE: la fila de GUATEMALA/107 usa un nombre
- * de gestor que NO coincide con "GESTOR FANTASMA SIN CARTERA" (gestorB) — su
- * única forma de ver esta fila es por País-Zona, nunca por nombre. ===== */
+/* ===== Cartera ficticia. `gestor` es SOLO texto de exhibición (nunca se usa
+ * para autorizar: el puente de texto fue eliminado — auditoría real: 0/18,107
+ * filas de producción coincidían). CADA fila se ve EXCLUSIVAMENTE por su
+ * propio País-Zona, vía `gestor_pais_zona`/`gerente_zona_zona`. ===== */
 const CARTERA = [
-  { codigo: 'CTA-A', gestor: 'GESTOR REAL EN CARTERA', pais: 'GUATEMALA', zona: '108' },
+  { codigo: 'CTA-A', gestor: 'NOMBRE DE EXHIBICIÓN IRRELEVANTE', pais: 'GUATEMALA', zona: '108' },
   { codigo: 'CTA-B-PZ', gestor: 'NOMBRE COMPLETAMENTE DISTINTO EN CARTERA', pais: 'GUATEMALA', zona: '107' },
   { codigo: 'CTA-GERENTE1', gestor: 'OTRO NOMBRE CUALQUIERA', pais: 'REPUBLICA DOMINICANA', zona: '107' },
   { codigo: 'CTA-OTRO-SUP', gestor: 'GESTOR DE OTRO SUPERVISOR', pais: 'HONDURAS', zona: '201' },
@@ -148,7 +154,7 @@ const CARTERA = [
   { codigo: 'CTA-SIN-RELACION', gestor: 'NADIE RELACIONADO', pais: 'PANAMA', zona: '607' }
 ];
 
-const applyOpts = { gestorField: 'gestor', zonaField: 'zona', paisField: 'pais' };
+const applyOpts = { zonaField: 'zona', paisField: 'pais' };
 const codigos = (rows) => rows.map((r) => r.codigo).sort();
 
 test('ADMINISTRADOR: isGlobal=true, ve toda la cartera sin restricción', async () => {
@@ -158,9 +164,10 @@ test('ADMINISTRADOR: isGlobal=true, ve toda la cartera sin restricción', async 
   assert.deepEqual(codigos(rows), codigos(CARTERA));
 });
 
-test('GESTOR con nombre en cartera.gestor: ve su cartera por nombre', async () => {
+test('GESTOR: ve su cartera SOLO por su propio País-Zona (gestor_pais_zona), nunca por nombre de cartera.gestor', async () => {
   const ctx = await resolveScopeContext({ userId: 'user-gestorA', roleClave: 'gestor', permissions: [] });
   assert.equal(ctx.isGlobal, false);
+  assert.deepEqual(ctx.scope.paisZonaGrant, [{ pais: 'GUATEMALA', zona: '108' }]);
   const rows = applyScope(CARTERA, ctx, applyOpts);
   assert.deepEqual(codigos(rows), ['CTA-A']);
 });
@@ -182,12 +189,12 @@ test('GERENTE DE ZONA: ve exclusivamente su País-Zona asignado (gerente_zona_zo
   assert.deepEqual(codigos(rows), ['CTA-GERENTE1']);
 });
 
-test('SUPERVISOR: ve la UNIÓN de sus Gestores (por nombre y por País-Zona) y sus Gerentes de zona — nunca lo de otro Supervisor', async () => {
+test('SUPERVISOR: ve la UNIÓN de los País-Zona de sus Gestores (gestor_pais_zona) y de sus Gerentes de zona — nunca lo de otro Supervisor', async () => {
   const ctx = await resolveScopeContext({ userId: 'user-sup1', roleClave: 'supervisor', permissions: [] });
   assert.equal(ctx.isGlobal, false);
   assert.deepEqual([...ctx.gestorIds].sort(), ['g-A', 'g-B']);
   const rows = applyScope(CARTERA, ctx, applyOpts);
-  // CTA-A (gestorA por nombre) + CTA-B-PZ (gestorB por País-Zona) + CTA-GERENTE1 (su gerente de zona).
+  // CTA-A (gestorA, GUATEMALA/108) + CTA-B-PZ (gestorB, GUATEMALA/107) + CTA-GERENTE1 (su gerente de zona).
   assert.deepEqual(codigos(rows), ['CTA-A', 'CTA-B-PZ', 'CTA-GERENTE1']);
   // Aislamiento: nunca ve lo del Supervisor NO relacionado (sup2 -> gestorC/gerente2).
   assert.ok(!codigos(rows).includes('CTA-OTRO-SUP'));

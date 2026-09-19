@@ -27,10 +27,11 @@ const EVALUACIONES = [
   { nota: 10, pais: 'EL SALVADOR', zona: '208', gestor_nombre: 'GESTOR FUERA 2' }
 ];
 
-const OPTS = { gestorField: 'gestor_nombre', zonaField: 'zona', paisField: 'pais' };
+const OPTS = { zonaField: 'zona', paisField: 'pais' };
 
 test('calidad_gestion_evaluaciones — un Gestor restringido NO ve evaluaciones fuera de su alcance', () => {
-  const ctxGestor = { isGlobal: false, scope: { paises: [], zonas: [], gestores: ['GESTOR DENTRO'] } };
+  // Autorización real: SOLO paisZonaGrant (gestor_pais_zona) — nunca gestor_nombre.
+  const ctxGestor = { isGlobal: false, scope: { paises: [], zonas: [], gestores: ['GESTOR DENTRO'], paisZonaGrant: [{ pais: 'GUATEMALA', zona: '107' }] } };
   const visibles = applyScope(EVALUACIONES, ctxGestor, OPTS);
   assert.equal(visibles.length, 1);
   assert.equal(visibles[0].gestor_nombre, 'GESTOR DENTRO');

@@ -37,9 +37,15 @@ const toNormalizedSet = (values: string[]): Set<string> => {
   return set;
 };
 
-/** Qué campo de la fila representa cada dimensión de scope (según la tabla). */
+/** Qué campo de la fila representa cada dimensión de scope (según la tabla).
+ *  `zonaField`/`paisField` se conservan por compatibilidad de tipo, pero
+ *  `ScopeContext.scope.zonas`/`.paises` nunca se pueblan (ScopeService solo
+ *  resuelve alcance vía `paisZonaGrant`): estas dimensiones nunca se activan.
+ *  NO existe (ni debe existir) un campo equivalente para Gestor/Gerente: la
+ *  autorización real depende EXCLUSIVAMENTE de `paisZonaGrant`
+ *  (`gestor_pais_zona`/`gerente_zona_zona`), nunca de texto libre en cartera
+ *  (auditoría real: el puente por nombre coincidía con 0/18,107 filas). */
 export interface ApplyScopeOptions<T> {
-  gestorField?: keyof T;
   zonaField?: keyof T;
   paisField?: keyof T;
 }
@@ -86,9 +92,6 @@ export const applyScope = <T>(rows: T[], context: ScopeContext, options: ApplySc
 
   // 2) Determinar dimensiones activas (campo indicado + lista de scope no vacía).
   const dimensions: ActiveDimension<T>[] = [];
-  if (options.gestorField && context.scope.gestores.length > 0) {
-    dimensions.push({ field: options.gestorField, allowed: toNormalizedSet(context.scope.gestores) });
-  }
   if (options.zonaField && context.scope.zonas.length > 0) {
     dimensions.push({ field: options.zonaField, allowed: toNormalizedSet(context.scope.zonas) });
   }

@@ -241,10 +241,12 @@ export const getCentroInteligencia = async (ctx: ScopeContext, filtros: CentroFi
 
   // ---- Calidad (best-effort; honesto si no hay evaluaciones) ----
   // Respeta el MISMO alcance de seguridad que la cartera (applyScope): esta
-  // tabla trae gestor_nombre/zona/pais propios, así que se scopea igual que
-  // cartera (gestorField/zonaField/paisField) — nunca solo por el filtro de
+  // tabla trae zona/pais propios, así que se scopea igual que cartera
+  // (zonaField/paisField + concesión País-Zona) — nunca solo por el filtro de
   // país elegido por el usuario, que dejaba ver la calidad de TODA la
   // operación a un usuario con alcance restringido cuando no filtraba por país.
+  // `gestor_nombre` es solo texto de exhibición: nunca se usa para autorizar
+  // (la autorización real es por País-Zona vía paisZonaGrant, igual que cartera).
   let calNota: number | null = null; let calEval = 0; const penMap = new Map<string, number>();
   try {
     let q = c().from('calidad_gestion_evaluaciones').select('nota, penalizaciones, pais, zona, gestor_nombre');
@@ -253,7 +255,7 @@ export const getCentroInteligencia = async (ctx: ScopeContext, filtros: CentroFi
     const cal = applyScope(
       (calRaw ?? []) as Array<{ nota: number | null; penalizaciones: Record<string, unknown> | null; pais: string | null; zona: string | null; gestor_nombre: string | null }>,
       ctx,
-      { gestorField: 'gestor_nombre', zonaField: 'zona', paisField: 'pais' }
+      { zonaField: 'zona', paisField: 'pais' }
     );
     calEval = cal.length;
     if (cal.length) calNota = round2(cal.reduce((a, x) => a + num(x.nota), 0) / cal.length);

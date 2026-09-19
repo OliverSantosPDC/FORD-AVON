@@ -42,7 +42,9 @@ const ROWS = [
  * pero 0 filas de cartera dicen literalmente "BRYAN RODRIGUEZ". */
 const PERSONAS = {
   gestores: [
-    { nombre: 'MARIA LOPEZ', paisZona: [] },
+    // MARIA LOPEZ: Gestora real con SU PROPIO gestor_pais_zona (nunca por
+    // coincidencia de texto en cartera.gestor, aunque también coincida).
+    { nombre: 'MARIA LOPEZ', paisZona: [{ pais: 'EL SALVADOR', zona: '201' }, { pais: 'GUATEMALA', zona: '107' }] },
     { nombre: 'BRYAN RODRIGUEZ', paisZona: [{ pais: 'EL SALVADOR', zona: '201' }, { pais: 'GUATEMALA', zona: '107' }] }
   ],
   gerentes: [

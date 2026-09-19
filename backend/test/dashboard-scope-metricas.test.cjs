@@ -48,7 +48,12 @@ const db = {
     { id: 'g-C', usuario_id: 'user-gestorC', nombre_cartera: 'GESTOR DE OTRO SUPERVISOR', activo: true }
   ],
   gestor_pais_zona: [
-    { id: 'gpz-1', gestor_id: 'g-B', zona_id: 'zona-107', pais: 'GUATEMALA', activo: true, fecha_inicio: AYER, fecha_fin: null }
+    // gestorA: su alcance real es EXCLUSIVAMENTE este País-Zona (el puente de
+    // texto por cartera.gestor fue eliminado — nunca autoriza nada).
+    { id: 'gpz-0', gestor_id: 'g-A', zona_id: 'zona-108', pais: 'GUATEMALA', activo: true, fecha_inicio: AYER, fecha_fin: null },
+    { id: 'gpz-1', gestor_id: 'g-B', zona_id: 'zona-107', pais: 'GUATEMALA', activo: true, fecha_inicio: AYER, fecha_fin: null },
+    // gestorC (de sup2, NO relacionado con sup1): su alcance real es Honduras/201.
+    { id: 'gpz-2', gestor_id: 'g-C', zona_id: 'zona-201', pais: 'HONDURAS', activo: true, fecha_inicio: AYER, fecha_fin: null }
   ],
   gerente_zona_zona: [],
   zonas: [
@@ -116,10 +121,11 @@ const { resolveScopeContext } = require(path.join(distDir, 'services', 'ScopeSer
 const { CarteraService } = require(path.join(distDir, 'services', 'CarteraService.js'));
 const { CarteraRepository } = require(path.join(distDir, 'repositories', 'CarteraRepository.js'));
 
-/* ===== Cartera ficticia: CTA-A (gestorA, coincide por nombre), CTA-B (dentro
- * del alcance de gestorB SOLO por País-Zona — su nombre real de cartera es
- * distinto), CTA-OTRO (de un Supervisor NO relacionado, jamás debe aparecer
- * en ninguna visual de sup1). ===== */
+/* ===== Cartera ficticia: CTA-A (dentro del alcance de gestorA por SU
+ * gestor_pais_zona; el texto "GESTOR REAL EN CARTERA" es solo exhibición),
+ * CTA-B (dentro del alcance de gestorB SOLO por País-Zona — su nombre real de
+ * cartera es distinto), CTA-OTRO (de un Supervisor NO relacionado, jamás debe
+ * aparecer en ninguna visual de sup1). ===== */
 const CARTERA_ROWS = [
   { codigo: 'CTA-A', gestor: 'GESTOR REAL EN CARTERA', pais: 'GUATEMALA', zona: '108', sector: 'S1', pd_actual: 'PD1', campania_adeuda: 'CAMPANIA-1', saldo_inicial_usd: 1000, saldo_actual_usd: 800, saldo_inicial: 1000, saldo_actual: 800 },
   { codigo: 'CTA-B', gestor: 'NOMBRE COMPLETAMENTE DISTINTO EN CARTERA', pais: 'GUATEMALA', zona: '107', sector: 'S2', pd_actual: 'PD2', campania_adeuda: 'CAMPANIA-2', saldo_inicial_usd: 2000, saldo_actual_usd: 500, saldo_inicial: 2000, saldo_actual: 500 },

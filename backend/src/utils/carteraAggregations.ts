@@ -479,43 +479,33 @@ const personasPorNombre = (personas: PersonaFiltro[]): Map<string, PersonaFiltro
 };
 
 /**
- * ¿La fila queda incluida por la selección de Gestor/Gerente? Coincide si:
- * (a) `permitirNombre` está activo Y el nombre de la fila (cartera.gestor)
- *     es uno de los seleccionados — puente de compatibilidad, SOLO válido
- *     para Gestor: `gestores.nombre_cartera` es un campo curado por un
- *     administrador específicamente como puente con `cartera.gestor`, y es
- *     una de las dimensiones que ScopeFilter.applyScope YA usa para
- *     autorización real (`ctx.scope.gestores`) —, O
- * (b) el País-Zona EXACTO de la fila está entre los de alguna persona
- *     seleccionada (`gestor_pais_zona`/`gerente_zona_zona`), aunque su nombre
- *     NUNCA exista en `cartera` — mismo principio OR que ScopeFilter.applyScope,
- *     aplicado ahora a la SELECCIÓN del filtro.
+ * ¿La fila queda incluida por la selección de Gestor/Gerente? Coincide
+ * ÚNICAMENTE si el País-Zona EXACTO de la fila está entre los de alguna
+ * persona seleccionada (`gestor_pais_zona`/`gerente_zona_zona`) — nunca por
+ * el texto libre `cartera.gestor`/`cartera.gerente_zona`.
  *
- * Gerente de zona NUNCA tiene un campo equivalente a `nombre_cartera`: su
- * única fuente de alcance real, incluso en ScopeFilter.applyScope, es
- * `gerente_zona_zona` (no existe `gerenteField` en ApplyScopeOptions). Por
- * eso `permitirNombre` debe ser `false` para la dimensión Gerente — de lo
- * contrario, un usuario real con rol gerente_zona pero SIN ninguna relación
- * `gerente_zona_zona` configurada aparecería igual como opción (y sería
- * seleccionable) solo porque su nombre coincide con el texto operativo
- * `cartera.gerente_zona` de cuentas que en realidad pertenecen al alcance de
- * OTRO Gestor — exactamente "NOMBRE DE CUENTA → GERENTE", el patrón
- * prohibido (bug real confirmado en producción con Angie Buch/Cristina
- * Garcia/Ircania Guerrero/Julissa Rodriguez/Leydi Perez/Stephanie German).
+ * Auditoría real (project vuazzailuqgbjnnbdtrg): se confirmó que el puente
+ * de texto para Gestor (antes activo vía `permitirNombre`) coincidía con
+ * EXACTAMENTE 0 de las 18,107 filas reales de cartera contra cualquiera de
+ * los 18 Gestores vigentes — los nombres curados (`gestores.nombre_cartera`,
+ * p. ej. "Angie Buch") son deliberadamente distintos del texto operativo del
+ * ERP (`cartera.gestor`, p. ej. "ANGIE DYANA BUCH DÍAZ"). El puente estaba
+ * 100% inerte en producción; eliminarlo no cambia ningún resultado real y
+ * cierra definitivamente el patrón prohibido "NOMBRE DE CUENTA → PERSONA"
+ * (el mismo bug ya corregido para Gerente con Cristina Garcia/Ircania
+ * Guerrero/Julissa Rodriguez/Leydi Perez/Stephanie German).
+ *
+ * Gestor y Gerente de zona usan ahora EXACTAMENTE la misma regla: identidad
+ * desde usuarios/roles/relaciones (ScopeService), alcance geográfico
+ * EXCLUSIVAMENTE desde `gestor_pais_zona`/`gerente_zona_zona`.
  */
 const rowMatchesPersonaFilter = (
   row: CarteraRow,
   values: string[],
-  nameKeys: string[],
-  personasPorNombreLower: Map<string, PersonaFiltro>,
-  permitirNombre: boolean
+  personasPorNombreLower: Map<string, PersonaFiltro>
 ): boolean => {
   if (!values.length) return true;
   const seleccionadas = values.map((v) => v.trim().toLocaleLowerCase());
-  if (permitirNombre) {
-    const rowNombre = getFieldValue(row, nameKeys).toLocaleLowerCase();
-    if (rowNombre && seleccionadas.includes(rowNombre)) return true;
-  }
 
   const rowPais = getFieldValue(row, ['pais']);
   const rowZona = getFieldValue(row, ['zona']);
@@ -540,8 +530,8 @@ const filterRows = (
   return rows.filter((row) => {
     if (excludeField !== 'pais' && !rowMatchesFilter(row, filters.pais, ['pais'])) return false;
     if (excludeField !== 'zona' && !rowMatchesFilter(row, filters.zona, ['zona'])) return false;
-    if (excludeField !== 'gestor' && !rowMatchesPersonaFilter(row, filters.gestor, ['gestor'], gestoresPorNombre, true)) return false;
-    if (excludeField !== 'gerente' && !rowMatchesPersonaFilter(row, filters.gerente, ['gerente', 'gerente_zona'], gerentesPorNombre, false)) return false;
+    if (excludeField !== 'gestor' && !rowMatchesPersonaFilter(row, filters.gestor, gestoresPorNombre)) return false;
+    if (excludeField !== 'gerente' && !rowMatchesPersonaFilter(row, filters.gerente, gerentesPorNombre)) return false;
     if (excludeField !== 'pd' && !rowMatchesFilter(row, filters.pd, ['pd_actual', 'pd'])) return false;
     if (excludeField !== 'campania' && !rowMatchesFilter(row, filters.campania, ['campania_adeuda', 'campania', 'campaña', 'campaign'])) return false;
     return true;
@@ -574,22 +564,12 @@ const getUniqueOptions = (rows: CarteraRow[], keyVariants: string[]): string[] =
  *   satisfacer un filtro geográfico explícito (correcto: no tiene zona ahí),
  *   pero eso no debe vaciar el catálogo completo cuando no se ha pedido
  *   ningún recorte geográfico.
- * - SOLO para Gestor (`permitirNombre = true`) se admite además coincidir
- *   por nombre con `cartera.gestor` — el mismo puente de texto curado
- *   (`gestores.nombre_cartera`) que ScopeFilter.applyScope YA usa para
- *   autorización real (`ctx.scope.gestores`).
- *
- * Gerente de zona NUNCA usa coincidencia de nombre (`permitirNombre = false`
- * siempre): no existe un campo curado equivalente a `nombre_cartera`, y
- * ScopeFilter.applyScope tampoco autoriza Gerentes por nombre — solo por
- * `gerente_zona_zona`. (Bug real de producción ya corregido: Cristina
- * Garcia/Ircania Guerrero/Julissa Rodriguez/Leydi Perez/Stephanie German —
- * Gerentes reales, supervisados por el usuario conectado, con 0 relaciones
- * `gerente_zona_zona` — primero aparecían por coincidir su nombre con
- * `cartera.gerente_zona` de cuentas de OTRO Gestor; al quitar ese puente,
- * el requisito de intersectar filas VISIBLES los dejaba fuera del catálogo
- * por completo — "Sin opciones" — en vez de aparecer como personas
- * autorizadas con alcance geográfico vacío.)
+ * Gestor y Gerente de zona usan EXACTAMENTE la misma regla (ver
+ * `rowMatchesPersonaFilter`): ningún puente de texto con `cartera.gestor`/
+ * `cartera.gerente_zona` — únicamente `gestor_pais_zona`/`gerente_zona_zona`.
+ * Auditoría real (project vuazzailuqgbjnnbdtrg) confirmó que ese puente
+ * coincidía con 0 de las 18,107 filas reales de cartera; eliminarlo no
+ * cambia ningún resultado de producción actual.
  *
  * RELACIÓN CRUZADA Gestor↔Gerente (`supervisoresPermitidos`): auditoría real
  * de Supabase (project vuazzailuqgbjnnbdtrg) confirmó que el modelo actual
@@ -609,21 +589,10 @@ const getUniqueOptions = (rows: CarteraRow[], keyVariants: string[]): string[] =
  */
 const opcionesPersonas = (
   personas: PersonaFiltro[],
-  filasElegibles: CarteraRow[],
-  nameKeys: string[],
-  permitirNombre: boolean,
   filtrosPais: string[],
   filtrosZona: string[],
   supervisoresPermitidos: Set<string> | null
 ): string[] => {
-  const nombresPresentes = new Set<string>();
-  if (permitirNombre) {
-    filasElegibles.forEach((row) => {
-      const nombre = getFieldValue(row, nameKeys).toLocaleLowerCase();
-      if (nombre) nombresPresentes.add(nombre);
-    });
-  }
-
   const paisSet = new Set(filtrosPais.map((v) => v.trim().toLocaleLowerCase()).filter(Boolean));
   const zonaSet = new Set(filtrosZona.map((v) => v.trim().toLocaleLowerCase()).filter(Boolean));
   const hayFiltroGeografico = paisSet.size > 0 || zonaSet.size > 0;
@@ -631,7 +600,6 @@ const opcionesPersonas = (
   return personas
     .filter((persona) => {
       if (supervisoresPermitidos && !persona.supervisorIds.some((id) => supervisoresPermitidos.has(id))) return false;
-      if (permitirNombre && nombresPresentes.has(persona.nombre.trim().toLocaleLowerCase())) return true;
       if (!hayFiltroGeografico) return true;
       return persona.paisZona.some(
         (pz) =>
@@ -668,24 +636,8 @@ export const buildFilterOptions = (
   return {
     pais: getUniqueOptions(filterRows(rows, filters, personas, 'pais'), ['pais']),
     zona: getUniqueOptions(filterRows(rows, filters, personas, 'zona'), ['zona']),
-    gestor: opcionesPersonas(
-      personas.gestores,
-      filterRows(rows, filters, personas, 'gestor'),
-      ['gestor'],
-      true,
-      filters.pais,
-      filters.zona,
-      supervisoresDeGerenteSeleccionado
-    ),
-    gerente: opcionesPersonas(
-      personas.gerentes,
-      filterRows(rows, filters, personas, 'gerente'),
-      ['gerente', 'gerente_zona'],
-      false,
-      filters.pais,
-      filters.zona,
-      supervisoresDeGestorSeleccionado
-    ),
+    gestor: opcionesPersonas(personas.gestores, filters.pais, filters.zona, supervisoresDeGerenteSeleccionado),
+    gerente: opcionesPersonas(personas.gerentes, filters.pais, filters.zona, supervisoresDeGestorSeleccionado),
     pd: getUniqueOptions(filterRows(rows, filters, personas, 'pd'), ['pd_actual', 'pd']),
     campania: getUniqueOptions(filterRows(rows, filters, personas, 'campania'), ['campania_adeuda', 'campania', 'campaña', 'campaign'])
   };
@@ -695,8 +647,9 @@ export const buildFilterOptions = (
  * Filtra las filas por los mismos criterios del dashboard (equivalente al
  * filteredTableData del frontend). Se usa para el detalle de cuentas, el
  * resumen por campaña y el resumen por país. Gestor/Gerente usan
- * `rowMatchesPersonaFilter` (nombre O País-Zona propio de la persona
- * seleccionada) — nunca solo `row.gestor === valor`.
+ * `rowMatchesPersonaFilter` (País-Zona propio de la persona seleccionada,
+ * vía `gestor_pais_zona`/`gerente_zona_zona`) — nunca `cartera.gestor`/
+ * `cartera.gerente_zona`.
  */
 export const filterCarteraRows = (rows: CarteraRow[], filters: DashboardMultiFilterParams, personas: PersonasEnAlcance): CarteraRow[] => {
   const gestoresPorNombre = personasPorNombre(personas.gestores);
@@ -704,8 +657,8 @@ export const filterCarteraRows = (rows: CarteraRow[], filters: DashboardMultiFil
 
   return rows.filter((row) => {
     if (!rowMatchesFilter(row, filters.pais, ['pais'])) return false;
-    if (!rowMatchesPersonaFilter(row, filters.gestor, ['gestor'], gestoresPorNombre, true)) return false;
-    if (!rowMatchesPersonaFilter(row, filters.gerente, ['gerente', 'gerente_zona'], gerentesPorNombre, false)) return false;
+    if (!rowMatchesPersonaFilter(row, filters.gestor, gestoresPorNombre)) return false;
+    if (!rowMatchesPersonaFilter(row, filters.gerente, gerentesPorNombre)) return false;
     if (!rowMatchesFilter(row, filters.zona, ['zona'])) return false;
     if (!rowMatchesFilter(row, filters.pd, ['pd_actual', 'pd'])) return false;
     if (!rowMatchesFilter(row, filters.campania, ['campania_adeuda', 'campania', 'campaña', 'campaign'])) return false;

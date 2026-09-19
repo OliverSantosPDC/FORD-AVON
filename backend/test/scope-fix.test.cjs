@@ -89,13 +89,20 @@ require.cache[supabaseJsPath] = fakeModule;
 const distDir = path.join(__dirname, '..', 'dist');
 const { infoCuenta, codigoDePromesa, codigoDeAdjunto, gestorDeCarta, gestorEnAlcance } = require(path.join(distDir, 'services', 'GestionService.js'));
 
-/** Actor NO global, cuyo único gestor en alcance es "gestorA" (y a sí mismo, userA). */
+/**
+ * Actor NO global (Gestor). La autorización real es EXCLUSIVAMENTE vía
+ * `paisZonaGrant` (País-Zona propio, resuelto por gestor_pais_zona) — nunca
+ * por `cartera.gestor` (el puente de texto fue eliminado: coincidía con
+ * 0/18,107 filas reales, ver carteraAggregations.ts/ScopeFilter.ts). El
+ * grant aquí coincide con PAIS-1/ZONA-1 (la fila C-IN), no con PAIS-2/ZONA-2
+ * (C-OUT). `scope.gestores` se conserva solo por compatibilidad de tipo.
+ */
 const ctx = {
   userId: 'userA',
   role: 'gestor',
   permissions: [],
   isGlobal: false,
-  scope: { paises: [], zonas: [], gestores: ['gestorA'] },
+  scope: { paises: [], zonas: [], gestores: ['gestorA'], paisZonaGrant: [{ pais: 'PAIS-1', zona: 'ZONA-1' }] },
   gestorIds: [],
   zonaIds: []
 };

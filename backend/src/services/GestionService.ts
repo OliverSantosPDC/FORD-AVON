@@ -40,7 +40,7 @@ export const filtrarCodigosEnAlcance = async (codigos: string[], ctx: ScopeConte
   const { data, error } = await getSupabaseClient().from(SUPABASE_CARTERA_TABLE).select('codigo, gestor, zona, pais').in('codigo', codigos);
   if (error) throw new GestionError(`No se pudo validar el alcance: ${error.message}`);
   const rows = (data ?? []) as Array<Record<string, unknown>>;
-  const scoped = applyScope(rows, ctx, { gestorField: 'gestor', zonaField: 'zona', paisField: 'pais' });
+  const scoped = applyScope(rows, ctx, { zonaField: 'zona', paisField: 'pais' });
   return scoped.map((r) => String(r.codigo));
 };
 
@@ -86,7 +86,7 @@ export const infoCuenta = async (codigo: string, ctx: ScopeContext): Promise<Rec
   const { data, error } = await getSupabaseClient().from(SUPABASE_CARTERA_TABLE).select('*').eq('codigo', codigo).limit(1);
   if (error) throw new GestionError(`No se pudo leer la cuenta: ${error.message}`);
   const rows = (data ?? []) as Array<Record<string, unknown>>;
-  const scoped = applyScope(rows, ctx, { gestorField: 'gestor', zonaField: 'zona', paisField: 'pais' });
+  const scoped = applyScope(rows, ctx, { zonaField: 'zona', paisField: 'pais' });
   return scoped[0] ?? null;
 };
 

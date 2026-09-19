@@ -130,7 +130,6 @@ export class CarteraService {
     //    usuario y ANTES de paginar. Global ⇒ todas; no global ⇒ solo su scope;
     //    scope vacío ⇒ cero filas. El scope SIEMPRE proviene del backend.
     const scopedOriginal = applyScope(rows, scopeContext, {
-      gestorField: 'gestor',
       zonaField: 'zona',
       paisField: 'pais'
     });
@@ -169,7 +168,6 @@ export class CarteraService {
     // `rows` (ya acotado). Global ⇒ todas; no global ⇒ solo su scope;
     // scope vacío ⇒ cero filas (KPIs en cero, sin datos globales).
     const scopedOriginal = applyScope(rawRows, scopeContext, {
-      gestorField: 'gestor',
       zonaField: 'zona',
       paisField: 'pais'
     });
@@ -241,7 +239,6 @@ export class CarteraService {
     //    Global ⇒ todas; no global ⇒ solo su scope; scope vacío ⇒ cero filas.
     const rawRows = (await this.repository.getCartera()) as CarteraRow[];
     const scopedOriginal = applyScope(rawRows, scopeContext, {
-      gestorField: 'gestor',
       zonaField: 'zona',
       paisField: 'pais'
     });
