@@ -650,10 +650,9 @@ const getUniqueOptions = (rows: CarteraRow[], keyVariants: string[]): string[] =
  * selección activa en la otra dimensión" (sin recorte); un `Set` vacío
  * significa "la persona seleccionada no tiene ninguna relación País-Zona
  * propia vigente" y por lo tanto NINGUNA persona de la otra dimensión puede
- * intersectar — 0 opciones, correcto (nunca se amplía el alcance; un país
- * sin ninguna relación `gerente_zona_zona` configurada, p. ej. REPUBLICA
- * DOMINICANA hoy, produce 0 Gerentes hasta que se configure — nunca se
- * fabrica una relación para evitarlo).
+ * intersectar — 0 opciones, correcto (nunca se amplía el alcance; un País-Zona
+ * sin ninguna relación `gerente_zona_zona` configurada produce 0 Gerentes
+ * hasta que se configure — nunca se fabrica una relación para evitarlo).
  */
 const opcionesPersonas = (
   personas: PersonaFiltro[],
