@@ -220,3 +220,48 @@ test('Combinado: Gestor=Angie Buch + Zona=146 (la única zona real entre los Ger
   const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Angie Buch'], zona: ['146'] }, personas);
   assert.deepEqual(opts.gerente, ['Gerente DeDaniel']);
 });
+
+test('Solo País=REPUBLICA DOMINICANA (sin Gestor/Zona) acota Gerente a quienes tienen ESA geografía propia — nunca por supervisor', async () => {
+  const personas = await obtenerPersonasAdmin();
+  const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, pais: ['REPUBLICA DOMINICANA'] }, personas);
+  // Solo "Gerente DeDaniel" tiene gerente_zona_zona real en RD; los 5 de Daniel
+  // sin zona y los 2 de Oliver (Honduras) quedan fuera únicamente por geografía.
+  assert.deepEqual(opts.gerente, ['Gerente DeDaniel']);
+});
+
+test('Eliminar el filtro Gestor recalcula Gerente de vuelta al catálogo completo (sin restricción de supervisor)', async () => {
+  const personas = await obtenerPersonasAdmin();
+  const conGestor = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Angie Buch'] }, personas);
+  assert.equal(conGestor.gerente.length, 6, 'Con Gestor=Angie Buch: acotado a los 6 de Daniel Monge');
+  const sinGestor = buildFilterOptions(CARTERA, EMPTY_FILTERS, personas);
+  assert.equal(sinGestor.gerente.length, 9, 'Al quitar el filtro Gestor, Gerente vuelve a las 9 opciones del alcance completo (Administrador)');
+});
+
+test('Eliminar el filtro Zona (dejando Gestor) recalcula Gerente a la intersección Supervisor+País, ya sin la restricción de Zona', async () => {
+  const personas = await obtenerPersonasAdmin();
+  const conZona = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Angie Buch'], zona: ['146'] }, personas);
+  assert.deepEqual(conZona.gerente, ['Gerente DeDaniel']);
+  const sinZona = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Angie Buch'] }, personas);
+  assert.deepEqual(sinZona.gerente.slice().sort(), ['Cristina Garcia', 'Gerente DeDaniel', 'Ircania Guerrero', 'Julissa Rodriguez', 'Leydi Perez', 'Stephanie German']);
+});
+
+test('Gestor + País + Zona incompatibles entre sí (ninguna persona real cumple las TRES condiciones a la vez): Gerente queda vacío — "Sin opciones", nunca inventa', async () => {
+  const personas = await obtenerPersonasAdmin();
+  // Angie Buch (Daniel Monge) + Zona 201 (zona real de HONDURAS, rama de Oliver Santos):
+  // ningún Gerente de Daniel Monge tiene esa zona -> intersección vacía.
+  const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Angie Buch'], pais: ['HONDURAS'], zona: ['201'] }, personas);
+  assert.deepEqual(opts.gerente, []);
+});
+
+test('El texto de cartera.gestor/cartera.gerente_zona (aunque venga en las filas) NUNCA se usa para construir el catálogo de Gerente: solo usuarios/roles/relaciones', async () => {
+  const personas = await obtenerPersonasAdmin();
+  // Filas de cartera con texto de gestor/gerente_zona DELIBERADAMENTE incorrecto/no
+  // relacionado (nombres que no existen en el catálogo de personas real): si el
+  // catálogo se construyera desde cartera, "Persona Inventada" aparecería como opción.
+  const CARTERA_CON_TEXTO_AJENO = [
+    { codigo: 'CTA-X', gestor: 'PERSONA INVENTADA', gerente_zona: 'OTRA PERSONA INVENTADA', pais: 'GUATEMALA', zona: '999' }
+  ];
+  const opts = buildFilterOptions(CARTERA_CON_TEXTO_AJENO, { ...EMPTY_FILTERS, gestor: ['Angie Buch'] }, personas);
+  assert.ok(!opts.gerente.includes('PERSONA INVENTADA') && !opts.gerente.includes('OTRA PERSONA INVENTADA'));
+  assert.deepEqual(opts.gerente.slice().sort(), ['Cristina Garcia', 'Gerente DeDaniel', 'Ircania Guerrero', 'Julissa Rodriguez', 'Leydi Perez', 'Stephanie German']);
+});
