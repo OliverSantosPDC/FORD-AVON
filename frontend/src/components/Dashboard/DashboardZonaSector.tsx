@@ -1,17 +1,17 @@
-import { MouseEvent as ReactMouseEvent, useEffect, useMemo, useState } from 'react';
+import { MouseEvent as ReactMouseEvent, useMemo, useState } from 'react';
 import { Box, Collapse, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Stack, Tooltip, Typography } from '@mui/material';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import SwapVertIcon from '@mui/icons-material/SwapVert';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
-import type { CarteraRecord, DashboardFilterParams } from '../../types/cartera';
-import { fetchCartera } from '../../services/carteraService';
+import type { CarteraRecord } from '../../types/cartera';
 import { getCarteraField, resolveCountry } from '../../utils/carteraAggregations';
 import { simboloMoneda } from '../../utils/monedaOptions';
 
 interface Props {
-  filters: DashboardFilterParams;
+  /** Cartera completa ya filtrada (fuente ÚNICA: useCarteraRows en DashboardPage — ver Sección 13 de la auditoría de rendimiento). */
+  cuentas: CarteraRecord[];
   moneda: 'USD' | 'LOCAL';
   monedaCode: string;
   tasa: number;
@@ -32,18 +32,11 @@ type ZonaSortKey = 'valor' | 'nombre';
  * el alcance/scope y los filtros del dashboard sin depender del resumen
  * pre-agregado del backend (que agrupa solo por zona, sin país, y lo limita a 20).
  */
-const DashboardZonaSector = ({ filters, moneda, monedaCode, tasa }: Props) => {
-  const [cuentas, setCuentas] = useState<CarteraRecord[]>([]);
+const DashboardZonaSector = ({ cuentas, moneda, monedaCode, tasa }: Props) => {
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [sortKey, setSortKey] = useState<ZonaSortKey>('valor');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [sortAnchor, setSortAnchor] = useState<null | HTMLElement>(null);
-
-  useEffect(() => {
-    let active = true;
-    fetchCartera(filters).then((data) => { if (active) setCuentas(data); }).catch(() => { if (active) setCuentas([]); });
-    return () => { active = false; };
-  }, [filters]);
 
   const val = (z: { usd: number; local: number }) => (moneda === 'USD' ? z.usd : z.local);
 

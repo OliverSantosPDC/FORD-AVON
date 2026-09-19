@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import {
   Bar,
@@ -10,8 +10,7 @@ import {
   XAxis,
   YAxis
 } from 'recharts';
-import type { CarteraRecord, DashboardFilterParams } from '../../types/cartera';
-import { fetchCartera } from '../../services/carteraService';
+import type { CarteraRecord } from '../../types/cartera';
 import { simboloMoneda } from '../../utils/monedaOptions';
 import ChartCard, { type ChartSortOption } from './ChartCard';
 
@@ -27,7 +26,7 @@ const normalizePd = (value: unknown) => {
   return match ? `PD${match[1]}` : null;
 };
 
-interface Props { filters: DashboardFilterParams; moneda: 'USD' | 'LOCAL'; monedaCode: string; tasa: number; }
+interface Props { cuentas: CarteraRecord[]; moneda: 'USD' | 'LOCAL'; monedaCode: string; tasa: number; }
 interface PivotRow { pdActual: string; [key: string]: string | number; }
 interface PdActualDetalle { pdActual: string; saldo: number; cuentas: number; }
 interface SeriesSummary { pdInicial: string; totalSaldo: number; totalCuentas: number; detalle: PdActualDetalle[]; }
@@ -71,16 +70,9 @@ const PDMigrationTooltip = ({
 
 type PdSortKey = 'pd' | 'valor';
 
-const PDMigrationChart = ({ filters, moneda, monedaCode, tasa }: Props) => {
-  const [cuentas, setCuentas] = useState<CarteraRecord[]>([]);
+const PDMigrationChart = ({ cuentas, moneda, monedaCode, tasa }: Props) => {
   const [sortKey, setSortKey] = useState<PdSortKey>('pd');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-
-  useEffect(() => {
-    let active = true;
-    fetchCartera(filters).then((data) => { if (active) setCuentas(data); }).catch(() => { if (active) setCuentas([]); });
-    return () => { active = false; };
-  }, [filters]);
 
   const { chartData, activeSeries, totalSaldo, csvRows, seriesSummary } = useMemo(() => {
     const flowMap = new Map<string, number>();

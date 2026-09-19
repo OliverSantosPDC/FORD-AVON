@@ -35,10 +35,33 @@ import { getSupabaseClient } from '../config/supabaseClient';
  *  `cartera.gestor`/`cartera.gerente_zona`. Única función para Dashboard,
  *  Centro de Inteligencia, Control Operativo y Gestión (exportada para que
  *  ningún otro módulo reconstruya su propio catálogo de personas). */
-export const personasEnAlcance = async (scopeContext: ScopeContext): Promise<PersonasEnAlcance> => ({
-  gestores: await gestoresEnAlcance(scopeContext),
-  gerentes: await gerentesZonaEnAlcance(scopeContext)
-});
+const personasEnAlcanceUncached = async (scopeContext: ScopeContext): Promise<PersonasEnAlcance> => {
+  // gestores/gerentes son independientes (roles distintos, tablas distintas):
+  // en paralelo en vez de en serie. Medido en producción: esta cadena +
+  // las de gestoresEnAlcance/gerentesZonaEnAlcance sumaban ~9 round trips
+  // secuenciales a Supabase (~2.7-3.5 s) en CADA request.
+  const [gestores, gerentes] = await Promise.all([gestoresEnAlcance(scopeContext), gerentesZonaEnAlcance(scopeContext)]);
+  return { gestores, gerentes };
+};
+
+// Memoización por REQUEST (nunca entre requests/usuarios): `scopeContext` es
+// un objeto NUEVO creado por `resolveScopeContext` en el middleware de auth
+// en cada request (ver middleware/auth.ts) — jamás se reutiliza entre
+// peticiones ni usuarios. La clave del WeakMap es ese objeto por identidad,
+// así que la entrada solo puede resolverse dentro de la MISMA request y se
+// libera sola cuando el objeto deja de referenciarse (GC), sin necesidad de
+// invalidación manual ni riesgo de fuga entre usuarios. Evita recalcular
+// personasEnAlcance cuando un mismo controlador la necesita más de una vez
+// (ej. ControlController.dashboard(): getDashboard() + listCartera() sobre
+// el mismo ctx).
+const personasCache = new WeakMap<ScopeContext, Promise<PersonasEnAlcance>>();
+export const personasEnAlcance = (scopeContext: ScopeContext): Promise<PersonasEnAlcance> => {
+  const cached = personasCache.get(scopeContext);
+  if (cached) return cached;
+  const promise = personasEnAlcanceUncached(scopeContext);
+  personasCache.set(scopeContext, promise);
+  return promise;
+};
 
 export class CarteraService {
   private readonly repository: CarteraRepository;
@@ -183,10 +206,23 @@ export class CarteraService {
 
     const tAgg = Date.now();
 
-    // === INSTRUMENTACIÓN DETALLADA TEMPORAL (remover tras el diagnóstico) ===
+    // === INSTRUMENTACIÓN DETALLADA (observabilidad permanente: confirmó el
+    // cuello de botella real de la optimización de tiempos de carga — ver
+    // commit de perf) ===
     const step = <T>(label: string, fn: () => T): T => {
       const t = Date.now();
       const result = fn();
+      console.log(`[PERF_DETAIL] ${label} = ${Date.now() - t} ms`);
+      return result;
+    };
+    // `step` (síncrono) mide mal una función async: `fn()` devuelve la Promise
+    // de inmediato y el log se imprime ANTES de que se resuelva (0 ms siempre,
+    // sin importar cuánto tarde el `await` real) — confirmado en producción:
+    // personasEnAlcance logueaba "0 ms" mientras el `await` externo tardaba
+    // 2.7-3.5 s. `stepAsync` mide el `await` real.
+    const stepAsync = async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
+      const t = Date.now();
+      const result = await fn();
       console.log(`[PERF_DETAIL] ${label} = ${Date.now() - t} ms`);
       return result;
     };
@@ -194,7 +230,7 @@ export class CarteraService {
     // Catálogo de personas (Gestor/Gerente de zona) del PROPIO alcance del
     // usuario conectado — única fuente para las opciones y la aplicación del
     // filtro (usuarios/roles/relaciones, nunca `cartera.gestor`/`gerente_zona`).
-    const personas = await step('personasEnAlcance', () => personasEnAlcance(scopeContext));
+    const personas = await stepAsync('personasEnAlcance', () => personasEnAlcance(scopeContext));
     // IDENTIDAD REAL para exhibición (nunca el texto crudo de cartera.gestor/gerente_zona).
     const rows = step('overlayIdentidadReal', () => overlayIdentidadReal(overlaid, gestorPorPaisZona(personas.gestores), gestorPorPaisZona(personas.gerentes)));
 

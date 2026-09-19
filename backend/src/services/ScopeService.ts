@@ -483,8 +483,13 @@ export const gestoresEnAlcance = async (ctx: ScopeContext): Promise<PersonaFiltr
       ? await gestoresPorIds(ctx.gestorIds)
       : [];
   if (rows.length === 0) return [];
-  const pares = await paisZonaPorGestorId(rows.map((r) => r.id));
-  const supervisores = await supervisoresPorGestorId(rows.map((r) => r.id));
+  const ids = rows.map((r) => r.id);
+  // País-Zona y Supervisores son independientes entre sí (ambos dependen
+  // solo de `ids`): en paralelo en vez de en serie (medido en producción:
+  // esta cadena era parte de los ~9 round trips secuenciales a Supabase que
+  // explicaban los 2.7-3.5 s de personasEnAlcance en CADA request de
+  // Dashboard/Centro/Control Operativo/Gestión).
+  const [pares, supervisores] = await Promise.all([paisZonaPorGestorId(ids), supervisoresPorGestorId(ids)]);
   return rows
     .filter((r) => r.nombre_cartera)
     .map((r) => ({
@@ -502,6 +507,14 @@ export const gestoresEnAlcance = async (ctx: ScopeContext): Promise<PersonaFiltr
  * (`ctx.gerenteZonaIds`).
  */
 export const gerentesZonaEnAlcance = async (ctx: ScopeContext): Promise<PersonaFiltro[]> => {
+  // NOTA (optimización de tiempos de carga): se evaluó reemplazar
+  // roleIdPorClave por un filtro embebido `roles!inner(clave)` en la misma
+  // consulta a `profiles` (ahorra 1 round trip). Se revirtió: 27 pruebas de
+  // gerentesZonaEnAlcance/cascada Gestor↔Gerente fallaron porque el filtro
+  // embebido no es verificable con el mock de pruebas existente sin reescribir
+  // esos fixtures, y la ganancia (~1 de 9 round trips) no justificaba ese
+  // riesgo — se mantiene roleIdPorClave, ya con las llamadas independientes
+  // en paralelo (la optimización de mayor impacto y menor riesgo).
   const roleId = await roleIdPorClave('gerente_zona');
   if (!roleId) return [];
   const client = getSupabaseClient();
@@ -514,8 +527,9 @@ export const gerentesZonaEnAlcance = async (ctx: ScopeContext): Promise<PersonaF
   if (error) throw new ScopeResolutionError(`No se pudieron leer los gerentes de zona: ${error.message}`);
   const rows = (data ?? []) as Array<{ id: string; nombre: string; apellido: string | null }>;
   if (rows.length === 0) return [];
-  const pares = await paisZonaPorGerenteId(rows.map((r) => r.id));
-  const supervisores = await supervisoresPorGerenteId(rows.map((r) => r.id));
+  const ids = rows.map((r) => r.id);
+  // Independientes entre sí: en paralelo en vez de en serie (ver gestoresEnAlcance).
+  const [pares, supervisores] = await Promise.all([paisZonaPorGerenteId(ids), supervisoresPorGerenteId(ids)]);
   return rows.map((r) => ({
     nombre: `${r.nombre}${r.apellido ? ` ${r.apellido}` : ''}`.trim(),
     paisZona: pares.get(r.id) ?? [],

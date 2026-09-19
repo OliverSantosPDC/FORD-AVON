@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Box } from '@mui/material';
 import {
   Bar,
@@ -12,14 +12,14 @@ import {
   XAxis,
   YAxis
 } from 'recharts';
-import type { CarteraRecord, DashboardFilterParams } from '../../types/cartera';
-import { fetchCartera } from '../../services/carteraService';
+import type { CarteraRecord } from '../../types/cartera';
 import { getCarteraField, carteraFieldKeys, resolveCountry } from '../../utils/carteraAggregations';
 import { simboloMoneda } from '../../utils/monedaOptions';
 import ChartCard, { type ChartSortOption } from './ChartCard';
 
 interface DashboardChartsProps {
-  filters: DashboardFilterParams;
+  /** Cartera completa ya filtrada (fuente ÚNICA: useCarteraRows en DashboardPage — ver Sección 13 de la auditoría de rendimiento). */
+  cuentas: CarteraRecord[];
   moneda: 'USD' | 'LOCAL';
   monedaCode: string;
   /** Tasa oficial (Configuración > Tasas de Conversión) para convertir USD a monedaCode. */
@@ -72,18 +72,11 @@ const byPaisNombre = (a: PaisRow, b: PaisRow) =>
 
 type CountrySortKey = 'valor' | 'nombre';
 
-const DashboardCharts = ({ filters, moneda, monedaCode, tasa, pdMigrationChart, zonaSector }: DashboardChartsProps) => {
-  const [cuentas, setCuentas] = useState<CarteraRecord[]>([]);
+const DashboardCharts = ({ cuentas, moneda, monedaCode, tasa, pdMigrationChart, zonaSector }: DashboardChartsProps) => {
   const [horizSortKey, setHorizSortKey] = useState<CountrySortKey>('valor');
   const [horizSortDir, setHorizSortDir] = useState<'asc' | 'desc'>('desc');
   const [comboSortKey, setComboSortKey] = useState<CountrySortKey>('nombre');
   const [comboSortDir, setComboSortDir] = useState<'asc' | 'desc'>('asc');
-
-  useEffect(() => {
-    let active = true;
-    fetchCartera(filters).then((data) => { if (active) setCuentas(data); }).catch(() => { if (active) setCuentas([]); });
-    return () => { active = false; };
-  }, [filters]);
 
   // Totales Usd y Local por país, calculados en el cliente a partir de la cartera
   // completa (misma fuente/patrón que DashboardZonaSector y PDMigrationChart) para

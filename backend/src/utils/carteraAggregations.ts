@@ -582,14 +582,17 @@ const rowMatchesPersonaFilter = (
   return false;
 };
 
+/** `gestoresPorNombre`/`gerentesPorNombre` se reciben ya construidos: esta
+ *  función se llama una vez POR DIMENSIÓN dentro de `buildFilterOptions`
+ *  (hasta 4 veces por request) — reconstruir esos Map en cada llamada era
+ *  trabajo repetido e idéntico (medido: buildFilterOptions llegaba a 612 ms
+ *  sobre 18,107 filas; ver PersonasPorNombreMaps en buildFilterOptions). */
 const filterRows = (
   rows: CarteraRow[],
   filters: DashboardMultiFilterParams,
-  personas: PersonasEnAlcance,
+  { gestoresPorNombre, gerentesPorNombre }: { gestoresPorNombre: Map<string, PersonaFiltro>; gerentesPorNombre: Map<string, PersonaFiltro> },
   excludeField?: keyof DashboardMultiFilterParams
 ): CarteraRow[] => {
-  const gestoresPorNombre = personasPorNombre(personas.gestores);
-  const gerentesPorNombre = personasPorNombre(personas.gerentes);
   return rows.filter((row) => {
     if (excludeField !== 'pais' && !rowMatchesFilter(row, filters.pais, ['pais'])) return false;
     if (excludeField !== 'zona' && !rowMatchesFilter(row, filters.zona, ['zona'])) return false;
@@ -701,13 +704,16 @@ export const buildFilterOptions = (
 ): FilterOptions => {
   const paisZonaDeGestorSeleccionado = paisZonaDeSeleccion(personas.gestores, filters.gestor);
   const paisZonaDeGerenteSeleccionado = paisZonaDeSeleccion(personas.gerentes, filters.gerente);
+  // Construidos UNA vez y reutilizados en las 4 llamadas a filterRows (antes:
+  // 4 reconstrucciones idénticas de los mismos 2 Map, uno por dimensión).
+  const mapas = { gestoresPorNombre: personasPorNombre(personas.gestores), gerentesPorNombre: personasPorNombre(personas.gerentes) };
   return {
-    pais: getUniqueOptions(filterRows(rows, filters, personas, 'pais'), ['pais']),
-    zona: getUniqueOptions(filterRows(rows, filters, personas, 'zona'), ['zona']),
+    pais: getUniqueOptions(filterRows(rows, filters, mapas, 'pais'), ['pais']),
+    zona: getUniqueOptions(filterRows(rows, filters, mapas, 'zona'), ['zona']),
     gestor: opcionesPersonas(personas.gestores, filters.pais, filters.zona, paisZonaDeGerenteSeleccionado),
     gerente: opcionesPersonas(personas.gerentes, filters.pais, filters.zona, paisZonaDeGestorSeleccionado),
-    pd: getUniqueOptions(filterRows(rows, filters, personas, 'pd'), ['pd_actual', 'pd']),
-    campania: getUniqueOptions(filterRows(rows, filters, personas, 'campania'), ['campania_adeuda', 'campania', 'campaña', 'campaign'])
+    pd: getUniqueOptions(filterRows(rows, filters, mapas, 'pd'), ['pd_actual', 'pd']),
+    campania: getUniqueOptions(filterRows(rows, filters, mapas, 'campania'), ['campania_adeuda', 'campania', 'campaña', 'campaign'])
   };
 };
 

@@ -1,14 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Box, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TableSortLabel, Typography } from '@mui/material';
-import type { CarteraRecord, DashboardFilterParams } from '../../types/cartera';
-import { fetchCartera } from '../../services/carteraService';
+import type { CarteraRecord } from '../../types/cartera';
 import TableActionsMenu from '../common/TableActionsMenu';
 import { copyRowsToClipboard, exportRowsToCsv, exportRowsToExcel } from '../../utils/tableExport';
 import { getPdEstado, getPdIndex } from '../../utils/carteraAggregations';
 import { simboloMoneda } from '../../utils/monedaOptions';
 
 interface ResumenPdTableProps {
-  filters: DashboardFilterParams;
+  /** Cartera completa ya filtrada (fuente ÚNICA: useCarteraRows en DashboardPage — ver Sección 13 de la auditoría de rendimiento). */
+  cuentasRaw: CarteraRecord[];
   moneda: 'USD' | 'LOCAL';
   monedaCode: string;
   tasa: number;
@@ -55,16 +55,9 @@ const formatPercent = (value: number) => `${value.toFixed(2)}%`;
 // Resumen agrupado por PD INICIAL (pd_inicial), calculado en el cliente a partir de la
 // cartera completa (mismo patrón/fuente que "Movimiento de Cartera por PD"), ya que el
 // resumen agregado por el backend agrupa por pd_actual.
-const ResumenPdTable = ({ filters, moneda, monedaCode, tasa }: ResumenPdTableProps) => {
-  const [cuentasRaw, setCuentasRaw] = useState<CarteraRecord[]>([]);
+const ResumenPdTable = ({ cuentasRaw, moneda, monedaCode, tasa }: ResumenPdTableProps) => {
   const [order, setOrder] = useState<'asc' | 'desc'>('asc');
   const [orderBy, setOrderBy] = useState<ColumnId>('pd');
-
-  useEffect(() => {
-    let active = true;
-    fetchCartera(filters).then((data) => { if (active) setCuentasRaw(data); }).catch(() => { if (active) setCuentasRaw([]); });
-    return () => { active = false; };
-  }, [filters]);
 
   const data = useMemo<PdRow[]>(() => {
     const totals = new Map<string, { asignadoUsd: number; actualUsd: number; asignadoLocal: number; actualLocal: number; cuentas: number }>();
