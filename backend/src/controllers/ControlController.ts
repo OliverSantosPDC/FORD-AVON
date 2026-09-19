@@ -3,18 +3,8 @@ import { CarteraService } from '../services/CarteraService';
 import { CarteraRepository } from '../repositories/CarteraRepository';
 import { getCarteraDataSource } from '../config/dataSource';
 import { aggGestores, aggZonasGestores, aggPdCampanas, contadores, indicadores, pendientes, ControlError, crearEvaluacionCalidad, listarEvaluacionesCalidad, resumenCalidad, gestoresParaCalidad, resumenOperativo, type CalidadInput } from '../services/ControlService';
-import { gestoresEnAlcance, gerentesZonaEnAlcance, type ScopeContext } from '../services/ScopeService';
-import { gestorPorPaisZona } from '../utils/carteraAggregations';
 
 const carteraService = new CarteraService(new CarteraRepository(getCarteraDataSource()));
-
-/** Mapas País-Zona -> identidad real (gestor_pais_zona/gerente_zona_zona) del
- *  propio alcance — nunca `cartera.gestor`/`cartera.gerente_zona` — para las
- *  agregaciones de Control Operativo (aggGestores/aggZonasGestores/contadores). */
-const mapasIdentidad = async (ctx: ScopeContext) => {
-  const [gestores, gerentes] = await Promise.all([gestoresEnAlcance(ctx), gerentesZonaEnAlcance(ctx)]);
-  return { gestorPorZona: gestorPorPaisZona(gestores), gerentePorZona: gestorPorPaisZona(gerentes) };
-};
 
 const parseFilter = (v: unknown): string[] | undefined => {
   if (typeof v === 'string') { const a = v.split(',').map((x) => x.trim()).filter(Boolean); return a.length ? a : undefined; }
@@ -31,15 +21,14 @@ export class ControlController {
       const ctx = this.scope(req, res); if (!ctx) return;
       const d = await carteraService.getDashboard(filtros(req.query), ctx);
       const rows = await carteraService.listCartera(filtros(req.query), 1000000, ctx);
-      const { gestorPorZona, gerentePorZona } = await mapasIdentidad(ctx);
-      return res.json({ ...d, contadores: contadores(rows, gestorPorZona, gerentePorZona) });
+      return res.json({ ...d, contadores: contadores(rows) });
     } catch (e) { return this.fail(res, e); }
   }
   async gestores(req: Request, res: Response): Promise<Response | void> {
-    try { const ctx = this.scope(req, res); if (!ctx) return; const rows = await carteraService.listCartera(filtros(req.query), 1000000, ctx); const { gestorPorZona } = await mapasIdentidad(ctx); return res.json(aggGestores(rows, gestorPorZona)); } catch (e) { return this.fail(res, e); }
+    try { const ctx = this.scope(req, res); if (!ctx) return; const rows = await carteraService.listCartera(filtros(req.query), 1000000, ctx); return res.json(aggGestores(rows)); } catch (e) { return this.fail(res, e); }
   }
   async zonas(req: Request, res: Response): Promise<Response | void> {
-    try { const ctx = this.scope(req, res); if (!ctx) return; const rows = await carteraService.listCartera(filtros(req.query), 1000000, ctx); const { gestorPorZona } = await mapasIdentidad(ctx); return res.json(aggZonasGestores(rows, gestorPorZona)); } catch (e) { return this.fail(res, e); }
+    try { const ctx = this.scope(req, res); if (!ctx) return; const rows = await carteraService.listCartera(filtros(req.query), 1000000, ctx); return res.json(aggZonasGestores(rows)); } catch (e) { return this.fail(res, e); }
   }
   async pdCampanas(req: Request, res: Response): Promise<Response | void> {
     try { const ctx = this.scope(req, res); if (!ctx) return; const rows = await carteraService.listCartera(filtros(req.query), 1000000, ctx); return res.json(aggPdCampanas(rows)); } catch (e) { return this.fail(res, e); }

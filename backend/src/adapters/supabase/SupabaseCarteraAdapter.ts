@@ -24,9 +24,11 @@ const DASHBOARD_COLUMNS = [
   'saldo_inicial_usd',
   'saldo_actual_usd',
   'pd_inicial',
-  'pd_actual',
-  'gestor',
-  'gerente_zona'
+  'pd_actual'
+  // `gestor`/`gerente_zona` NUNCA se leen de cartera: la identidad real se
+  // resuelve exclusivamente vía gestor_pais_zona/gerente_zona_zona
+  // (CarteraService.overlayIdentidadReal, sobrescribe estos campos en cada
+  // fila después de leerla) — ver la auditoría en carteraAggregations.ts.
 ].join(',');
 
 export class SupabaseCarteraAdapter implements CarteraDataSource {

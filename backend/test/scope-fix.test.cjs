@@ -50,8 +50,13 @@ function tablaPara(nombre) {
   if (nombre === 'gestion_promesas') return PROMESAS;
   if (nombre === 'gestion_adjuntos') return ADJUNTOS;
   if (nombre === 'gestion_cartas') return CARTAS;
-  if (nombre === 'gestores') return [];
-  return CARTERA; // tabla de cartera (SUPABASE_CARTERA_TABLE, por defecto "cartera")
+  if (nombre === (process.env.SUPABASE_CARTERA_TABLE || 'cartera')) return CARTERA;
+  // Cualquier otra tabla (gestores, asignaciones, gestor_pais_zona,
+  // gerente_zona_zona, profiles, roles, etc.): vacía — infoCuenta() ahora
+  // también resuelve identidad real (gestor efectivo/gestor_pais_zona/
+  // gerente_zona_zona), pero estas pruebas solo verifican el PERMITIDO/
+  // RECHAZADO del scope, no la identidad resuelta.
+  return [];
 }
 
 function makeBuilder(tableName) {
@@ -66,10 +71,15 @@ function makeBuilder(tableName) {
     select() { return builder; },
     eq(campo, valor) { state.eq[campo] = valor; return builder; },
     in(campo, valores) { state.in[campo] = valores; return builder; },
+    order() { return builder; },
     limit() { return Promise.resolve({ data: filas(), error: null }); },
     single() {
       const rows = filas();
       return rows.length ? Promise.resolve({ data: rows[0], error: null }) : Promise.resolve({ data: null, error: { message: 'no encontrado' } });
+    },
+    maybeSingle() {
+      const rows = filas();
+      return Promise.resolve({ data: rows[0] ?? null, error: null });
     },
     // Soporta `await builder` cuando no se llama a .limit()/.single() (p.ej. tras .in()).
     then(resolve, reject) { return Promise.resolve({ data: filas(), error: null }).then(resolve, reject); }

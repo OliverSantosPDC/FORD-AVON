@@ -24,9 +24,11 @@ export const REQUIRED_CARTERA_COLUMNS = [
   'saldo_actual',
   'saldo_inicial_usd',
   'saldo_actual_usd',
-  'pd_actual',
-  'gestor',
-  'gerente_zona'
+  'pd_actual'
+  // `gestor`/`gerente_zona`: NUNCA se cargan desde cartera (columnas
+  // eliminadas de la tabla) — la identidad real es exclusivamente
+  // usuarios/roles/gestor_pais_zona/gerente_zona_zona. El importador solo
+  // carga datos operativos + geografía (país/zona) de la cuenta.
 ];
 
 /**
@@ -62,9 +64,10 @@ export const CARTERA_DB_COLUMNS = [
   'pd_actual',
   'saldo_inicial_usd',
   'saldo_actual_usd',
-  'gestor',
-  'gerente_zona',
   'contacto_gerente'
+  // `gestor`/`gerente_zona`: eliminadas de `cartera` — un encabezado "Gestor"/
+  // "Gerente Zona" en el Excel ya no resuelve a ninguna columna real y se
+  // ignora al importar (ver worksheetToRows: un header sin columna se omite).
 ];
 
 /**

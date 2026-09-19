@@ -1330,7 +1330,7 @@ export interface AlcanceResumenItem {
   zonas: string[];
 }
 
-interface CarteraFila { gestor: string; pais: string; zona: string; sector: string; }
+interface CarteraFila { pais: string; zona: string; sector: string; }
 
 const cargarCarteraResumen = async (): Promise<CarteraFila[]> => {
   const client = getSupabaseClient();
@@ -1339,12 +1339,11 @@ const cargarCarteraResumen = async (): Promise<CarteraFila[]> => {
   for (let page = 0; page < 60; page += 1) {
     const from = page * pageSize;
     // `.order('id')` obligatorio: ver nota en SupabaseCarteraAdapter.getCartera.
-    const { data, error } = await client.from(SUPABASE_CARTERA_TABLE).select('gestor, pais, zona, sector').order('id', { ascending: true }).range(from, from + pageSize - 1);
+    const { data, error } = await client.from(SUPABASE_CARTERA_TABLE).select('pais, zona, sector').order('id', { ascending: true }).range(from, from + pageSize - 1);
     if (error) throw new UsuariosError(`No se pudo leer cartera para el resumen de alcance: ${error.message}`);
     const rows = (data ?? []) as Array<Record<string, unknown>>;
     for (const r of rows) {
       out.push({
-        gestor: typeof r.gestor === 'string' ? r.gestor.trim() : '',
         pais: typeof r.pais === 'string' ? r.pais.trim() : '',
         zona: typeof r.zona === 'string' ? r.zona.trim() : '',
         sector: typeof r.sector === 'string' ? r.sector.trim() : ''

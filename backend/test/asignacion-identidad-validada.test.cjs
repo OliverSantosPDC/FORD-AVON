@@ -184,7 +184,7 @@ const CARTERA_ROWS = [
 ];
 const carteraService = new CarteraService(new CarteraRepository({ getCartera: async () => CARTERA_ROWS.map((r) => ({ ...r })) }));
 
-test('5/6/7/8/9) El gestor efectivo (overlay) se resuelve EXCLUSIVAMENTE vía gestor_nuevo_id -> gestores.nombre_cartera; el texto crudo gestor_nuevo y los IDs de Gestores ya no vigentes NUNCA se usan como identidad efectiva', async () => {
+test('5/6/7/8/9) El gestor efectivo (overlay) se resuelve EXCLUSIVAMENTE vía gestor_nuevo_id -> gestores.nombre_cartera; sin override vigente se resuelve por País-Zona (gestor_pais_zona), NUNCA por el texto crudo de cartera.gestor', async () => {
   db.asignaciones = [
     // Vigente y válida: debe sobrescribir el gestor de CTA-CON-ID.
     { id: 'a-1', codigo: 'CTA-CON-ID', gestor_nuevo: 'Gestor Real Validado', gestor_nuevo_id: 'g-real', tipo: 'MANUAL', created_at: '2026-01-02T00:00:00Z' },
@@ -201,11 +201,16 @@ test('5/6/7/8/9) El gestor efectivo (overlay) se resuelve EXCLUSIVAMENTE vía ge
   const ctaConId = dash.cuentas.find((c) => c.codigo === 'CTA-CON-ID');
   assert.equal(ctaConId.gestor, 'Gestor Real Validado', 'Gestor efectivo resuelto desde gestores.nombre_cartera vía gestor_nuevo_id');
 
+  // Sin gestor_nuevo_id vigente, y sin ninguna relación gestor_pais_zona real
+  // para GUATEMALA/107 en este fixture: NUNCA el texto crudo de cartera.gestor
+  // ("Gestor Original CTA-SIN-ID") — cae en 'Sin gestor asignado'.
   const ctaSinId = dash.cuentas.find((c) => c.codigo === 'CTA-SIN-ID');
-  assert.equal(ctaSinId.gestor, 'Gestor Original CTA-SIN-ID', 'Sin gestor_nuevo_id: el texto crudo NUNCA se usa, se conserva el gestor original de cartera');
+  assert.equal(ctaSinId.gestor, 'Sin gestor asignado', 'Sin gestor_nuevo_id ni gestor_pais_zona: nunca el texto crudo de cartera.gestor');
 
+  // Gestor desactivado después de la asignación: ya no es gestor efectivo, y
+  // tampoco hay gestor_pais_zona real para esta geografía en el fixture.
   const ctaDesact = dash.cuentas.find((c) => c.codigo === 'CTA-ID-DESACT');
-  assert.equal(ctaDesact.gestor, 'Gestor Original CTA-ID-DESACT', 'Gestor desactivado después de la asignación: ya no es gestor efectivo, se conserva el original');
+  assert.equal(ctaDesact.gestor, 'Sin gestor asignado', 'Gestor desactivado: nunca vuelve a mostrar el texto crudo de cartera.gestor');
 
   // Top Gestores (J) y Centro de Inteligencia reflejan el mismo gestor efectivo.
   assert.ok(dash.topGestores.some((g) => g.nombre === 'Gestor Real Validado'));

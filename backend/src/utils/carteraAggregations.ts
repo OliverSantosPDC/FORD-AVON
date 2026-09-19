@@ -269,15 +269,12 @@ const aggregateGroupSummaries = (records: CarteraRow[], keyResolver: (row: Carte
 };
 
 /**
- * Top Gestores: agrupa por la IDENTIDAD real del Gestor (`gestor_pais_zona`,
- * vía el mapa País-Zona→nombre de `gestorPorPaisZona`), nunca por el texto
- * `cartera.gestor` — mismo criterio que la autorización/el catálogo del
- * filtro (ver `rowMatchesPersonaFilter`/`opcionesPersonas`). Una fila cuyo
- * País-Zona no tiene ningún Gestor real asignado cae en "Sin gestor
- * asignado" (nunca inventa una persona a partir del texto de cartera).
+ * Top Gestores: agrupa por `gestor`, que a esta altura YA es la IDENTIDAD
+ * real (sobrescrita por `overlayIdentidadReal` antes de llegar aquí) —
+ * nunca el texto crudo `cartera.gestor` original.
  */
-export const aggregateTopGestores = (records: CarteraRow[], gestorPorZona: Map<string, string>, limit = 20): GroupSummary[] =>
-  aggregateGroupSummaries(records, (row) => resolverGestorReal(row, gestorPorZona))
+export const aggregateTopGestores = (records: CarteraRow[], limit = 20): GroupSummary[] =>
+  aggregateGroupSummaries(records, (row) => getString(row, FIELD_KEYS.gestor) || 'Sin gestor asignado')
     .sort((a, b) => b.recuperadoUsd - a.recuperadoUsd)
     .slice(0, limit);
 
@@ -504,24 +501,39 @@ export const gestorPorPaisZona = (gestores: PersonaFiltro[]): Map<string, string
 };
 
 /**
- * Resuelve el Gestor real de una fila de cartera: si la cuenta tiene un
- * GESTOR EFECTIVO vigente (override de `asignaciones.gestor_nuevo_id`, ya
- * validado por `CarteraService.overlayEffectiveGestor` contra
- * `gestores.nombre_cartera` con `usuario_id`/`activo`), usa esa identidad
- * confirmada — marca presente en la fila como `gestor_original` (solo
- * existe cuando hubo override). Si no, resuelve por País-Zona
- * (`gestor_pais_zona`). Nunca el texto crudo `cartera.gestor` sin validar.
+ * IDENTIDAD REAL para exhibición: sobrescribe `gestor`/`gerente_zona` de
+ * CADA fila con la identidad real resuelta — nunca el texto crudo de
+ * `cartera` (columnas que van a dejar de existir). Aplicado UNA sola vez
+ * por `CarteraService`/`GestionService`, justo después del scope y del
+ * gestor efectivo, para que TODO consumidor (Dashboard, Centro de
+ * Inteligencia, Control Operativo, Asignación, Gestión, exportaciones)
+ * reciba siempre la misma identidad sin repetir esta lógica.
+ *  - Gestor: el gestor EFECTIVO validado (override de
+ *    `asignaciones.gestor_nuevo_id`, marcado por el flag
+ *    `_gestorEfectivoOverride: true` — nunca un texto, para no filtrar el
+ *    valor previo a la respuesta HTTP) tiene prioridad; si no, se resuelve
+ *    por el PROPIO País-Zona de la fila (`gestor_pais_zona`).
+ *  - Gerente de zona: SIEMPRE por País-Zona (`gerente_zona_zona`) — no
+ *    existe un "gerente efectivo" por asignación, solo por Gestor.
+ *  - Sin identidad real para esa fila ⇒ 'Sin gestor asignado'/'Sin
+ *    gerente asignado' (nunca inventa, nunca cae de vuelta al texto).
  */
-const resolverGestorReal = (row: CarteraRow, gestorPorZona: Map<string, string>, fallback = 'Sin gestor asignado'): string => {
-  if ((row as Record<string, unknown>).gestor_original !== undefined) {
-    const efectivo = getFieldValue(row, ['gestor']);
-    return efectivo || fallback;
-  }
-  const pais = getFieldValue(row, ['pais']);
-  const zona = getFieldValue(row, ['zona']);
-  if (!pais || !zona) return fallback;
-  return gestorPorZona.get(paisZonaKey(pais, zona)) ?? fallback;
-};
+export const overlayIdentidadReal = (
+  rows: CarteraRow[],
+  gestorPorZona: Map<string, string>,
+  gerentePorZona: Map<string, string>
+): CarteraRow[] =>
+  rows.map((row) => {
+    const pais = getFieldValue(row, ['pais']);
+    const zona = getFieldValue(row, ['zona']);
+    const key = pais && zona ? paisZonaKey(pais, zona) : null;
+    const tieneGestorEfectivo = (row as Record<string, unknown>)._gestorEfectivoOverride === true;
+    const gestor = tieneGestorEfectivo
+      ? getFieldValue(row, ['gestor']) || 'Sin gestor asignado'
+      : (key && gestorPorZona.get(key)) || 'Sin gestor asignado';
+    const gerente = (key && gerentePorZona.get(key)) || 'Sin gerente asignado';
+    return { ...row, gestor, gerente_zona: gerente };
+  });
 
 const personasPorNombre = (personas: PersonaFiltro[]): Map<string, PersonaFiltro> => {
   const map = new Map<string, PersonaFiltro>();

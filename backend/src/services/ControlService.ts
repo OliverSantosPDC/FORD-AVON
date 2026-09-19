@@ -2,7 +2,6 @@ import { getSupabaseClient } from '../config/supabaseClient';
 import { registrarAuditoria } from './AuditoriaService';
 import { listarEventos } from './CalendarService';
 import type { ScopeContext } from './ScopeService';
-import { paisZonaKey } from '../utils/carteraAggregations';
 
 /**
  * Control Operativo: monitoreo diario. Reutiliza cartera (vía CarteraService en el
@@ -22,24 +21,11 @@ const emptyAgg = (): Agg => ({ cuentas: 0, saldoLocal: 0, saldoUsd: 0, asignadoU
 const add = (a: Agg, r: Row) => { a.cuentas += 1; a.saldoLocal += num(r.saldo_actual); a.saldoUsd += num(r.saldo_actual_usd); a.asignadoUsd += num(r.saldo_inicial_usd); };
 const node = (key: string, a: Agg, extra: Record<string, unknown> = {}) => ({ ...extra, key, cuentas: a.cuentas, saldoLocal: a.saldoLocal, saldoUsd: a.saldoUsd, asignadoUsd: a.asignadoUsd, recuperadoUsd: a.asignadoUsd - a.saldoUsd, pctRecuperacion: pct(a.asignadoUsd - a.saldoUsd, a.asignadoUsd) });
 
-/**
- * Resuelve el Gestor real de una fila: si tiene un gestor EFECTIVO vigente
- * (override validado de `asignaciones`, marcado por `gestor_original` — ver
- * `CarteraService.overlayEffectiveGestor`), usa esa identidad confirmada; si
- * no, resuelve por País-Zona (`gestor_pais_zona`). Nunca `cartera.gestor` sin validar.
- */
-const gestorRealDeFila = (r: Row, gestorPorZona: Map<string, string>): string => {
-  if (r.gestor_original !== undefined) return s(r.gestor) || 'Sin gestor asignado';
-  const pais = s(r.pais); const zona = s(r.zona);
-  if (!pais || !zona) return 'Sin gestor asignado';
-  return gestorPorZona.get(paisZonaKey(pais, zona)) ?? 'Sin gestor asignado';
-};
-
-/** Gestor → PD (con métricas). Agrupa por la IDENTIDAD real del Gestor (gestor_pais_zona), nunca `cartera.gestor`. */
-export const aggGestores = (rows: Row[], gestorPorZona: Map<string, string>) => {
+/** Gestor → PD (con métricas). Agrupa por `r.gestor`, que YA es la IDENTIDAD real (ver `CarteraService`/`overlayIdentidadReal`: `listCartera()` la resuelve antes de llegar aquí). */
+export const aggGestores = (rows: Row[]) => {
   const g = new Map<string, { agg: Agg; pds: Map<string, Agg> }>();
   for (const r of rows) {
-    const gestor = gestorRealDeFila(r, gestorPorZona);
+    const gestor = s(r.gestor) || 'Sin gestor asignado';
     const it = g.get(gestor) ?? { agg: emptyAgg(), pds: new Map() };
     add(it.agg, r);
     const pd = s(r.pd_actual) || 'Sin PD'; const pa = it.pds.get(pd) ?? emptyAgg(); add(pa, r); it.pds.set(pd, pa);
@@ -48,14 +34,14 @@ export const aggGestores = (rows: Row[], gestorPorZona: Map<string, string>) => 
   return [...g.entries()].map(([gestor, it]) => ({ ...node(gestor, it.agg, { gestor }), pds: [...it.pds.entries()].map(([pd, a]) => node(pd, a, { pd })).sort((x, y) => y.saldoUsd - x.saldoUsd) })).sort((x, y) => y.saldoLocal - x.saldoLocal);
 };
 
-/** Zona → Gestores (con métricas). Agrupa por la IDENTIDAD real del Gestor (gestor_pais_zona), nunca `cartera.gestor`. */
-export const aggZonasGestores = (rows: Row[], gestorPorZona: Map<string, string>) => {
+/** Zona → Gestores (con métricas). Agrupa por `r.gestor`, que YA es la IDENTIDAD real (ver `aggGestores`). */
+export const aggZonasGestores = (rows: Row[]) => {
   const z = new Map<string, { pais: string; agg: Agg; ges: Map<string, Agg> }>();
   for (const r of rows) {
     const zona = s(r.zona) || 'Sin zona';
     const it = z.get(zona) ?? { pais: s(r.pais), agg: emptyAgg(), ges: new Map() };
     add(it.agg, r);
-    const gestor = gestorRealDeFila(r, gestorPorZona); const ga = it.ges.get(gestor) ?? emptyAgg(); add(ga, r); it.ges.set(gestor, ga);
+    const gestor = s(r.gestor) || 'Sin gestor asignado'; const ga = it.ges.get(gestor) ?? emptyAgg(); add(ga, r); it.ges.set(gestor, ga);
     z.set(zona, it);
   }
   return [...z.entries()].map(([zona, it]) => ({ ...node(zona, it.agg, { zona, pais: it.pais }), gestores: [...it.ges.entries()].map(([g, a]) => node(g, a, { gestor: g })).sort((x, y) => y.saldoUsd - x.saldoUsd) })).sort((x, y) => y.saldoLocal - x.saldoLocal);
@@ -76,24 +62,20 @@ export const aggPdCampanas = (rows: Row[]) => {
 
 /**
  * Conteos operativos derivados de la cartera (para KPIs). `gestores`/`gerentes`
- * cuentan personas REALES (gestor_pais_zona/gerente_zona_zona) cuyo País-Zona
- * intersecta la cartera del alcance — nunca valores distintos de
- * `cartera.gestor`/`cartera.gerente_zona` (texto, puede incluir duplicados/huérfanos).
+ * cuentan identidades REALES distintas (`r.gestor`/`r.gerente_zona`, ya
+ * resueltas por `overlayIdentidadReal` — nunca "Sin gestor/gerente asignado").
  */
-export const contadores = (rows: Row[], gestorPorZona: Map<string, string>, gerentePorZona: Map<string, string>) => {
+export const contadores = (rows: Row[]) => {
   const gestores = new Set<string>();
   const gerentes = new Set<string>();
   const zonas = new Set<string>();
   for (const r of rows) {
     const zona = s(r.zona);
     if (zona) zonas.add(zona);
-    const gestor = gestorRealDeFila(r, gestorPorZona);
-    if (gestor !== 'Sin gestor asignado') gestores.add(gestor);
-    const pais = s(r.pais);
-    if (pais && zona) {
-      const gerente = gerentePorZona.get(paisZonaKey(pais, zona));
-      if (gerente) gerentes.add(gerente);
-    }
+    const gestor = s(r.gestor);
+    if (gestor && gestor !== 'Sin gestor asignado') gestores.add(gestor);
+    const gerente = s(r.gerente_zona);
+    if (gerente && gerente !== 'Sin gerente asignado') gerentes.add(gerente);
   }
   return { gestores: gestores.size, gerentes: gerentes.size, zonas: zonas.size };
 };

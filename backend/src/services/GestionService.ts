@@ -1,7 +1,8 @@
 import { getSupabaseClient } from '../config/supabaseClient';
 import { SUPABASE_CARTERA_TABLE } from '../config/env';
 import { applyScope } from './ScopeFilter';
-import type { ScopeContext } from './ScopeService';
+import { gestoresEnAlcance, gerentesZonaEnAlcance, type ScopeContext } from './ScopeService';
+import { gestorPorPaisZona, overlayIdentidadReal } from '../utils/carteraAggregations';
 
 /**
  * Operaciones de gestión de cobranza (tipificación, promesas, adjuntos, cartas).
@@ -37,7 +38,7 @@ export const gestorEnAlcance = async (gestorId: string | null, ctx: ScopeContext
 export const filtrarCodigosEnAlcance = async (codigos: string[], ctx: ScopeContext): Promise<string[]> => {
   if (codigos.length === 0) return [];
   if (ctx.isGlobal) return codigos;
-  const { data, error } = await getSupabaseClient().from(SUPABASE_CARTERA_TABLE).select('codigo, gestor, zona, pais').in('codigo', codigos);
+  const { data, error } = await getSupabaseClient().from(SUPABASE_CARTERA_TABLE).select('codigo, zona, pais').in('codigo', codigos);
   if (error) throw new GestionError(`No se pudo validar el alcance: ${error.message}`);
   const rows = (data ?? []) as Array<Record<string, unknown>>;
   const scoped = applyScope(rows, ctx, { zonaField: 'zona', paisField: 'pais' });
@@ -81,13 +82,47 @@ export const registrarTipificacion = async (
   if (error) throw new GestionError(`No se pudo registrar la gestión: ${error.message}`);
 };
 
-/* ===== Información completa de la cuenta (fila cruda de cartera, con scope) ===== */
+/** Gestor EFECTIVO vigente para UN código (mismo criterio que
+ *  `CarteraService.getAsignacionesVigentes`, acotado a una sola cuenta):
+ *  `asignaciones.gestor_nuevo_id` más reciente → `gestores.nombre_cartera`,
+ *  re-validado (`usuario_id`/`activo`) en la lectura. Nunca texto crudo. */
+const gestorEfectivoDeCodigo = async (codigo: string): Promise<string | null> => {
+  const { data } = await getSupabaseClient()
+    .from('asignaciones')
+    .select('gestor_nuevo_id, created_at')
+    .eq('codigo', codigo)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  const gestorId = (data as Array<{ gestor_nuevo_id: string | null }> | null)?.[0]?.gestor_nuevo_id;
+  if (!gestorId) return null;
+  const { data: gestorRows } = await getSupabaseClient()
+    .from('gestores')
+    .select('nombre_cartera, usuario_id')
+    .eq('id', gestorId)
+    .eq('activo', true)
+    .limit(1);
+  const gestor = (gestorRows as Array<{ nombre_cartera: string | null; usuario_id: string | null }> | null)?.[0];
+  return gestor?.nombre_cartera && gestor?.usuario_id ? gestor.nombre_cartera : null;
+};
+
+/* ===== Información completa de la cuenta (fila cruda de cartera, con scope
+ * + IDENTIDAD REAL de Gestor/Gerente de zona — nunca cartera.gestor/gerente_zona crudos) ===== */
 export const infoCuenta = async (codigo: string, ctx: ScopeContext): Promise<Record<string, unknown> | null> => {
   const { data, error } = await getSupabaseClient().from(SUPABASE_CARTERA_TABLE).select('*').eq('codigo', codigo).limit(1);
   if (error) throw new GestionError(`No se pudo leer la cuenta: ${error.message}`);
   const rows = (data ?? []) as Array<Record<string, unknown>>;
   const scoped = applyScope(rows, ctx, { zonaField: 'zona', paisField: 'pais' });
-  return scoped[0] ?? null;
+  const row = scoped[0];
+  if (!row) return null;
+
+  const [gestores, gerentes, gestorEfectivo] = await Promise.all([
+    gestoresEnAlcance(ctx),
+    gerentesZonaEnAlcance(ctx),
+    gestorEfectivoDeCodigo(codigo)
+  ]);
+  const overlaid = gestorEfectivo ? { ...row, gestor: gestorEfectivo, _gestorEfectivoOverride: true } : row;
+  const [resuelto] = overlayIdentidadReal([overlaid], gestorPorPaisZona(gestores), gestorPorPaisZona(gerentes));
+  return resuelto;
 };
 
 /* ===== Detalle de cuenta ===== */

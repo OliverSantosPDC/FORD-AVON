@@ -19,11 +19,11 @@ import {
   aggregateCountrySummary,
   buildFilterOptions,
   filterCarteraRows,
+  overlayIdentidadReal,
   DashboardMultiFilterParams,
   CarteraRow,
   PersonasEnAlcance,
-  gestorPorPaisZona,
-  paisZonaKey
+  gestorPorPaisZona
 } from '../utils/carteraAggregations';
 import { applyScope } from './ScopeFilter';
 import { gestoresEnAlcance, gerentesZonaEnAlcance, type ScopeContext } from './ScopeService';
@@ -101,7 +101,8 @@ export class CarteraService {
    * Aplica el override de asignación SOBRE filas ya acotadas por scope.
    * Seguridad: primero el alcance (sobre el gestor ORIGINAL), luego el gestor
    * efectivo para visualización/agregación. No muta las filas cacheadas: clona
-   * solo las filas con override y conserva `gestor_original`.
+   * solo las filas con override, marcadas con `_gestorEfectivoOverride: true`
+   * (un flag, nunca el texto crudo previo — no debe filtrarse a la respuesta HTTP).
    */
   private async overlayEffectiveGestor(scoped: CarteraRow[]): Promise<CarteraRow[]> {
     if (scoped.length === 0) return scoped;
@@ -111,7 +112,7 @@ export class CarteraService {
       const codigo = String(row.codigo ?? row.code ?? row.id ?? '');
       const efectivo = codigo ? vigentes.get(codigo) : undefined;
       if (!efectivo || efectivo === row.gestor) return row;
-      return { ...row, gestor: efectivo, gestor_original: row.gestor ?? null };
+      return { ...row, gestor: efectivo, _gestorEfectivoOverride: true };
     });
   }
 
@@ -139,12 +140,14 @@ export class CarteraService {
     // 2.b) GESTOR EFECTIVO: override de asignación vigente, DESPUÉS del scope
     //      (seguridad primero) y ANTES de los filtros del usuario (para que el
     //      filtro por gestor use el gestor efectivo).
-    const scoped = await this.overlayEffectiveGestor(scopedOriginal);
+    const overlaid = await this.overlayEffectiveGestor(scopedOriginal);
 
     // 3) Filtros de búsqueda del usuario (solo pueden ESTRECHAR, nunca ampliar).
     //    Gestor/Gerente se resuelven contra el catálogo de personas del propio
     //    alcance (usuarios/roles/relaciones), nunca por texto de cartera.
     const personas = await personasEnAlcance(scopeContext);
+    // 2.c) IDENTIDAD REAL para exhibición (nunca el texto crudo de cartera.gestor/gerente_zona).
+    const scoped = overlayIdentidadReal(overlaid, gestorPorPaisZona(personas.gestores), gestorPorPaisZona(personas.gerentes));
     const multi = toMultiFilters(filters);
     const hasFilters = Object.values(multi).some((list) => list.length > 0);
     const filtered = hasFilters ? filterCarteraRows(scoped, multi, personas) : scoped;
@@ -175,7 +178,7 @@ export class CarteraService {
     });
     // Gestor efectivo (override de asignación) tras el scope; todas las agregaciones
     // y rankings se derivan de `rows`, por lo que reflejan el gestor efectivo.
-    const rows = await this.overlayEffectiveGestor(scopedOriginal);
+    const overlaid = await this.overlayEffectiveGestor(scopedOriginal);
 
     const tAgg = Date.now();
 
@@ -191,6 +194,8 @@ export class CarteraService {
     // usuario conectado — única fuente para las opciones y la aplicación del
     // filtro (usuarios/roles/relaciones, nunca `cartera.gestor`/`gerente_zona`).
     const personas = await step('personasEnAlcance', () => personasEnAlcance(scopeContext));
+    // IDENTIDAD REAL para exhibición (nunca el texto crudo de cartera.gestor/gerente_zona).
+    const rows = step('overlayIdentidadReal', () => overlayIdentidadReal(overlaid, gestorPorPaisZona(personas.gestores), gestorPorPaisZona(personas.gerentes)));
 
     const multi = toMultiFilters(filters);
     // Único punto de aplicación de los filtros del usuario sobre las filas
@@ -199,16 +204,14 @@ export class CarteraService {
     // en `filterCarteraRows`, y `filtered` se deriva de ese único resultado.
     const rawFiltered = step('filterCarteraRows (rawFiltered)', () => filterCarteraRows(rows, multi, personas));
     const filtered = step('map (rawFiltered.map(mapToCartera))', () => rawFiltered.map(mapToCartera));
-    // Mapa País-Zona -> Gestor real (gestor_pais_zona), para Top Gestores: nunca `cartera.gestor`.
-    const gestorPorZona = step('gestorPorPaisZona', () => gestorPorPaisZona(personas.gestores));
 
     const kpis = step('calculateKpis', () => calculateKpis(filtered));
     const paises = step("aggregateBy('pais')", () => aggregateBy(filtered, 'pais'));
     const pds = step("aggregateBy('pd')", () => aggregateBy(filtered, 'pd'));
-    const topGestores = step('calculateTopGestores', () => calculateTopGestores(filtered, gestorPorZona));
+    const topGestores = step('calculateTopGestores', () => calculateTopGestores(filtered));
     const topZonas = step('calculateTopZonas', () => calculateTopZonas(filtered));
     const resumenPD = step('calculateResumenPD', () => calculateResumenPD(filtered));
-    const topGestoresDetalle = step('aggregateTopGestores (detalle, sin filtros)', () => aggregateTopGestores(rows, gestorPorZona, 20));
+    const topGestoresDetalle = step('aggregateTopGestores (detalle, sin filtros)', () => aggregateTopGestores(rows, 20));
     const topZonasDetalle = step('aggregateTopZonas (detalle, sin filtros)', () => aggregateTopZonas(rows, 20));
     const resumenCampania = step('aggregateResumenCampania', () => aggregateResumenCampania(rawFiltered));
     const countrySummary = step('aggregateCountrySummary', () => aggregateCountrySummary(rawFiltered));
@@ -246,17 +249,17 @@ export class CarteraService {
       zonaField: 'zona',
       paisField: 'pais'
     });
-    const rows = await this.overlayEffectiveGestor(scopedOriginal);
-    const cartera = rows.map(mapToCartera);
+    const overlaid = await this.overlayEffectiveGestor(scopedOriginal);
     // Catálogo de personas del propio alcance (usuarios/roles/relaciones) —
-    // nunca `cartera.gestor` — para resolver la IDENTIDAD real de "Ranking Gestores".
+    // nunca `cartera.gestor` — e IDENTIDAD REAL para exhibición.
     const personas = await personasEnAlcance(scopeContext);
-    const gestorPorZona = gestorPorPaisZona(personas.gestores);
+    const rows = overlayIdentidadReal(overlaid, gestorPorPaisZona(personas.gestores), gestorPorPaisZona(personas.gerentes));
+    const cartera = rows.map(mapToCartera);
 
     return {
       topCuentas: calculateTopCuentas(cartera),
       riesgos: calculateRiesgos(cartera),
-      rankingGestores: calculateRankingGestores(cartera, gestorPorZona),
+      rankingGestores: calculateRankingGestores(cartera),
       rankingPaises: calculateRankingPaises(cartera)
     };
   }
@@ -368,23 +371,6 @@ const mapToCartera = (row: Record<string, unknown>): Cartera => {
   };
 };
 
-/**
- * Resuelve la identidad real del Gestor de una cuenta MAPEADA (`Cartera`):
- * si tiene un gestor EFECTIVO vigente (override validado de `asignaciones`,
- * marcado por `gestor_original` en `item.original` — ver
- * `overlayEffectiveGestor`), usa esa identidad confirmada (`item.gestor`
- * YA es el nombre real resuelto vía `gestores.nombre_cartera`); si no,
- * resuelve por País-Zona (`gestor_pais_zona`, vía `gestorPorZona`). Nunca el
- * texto crudo `cartera.gestor` sin validar.
- */
-const resolverGestorIdentidad = (item: Cartera, gestorPorZona: Map<string, string>): string => {
-  const original = item.original as Record<string, unknown> | undefined;
-  if (original && original.gestor_original !== undefined) {
-    return item.gestor || 'Sin gestor asignado';
-  }
-  return gestorPorZona.get(paisZonaKey(item.pais, item.zona)) ?? 'Sin gestor asignado';
-};
-
 const calculateKpis = (items: Cartera[]): Kpis => {
   const saldoAsignado = items.reduce((sum, item) => sum + item.saldoAsignado, 0);
   const saldoActual = items.reduce((sum, item) => sum + item.saldoActual, 0);
@@ -418,18 +404,12 @@ const aggregateBy = (items: Cartera[], field: 'pais' | 'pd'): AggregationItem[] 
     .sort((a, b) => b.totalUsd - a.totalUsd);
 };
 
-/**
- * Agrupa por la IDENTIDAD real del Gestor: si la cuenta tiene un gestor
- * EFECTIVO vigente (override validado de `asignaciones`, ver
- * `overlayEffectiveGestor`/`gestor_original` en `item.original`), usa esa
- * identidad confirmada; si no, resuelve por País-Zona (`gestor_pais_zona`
- * vía `gestorPorZona`). Nunca el texto crudo `cartera.gestor` sin validar.
- */
-const calculateTopGestores = (items: Cartera[], gestorPorZona: Map<string, string>) => {
+/** Agrupa por `item.gestor`, que a esta altura YA es la IDENTIDAD real (ver `overlayIdentidadReal`). */
+const calculateTopGestores = (items: Cartera[]) => {
   const totals = new Map<string, { recuperadoUsd: number; recuperadoLocal: number; cuentas: number }>();
 
   items.forEach((item) => {
-    const gestor = resolverGestorIdentidad(item, gestorPorZona);
+    const gestor = item.gestor || 'Sin gestor asignado';
     const existing = totals.get(gestor) ?? { recuperadoUsd: 0, recuperadoLocal: 0, cuentas: 0 };
     totals.set(gestor, {
       recuperadoUsd: existing.recuperadoUsd + (item.saldoAsignado - item.saldoActual),
@@ -558,7 +538,7 @@ const calculateTopCuentas = (items: Cartera[]) => {
       codigo: item.codigo ?? String(item.original?.['codigo'] ?? item.original?.['code'] ?? item.original?.['id'] ?? 'N/A'),
       nombre: item.nombre ?? item.cliente ?? String(item.original?.['nombre'] ?? item.original?.['cliente'] ?? item.original?.['deudor'] ?? 'N/A'),
       pais: item.pais,
-      gestor: item.gestor ?? 'Sin gestor',
+      gestor: item.gestor ?? 'Sin gestor asignado',
       pd: item.pd,
       saldoActual: item.saldoActual
     }));
@@ -582,12 +562,12 @@ const calculateRiesgos = (items: Cartera[]) => {
   return Array.from(buckets.entries()).map(([pd, values]) => ({ pd, cuentas: values.cuentas, saldoActual: values.saldoActual }));
 };
 
-/** Agrupa por la IDENTIDAD real del Gestor (gestor efectivo validado si existe, si no por País-Zona). Ver `resolverGestorIdentidad`. */
-const calculateRankingGestores = (items: Cartera[], gestorPorZona: Map<string, string>) => {
+/** Agrupa por `item.gestor`, que a esta altura YA es la IDENTIDAD real (ver `overlayIdentidadReal`). */
+const calculateRankingGestores = (items: Cartera[]) => {
   const totals = new Map<string, { cuentas: number; saldoActual: number; saldoAsignado: number }>();
 
   items.forEach((item) => {
-    const nombre = resolverGestorIdentidad(item, gestorPorZona);
+    const nombre = item.gestor ?? 'Sin gestor asignado';
     const current = totals.get(nombre) ?? { cuentas: 0, saldoActual: 0, saldoAsignado: 0 };
     totals.set(nombre, {
       cuentas: current.cuentas + 1,
