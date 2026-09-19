@@ -12,6 +12,8 @@ import DashboardFilters from '../../components/Dashboard/DashboardFilters';
 import KpiCards from '../../components/Dashboard/KpiCards';
 import { exportRowsToCsv, exportRowsToExcel } from '../../utils/tableExport';
 import { useAuth } from '../../context/AuthContext';
+import { useTasasConversion } from '../../hooks/useTasasConversion';
+import { MONEDA_OPTIONS, simboloMoneda } from '../../utils/monedaOptions';
 import type { DashboardResponse, DashboardFilterOptions, DashboardMultiFilterParams } from '../../types/cartera';
 import {
   getGestionDashboard, getGestionCuentas, getDetalleCuenta, getInfoCuenta, tipificarCuenta, crearPromesa,
@@ -61,8 +63,8 @@ const exportBarsPng = (title: string, items: Array<{ label: string; value: numbe
 const HEAD_H = ['Nivel', 'Zona', 'PD', 'Campaña', 'Cuentas', 'Saldo Local', 'Saldo USD', 'Recuperado', '% Rec'];
 
 /** Tarjeta de visual con menú ⋮ (orden/pantalla completa/PNG/CSV/Excel). */
-const VisualCard = ({ title, onDir, onMetric, csv, excel, png, children }: {
-  title: string; onDir: (d: 'asc' | 'desc') => void; onMetric: (m: Metric) => void;
+const VisualCard = ({ title, subtitle, onDir, onMetric, csv, excel, png, children }: {
+  title: string; subtitle?: string; onDir: (d: 'asc' | 'desc') => void; onMetric: (m: Metric) => void;
   csv: () => void; excel: () => void; png: () => void; children: ReactNode;
 }) => {
   const [anchor, setAnchor] = useState<null | HTMLElement>(null);
@@ -70,7 +72,10 @@ const VisualCard = ({ title, onDir, onMetric, csv, excel, png, children }: {
   const close = () => setAnchor(null);
   const header = (
     <Box sx={{ p: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-      <Typography sx={{ fontWeight: 700 }}>{title}</Typography>
+      <Box sx={{ minWidth: 0 }}>
+        <Typography sx={{ fontWeight: 700 }}>{title}</Typography>
+        {subtitle && <Typography sx={{ fontSize: 10.5, color: 'text.secondary', lineHeight: 1.2 }}>{subtitle}</Typography>}
+      </Box>
       <IconButton size="small" onClick={(e) => setAnchor(e.currentTarget)}><MoreVertIcon fontSize="small" /></IconButton>
       <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={close}>
         <MenuItem onClick={() => { onDir('desc'); close(); }}>Ordenar descendente</MenuItem>
@@ -184,6 +189,18 @@ const GestionPage = () => {
     return { pais: filters.pais[0], moneda: MONEDA_POR_PAIS[filters.pais[0].toUpperCase()] ?? '—' };
   }, [filters.pais]);
 
+  // Indicador/conversión de moneda de los gráficos (Zonas, PD por campañas):
+  // misma implementación que Dashboard/Plan y Proyección (pages/Dashboard/index.tsx)
+  // — mismo useTasasConversion, mismo MONEDA_OPTIONS, misma fórmula usd * tasa.
+  // No se toca la lógica de scope/filtros/cartera ni las optimizaciones de Fase 3.
+  const [monedaFiltro, setMonedaFiltro] = useState<string>('USD');
+  const { tasas: tasasConversion } = useTasasConversion();
+  const monedaOption = MONEDA_OPTIONS.find((option) => option.code === monedaFiltro) ?? MONEDA_OPTIONS[0];
+  const monedaCode = monedaOption.code;
+  const tasaActual = tasasConversion[monedaCode] ?? 1;
+  const simboloGraficos = simboloMoneda(monedaCode);
+  const valorMoneda = (usd: number) => usd * tasaActual;
+
   const sortNodes = (arr: AggNode[], m: Metric, dir: 'asc' | 'desc') =>
     [...arr].sort((a, b) => (dir === 'desc' ? (b[m] as number) - (a[m] as number) : (a[m] as number) - (b[m] as number)));
   const zonasSorted = useMemo(() => sortNodes(zonas, zMetric, zDir), [zonas, zMetric, zDir]);
@@ -278,7 +295,7 @@ const GestionPage = () => {
 
       {tab === 0 && dashboard && (
         <Stack spacing={2}>
-          <DashboardFilters filters={filters} onChange={setFilters} onClear={() => setFilters(EMPTY_FILTERS)} options={opts} />
+          <DashboardFilters filters={filters} onChange={setFilters} onClear={() => setFilters(EMPTY_FILTERS)} options={opts} moneda={monedaFiltro} onMonedaChange={setMonedaFiltro} />
           {monedaLocal && <Alert severity="info" sx={{ py: 0.5 }}>Moneda local: <strong>{monedaLocal.pais.toUpperCase()} · {monedaLocal.moneda}</strong></Alert>}
           <KpiCards kpis={dashboard.kpis} />
         </Stack>
@@ -287,7 +304,7 @@ const GestionPage = () => {
       {tab === 0 && dashboard && (
         <Box sx={{ mt: 2, display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
           {/* Zonas — visual de barras */}
-          <VisualCard title="Zonas" onDir={setZDir} onMetric={setZMetric}
+          <VisualCard title="Zonas" subtitle={`Moneda: ${simboloGraficos}`} onDir={setZDir} onMetric={setZMetric}
             csv={() => exportRowsToCsv('gestion_zonas.csv', HEAD_H, rowsZonas())}
             excel={() => exportRowsToExcel('gestion_zonas.xlsx', 'Zonas', HEAD_H, rowsZonas())}
             png={() => exportBarsPng('Zonas', zonasSorted.map((z) => ({ label: z.zona ?? z.key, value: z[zMetric] as number })))}>
@@ -298,7 +315,7 @@ const GestionPage = () => {
                     <IconButton size="small">{expZ.has(z.key) ? <KeyboardArrowDownIcon fontSize="small" /> : <KeyboardArrowRightIcon fontSize="small" />}</IconButton>
                     <Box sx={{ width: 150, fontSize: 13, fontWeight: 600 }}>{z.zona} <Typography component="span" sx={{ fontSize: 11, color: 'text.secondary' }}>({siglaPais(z.pais ?? '')})</Typography></Box>
                     <Bar value={z[zMetric] as number} max={zMax} />
-                    <Box sx={{ width: 190, textAlign: 'right', fontSize: 12 }}>{z.cuentas} cta · {money(z.saldoLocal)} L · {z.pctRecuperacion}%</Box>
+                    <Box sx={{ width: 190, textAlign: 'right', fontSize: 12 }}>{z.cuentas} cta · {money(valorMoneda(z.saldoUsd))} · {z.pctRecuperacion}%</Box>
                   </Box>
                   <Collapse in={expZ.has(z.key)} unmountOnExit>
                     <Stack spacing={0.5} sx={{ pl: 7, py: 0.5 }}>
@@ -306,7 +323,7 @@ const GestionPage = () => {
                         <Box key={p.key} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <Box sx={{ width: 110, fontSize: 12 }}>{p.pd}</Box>
                           <Bar value={p.saldoUsd} max={Math.max(1, ...(z.pds ?? []).map((x) => x.saldoUsd))} color="#0EA5E9" />
-                          <Box sx={{ width: 190, textAlign: 'right', fontSize: 11 }}>{p.cuentas} cta · {money(p.saldoLocal)} L · {p.pctRecuperacion}%</Box>
+                          <Box sx={{ width: 190, textAlign: 'right', fontSize: 11 }}>{p.cuentas} cta · {money(valorMoneda(p.saldoUsd))} · {p.pctRecuperacion}%</Box>
                         </Box>
                       ))}
                     </Stack>
@@ -317,7 +334,7 @@ const GestionPage = () => {
           </VisualCard>
 
           {/* PD por campañas — visual de barras */}
-          <VisualCard title="PD por campañas" onDir={setPDir} onMetric={setPMetric}
+          <VisualCard title="PD por campañas" subtitle={`Moneda: ${simboloGraficos}`} onDir={setPDir} onMetric={setPMetric}
             csv={() => exportRowsToCsv('gestion_pd_campanas.csv', HEAD_H, rowsPd())}
             excel={() => exportRowsToExcel('gestion_pd_campanas.xlsx', 'PD_Campanas', HEAD_H, rowsPd())}
             png={() => exportBarsPng('PD por campañas', pdSorted.map((p) => ({ label: p.pd ?? p.key, value: p[pMetric] as number })))}>
@@ -328,7 +345,7 @@ const GestionPage = () => {
                     <IconButton size="small">{expPd.has(p.key) ? <KeyboardArrowDownIcon fontSize="small" /> : <KeyboardArrowRightIcon fontSize="small" />}</IconButton>
                     <Box sx={{ width: 110, fontSize: 13, fontWeight: 700 }}>{p.pd}</Box>
                     <Bar value={p[pMetric] as number} max={pMax} color="#7C3AED" />
-                    <Box sx={{ width: 190, textAlign: 'right', fontSize: 12 }}>{p.cuentas} cta · {money(p.saldoUsd)} USD · {p.pctRecuperacion}%</Box>
+                    <Box sx={{ width: 190, textAlign: 'right', fontSize: 12 }}>{p.cuentas} cta · {money(valorMoneda(p.saldoUsd))} · {p.pctRecuperacion}%</Box>
                   </Box>
                   <Collapse in={expPd.has(p.key)} unmountOnExit>
                     <Stack spacing={0.5} sx={{ pl: 7, py: 0.5 }}>
@@ -336,7 +353,7 @@ const GestionPage = () => {
                         <Box key={c.key} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <Box sx={{ width: 150, fontSize: 12 }}>{c.campania}</Box>
                           <Bar value={c.saldoUsd} max={Math.max(1, ...(p.campanas ?? []).map((x) => x.saldoUsd))} color="#22C55E" />
-                          <Box sx={{ width: 190, textAlign: 'right', fontSize: 11 }}>{c.cuentas} cta · {money(c.saldoUsd)} USD · {c.pctRecuperacion}%</Box>
+                          <Box sx={{ width: 190, textAlign: 'right', fontSize: 11 }}>{c.cuentas} cta · {money(valorMoneda(c.saldoUsd))} · {c.pctRecuperacion}%</Box>
                         </Box>
                       ))}
                     </Stack>
