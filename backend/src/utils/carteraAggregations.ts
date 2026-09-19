@@ -882,3 +882,82 @@ export const filterCarteraRows = (rows: CarteraRow[], filters: DashboardMultiFil
     return true;
   });
 };
+
+interface RowMatchFlags {
+  pais: boolean;
+  zona: boolean;
+  gestor: boolean;
+  gerente: boolean;
+  pd: boolean;
+  campania: boolean;
+}
+
+/**
+ * Combina en UN solo recorrido de `rows` lo que antes hacían por separado
+ * `filterCarteraRows` (1 pasada completa) + `buildFilterOptions` (hasta 4
+ * pasadas más — una por dimensión país/zona/pd/campaña, cada una repitiendo
+ * las OTRAS 5 comprobaciones de cada fila): hasta 5 pasadas completas sobre
+ * las 18,107 filas reales de cartera, cada una repitiendo el mismo trabajo
+ * de `getFieldValue`/`normalizeValue`/`paisZonaKey` por fila (medido en
+ * producción: 299 ms + 510 ms = 809 ms, el segundo cuello de botella real de
+ * `getDashboard()` tras `personasEnAlcance`).
+ *
+ * Aquí los 6 flags de coincidencia de CADA fila (país/zona/gestor/gerente/
+ * pd/campaña) se calculan UNA sola vez; las 5 combinaciones restantes
+ * (`rawFiltered` + una por dimensión) sólo leen esos booleanos ya calculados
+ * — sin repetir acceso a campos ni normalización. Resultado matemáticamente
+ * IDÉNTICO a llamar `filterCarteraRows` y `buildFilterOptions` por separado
+ * con los mismos argumentos (cada flag depende únicamente de su propio
+ * filtro, igual que antes — combinarlos no cambia ninguna condición).
+ * Usado en los dos puntos reales donde ambas funciones se invocaban sobre
+ * las MISMAS filas/filtros/personas: `CarteraService.getDashboard` e
+ * `InteligenciaService.construirFilterOptionsCentro`. `filterCarteraRows` y
+ * `buildFilterOptions` se conservan tal cual para sus otros llamadores
+ * (`listCartera`, etc.) que no comparten ese mismo par de filas/filtros.
+ */
+export const filterCarteraRowsAndBuildFilterOptions = (
+  rows: CarteraRow[],
+  filters: DashboardMultiFilterParams,
+  personas: PersonasEnAlcance
+): { filtered: CarteraRow[]; filterOptions: FilterOptions } => {
+  const gestoresPorNombre = personasPorNombre(personas.gestores);
+  const gerentesPorNombre = personasPorNombre(personas.gerentes);
+
+  const flags: RowMatchFlags[] = rows.map((row) => ({
+    pais: rowMatchesFilter(row, filters.pais, ['pais']),
+    zona: rowMatchesFilter(row, filters.zona, ['zona']),
+    gestor: rowMatchesPersonaFilter(row, filters.gestor, gestoresPorNombre),
+    gerente: rowMatchesPersonaFilter(row, filters.gerente, gerentesPorNombre),
+    pd: rowMatchesFilter(row, filters.pd, ['pd_actual', 'pd']),
+    campania: rowMatchesFilter(row, filters.campania, ['campania_adeuda', 'campania', 'campaña', 'campaign'])
+  }));
+
+  const byFlags = (excludeField?: keyof RowMatchFlags): CarteraRow[] =>
+    rows.filter((_row, i) => {
+      const f = flags[i];
+      return (
+        (excludeField === 'pais' || f.pais) &&
+        (excludeField === 'zona' || f.zona) &&
+        (excludeField === 'gestor' || f.gestor) &&
+        (excludeField === 'gerente' || f.gerente) &&
+        (excludeField === 'pd' || f.pd) &&
+        (excludeField === 'campania' || f.campania)
+      );
+    });
+
+  const filtered = byFlags();
+
+  const paisZonaDeGestorSeleccionado = paisZonaDeSeleccion(personas.gestores, filters.gestor);
+  const paisZonaDeGerenteSeleccionado = paisZonaDeSeleccion(personas.gerentes, filters.gerente);
+
+  const filterOptions: FilterOptions = {
+    pais: getUniqueOptions(byFlags('pais'), ['pais']),
+    zona: getUniqueOptions(byFlags('zona'), ['zona']),
+    gestor: opcionesPersonas(personas.gestores, filters.pais, filters.zona, paisZonaDeGerenteSeleccionado),
+    gerente: opcionesPersonas(personas.gerentes, filters.pais, filters.zona, paisZonaDeGestorSeleccionado),
+    pd: getUniqueOptions(byFlags('pd'), ['pd_actual', 'pd']),
+    campania: getUniqueOptions(byFlags('campania'), ['campania_adeuda', 'campania', 'campaña', 'campaign'])
+  };
+
+  return { filtered, filterOptions };
+};

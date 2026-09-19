@@ -19,8 +19,8 @@ import {
   calculateResumenPdInicial,
   calculatePdMigration,
   calculateZonaSectorPorPais,
-  buildFilterOptions,
   filterCarteraRows,
+  filterCarteraRowsAndBuildFilterOptions,
   overlayIdentidadReal,
   DashboardMultiFilterParams,
   CarteraRow,
@@ -241,7 +241,12 @@ export class CarteraService {
     // crudas (ya scoped): antes existía además `applyFilters` sobre las filas
     // MAPEADAS con la MISMA lógica (texto) duplicada — Sección 23: unificado
     // en `filterCarteraRows`, y `filtered` se deriva de ese único resultado.
-    const rawFiltered = step('filterCarteraRows (rawFiltered)', () => filterCarteraRows(rows, multi, personas));
+    // `rawFiltered` y `filterOptions` se calculan juntos, en UN solo recorrido
+    // de `rows` (antes: hasta 5 pasadas completas independientes — ver
+    // `filterCarteraRowsAndBuildFilterOptions`).
+    const { filtered: rawFiltered, filterOptions } = step('filterCarteraRows + buildFilterOptions (1 pasada)', () =>
+      filterCarteraRowsAndBuildFilterOptions(rows, multi, personas)
+    );
     const filtered = step('map (rawFiltered.map(mapToCartera))', () => rawFiltered.map(mapToCartera));
 
     const kpis = step('calculateKpis', () => calculateKpis(filtered));
@@ -262,7 +267,6 @@ export class CarteraService {
     const zonaSectorPorPais = step('calculateZonaSectorPorPais', () => calculateZonaSectorPorPais(rawFiltered));
     const resumenPdInicial = step('calculateResumenPdInicial', () => calculateResumenPdInicial(rawFiltered));
     const pdMigration = step('calculatePdMigration', () => calculatePdMigration(rawFiltered));
-    const filterOptions = step('buildFilterOptions', () => buildFilterOptions(rows, multi, personas));
     const cuentas = step('cuentas (rawFiltered.slice 100)', () => rawFiltered.slice(0, 100));
 
     const response: DashboardResponse = {

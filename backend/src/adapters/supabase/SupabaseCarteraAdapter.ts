@@ -38,6 +38,12 @@ export class SupabaseCarteraAdapter implements CarteraDataSource {
 
   private cache: { rows: Record<string, unknown>[]; expires: number } | null = null;
 
+  // Single-flight: si N requests llegan concurrentemente mientras el cache
+  // está vencido/vacío, sólo la primera dispara la carga real a Supabase; las
+  // demás reusan esta MISMA promesa en vez de repetir el count() + N
+  // requests paginados en paralelo (evita "cache stampede").
+  private inFlight: Promise<Record<string, unknown>[]> | null = null;
+
   constructor(table: string = SUPABASE_CARTERA_TABLE) {
     this.table = table;
   }
@@ -45,9 +51,31 @@ export class SupabaseCarteraAdapter implements CarteraDataSource {
   async getCartera(): Promise<Record<string, unknown>[]> {
     const now = Date.now();
     if (this.cache && this.cache.expires > now) {
+      console.log(`[PERF] cartera cache HIT, filas=${this.cache.rows.length}`);
       return this.cache.rows;
     }
 
+    if (this.inFlight) {
+      console.log('[PERF] cartera cache MISS, single-flight: esperando carga en curso');
+      return this.inFlight;
+    }
+
+    console.log('[PERF] cartera cache MISS, iniciando carga desde Supabase');
+    const tLoad = Date.now();
+    this.inFlight = this.loadFromSupabase()
+      .then((rows) => {
+        this.cache = { rows, expires: Date.now() + this.cacheTtlMs };
+        console.log(`[PERF] cartera cache MISS resuelto = ${Date.now() - tLoad} ms, filas=${rows.length}`);
+        return rows;
+      })
+      .finally(() => {
+        this.inFlight = null;
+      });
+
+    return this.inFlight;
+  }
+
+  private async loadFromSupabase(): Promise<Record<string, unknown>[]> {
     const client = getSupabaseClient();
     const { count, error: countError } = await client.from(this.table).select('*', { count: 'exact', head: true });
     if (countError) {
@@ -80,12 +108,12 @@ export class SupabaseCarteraAdapter implements CarteraDataSource {
       if (data) all.push(...(data as unknown as Record<string, unknown>[]));
     }
 
-    this.cache = { rows: all, expires: now + this.cacheTtlMs };
     return all;
   }
 
   clearCache(): void {
     this.cache = null;
+    this.inFlight = null;
   }
 
   async count(): Promise<number> {

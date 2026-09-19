@@ -3,7 +3,7 @@ import type { ScopeContext } from './ScopeService';
 import { applyScope } from './ScopeFilter';
 import { listarEventos } from './CalendarService';
 import { getMetaGlobalComputada } from './MetasService';
-import { buildFilterOptions, filterCarteraRows, type CarteraRow, type DashboardMultiFilterParams, type PersonasEnAlcance } from '../utils/carteraAggregations';
+import { filterCarteraRowsAndBuildFilterOptions, type CarteraRow, type DashboardMultiFilterParams, type PersonasEnAlcance } from '../utils/carteraAggregations';
 
 /**
  * Centro de Inteligencia: agrega en el backend (una sola carga) métricas ejecutivas
@@ -48,11 +48,12 @@ const centroFiltrosAMulti = (filtros: CentroFiltros): DashboardMultiFilterParams
  * ya acotadas por los 6 filtros comunes vía `filterCarteraRows` — mismo
  * principio de cascada (cada dimensión respeta las DEMÁS ya seleccionadas,
  * nunca al revés), sin duplicar la lógica de las 6 dimensiones comunes.
+ * Ambas se obtienen en UN solo recorrido de `scopedRows` (ver
+ * `filterCarteraRowsAndBuildFilterOptions`) en vez de dos pasadas separadas.
  */
 export const construirFilterOptionsCentro = (scopedRows: Row[], filtros: CentroFiltros, personas: PersonasEnAlcance): CentroFilterOptions => {
   const multi = centroFiltrosAMulti(filtros);
-  const comunes = buildFilterOptions(scopedRows as CarteraRow[], multi, personas);
-  const filasComunes = filterCarteraRows(scopedRows as CarteraRow[], multi, personas);
+  const { filtered: filasComunes, filterOptions: comunes } = filterCarteraRowsAndBuildFilterOptions(scopedRows as CarteraRow[], multi, personas);
   const filasParaSector = filtros.riesgo?.length ? filasComunes.filter((r) => coincideFiltro(r, filtros.riesgo, ['riesgo', 'nivel_riesgo', 'riesgo_pd'])) : filasComunes;
   const filasParaRiesgo = filtros.sector?.length ? filasComunes.filter((r) => coincideFiltro(r, filtros.sector, ['sector'])) : filasComunes;
   return {
