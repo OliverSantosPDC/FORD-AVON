@@ -144,7 +144,6 @@ const GestionPage = () => {
 
   // Panel único por cuenta
   const [panel, setPanel] = useState<Record<string, unknown> | null>(null);
-  const [ptab, setPtab] = useState(0);
   const [detalle, setDetalle] = useState<DetalleCuenta | null>(null);
   const [info, setInfo] = useState<Record<string, unknown> | null>(null);
   const [gForm, setGForm] = useState({ tipoContacto: '', canal: '', tip: '', tipCom: '', fechaProm: '', montoProm: '', promCom: '', cartaTipo: 'Carta de cobro', cartaCom: '', adjTipo: 'Boleta de pago' });
@@ -246,7 +245,7 @@ const GestionPage = () => {
   const rowsCuentas = () => cuentasFiltradas.map((r) => CUENTAS_COLS.map((c) => str(r[c])));
 
   const abrirPanel = async (row: Record<string, unknown>) => {
-    setPanel(row); setPtab(0); setDetalle(null); setInfo(null);
+    setPanel(row); setDetalle(null); setInfo(null);
     setGForm({ tipoContacto: '', canal: '', tip: '', tipCom: '', fechaProm: '', montoProm: '', promCom: '', cartaTipo: 'Carta de cobro', cartaCom: '', adjTipo: 'Boleta de pago' });
     setAdjFile(null);
     const cod = str(row.codigo);
@@ -263,7 +262,6 @@ const GestionPage = () => {
   // Información de cobro y reglas de promesa de la cuenta abierta.
   const monedaCuenta = MONEDA_POR_PAIS[str(panel?.pais).toUpperCase()] ?? '—';
   const cobroPD = str(panel?.pd_actual) || 'No disponible';
-  const cobroRiesgo = str(panel?.riesgo || panel?.nivel_riesgo || panel?.riesgo_pd) || (info ? pick(info, ['riesgo', 'nivel_riesgo', 'riesgo_pd']) : 'No disponible');
   const esPromesa = gForm.tip === 'PROMESA DE PAGO';
   const montoPromNum = Number(gForm.montoProm);
   const promesaValida = !esPromesa || (Boolean(gForm.fechaProm) && Number.isFinite(montoPromNum) && montoPromNum > 0);
@@ -423,99 +421,87 @@ const GestionPage = () => {
         </Paper>
       )}
 
-      {/* Panel único: Información | Detalle | Gestionar */}
+      {/* Panel único: Información general, Detalle y Gestión en una sola ventana con scroll (sin tabs). */}
       <Dialog open={Boolean(panel)} onClose={() => setPanel(null)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 700 }}>Cuenta {cod} · {str(panel?.nombre)}</DialogTitle>
         <DialogContent dividers>
-          <Tabs value={ptab} onChange={(_e, v) => setPtab(v)} sx={{ mb: 2 }}>
-            <Tab label="Información" sx={{ textTransform: 'none' }} />
-            <Tab label="Detalle" sx={{ textTransform: 'none' }} />
-            <Tab label="Gestionar" sx={{ textTransform: 'none' }} />
-          </Tabs>
-
-          {ptab === 0 && (!info ? <CircularProgress size={22} /> : (
+          <Stack spacing={3}>
             <Stack spacing={2}>
-              <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, bgcolor: 'action.hover' }}>
-                <Typography sx={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'text.secondary', mb: 0.5 }}>Información de Cobro</Typography>
-                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                  <Chip size="small" label={`PD: ${cobroPD}`} />
-                  <Chip size="small" color="warning" variant="outlined" label={`Riesgo: ${cobroRiesgo}`} />
-                  <Chip size="small" variant="outlined" label={`Moneda: ${monedaCuenta}`} />
+              <Typography sx={{ fontWeight: 800, fontSize: 14 }}>Información general</Typography>
+              {!info ? <CircularProgress size={22} /> : (
+                <Stack spacing={2}>
+                  <Typography sx={{ fontWeight: 700 }}>Datos generales</Typography>
+                  <Grid container spacing={1.5}>
+                    <Grid item xs={4}><Field l="Sector" v={pick(info, ['sector'])} /><Field l="LOA" v={pick(info, ['loa', 'l_o_a'])} /><Field l="LOS" v={pick(info, ['los', 'l_o_s'])} /></Grid>
+                    <Grid item xs={4}><Field l="Departamento" v={pick(info, ['departamento'])} /><Field l="Municipio" v={pick(info, ['municipio'])} /></Grid>
+                    <Grid item xs={4}>
+                      <Field l="Fecha de nacimiento" v={pick(info, ['fecha_de_nacimiento', 'fecha_nacimiento'])} />
+                      <Field l="Edad" v={pick(info, ['fecha_de_nacimiento', 'fecha_nacimiento']) === 'No disponible' ? 'No disponible' : edad(pick(info, ['fecha_de_nacimiento', 'fecha_nacimiento']))} />
+                    </Grid>
+                  </Grid>
+                  <Divider />
+                  <Typography sx={{ fontWeight: 700 }}>Contactos</Typography>
+                  <Grid container spacing={1.5}>
+                    <Grid item xs={6}><Field l="Teléfono celular" v={pick(info, ['telefono_celular', 'celular', 'telefono'])} /></Grid>
+                    <Grid item xs={6}><Field l="Teléfono casa" v={pick(info, ['telefono_casa', 'casa'])} /></Grid>
+                    <Grid item xs={6}><Field l="Teléfono trabajo" v={pick(info, ['telefono_trabajo', 'trabajo'])} /></Grid>
+                    <Grid item xs={6}><Field l="Extensión" v={pick(info, ['extension_telefono_trabajo', 'extension'])} /></Grid>
+                  </Grid>
+                  <Divider />
+                  <Typography sx={{ fontWeight: 700 }}>Referencias</Typography>
+                  <Grid container spacing={1.5}>
+                    <Grid item xs={6}><Field l="Nombre" v={pick(info, ['nombre_referencia', 'referencia', 'referencia_nombre'])} /></Grid>
+                    <Grid item xs={6}><Field l="Teléfono 1" v={pick(info, ['telefono_referencia_1', 'referencia_telefono_1'])} /></Grid>
+                    <Grid item xs={6}><Field l="Teléfono 2" v={pick(info, ['telefono_referencia_2', 'referencia_telefono_2'])} /></Grid>
+                  </Grid>
+                  <Divider />
+                  <Typography sx={{ fontWeight: 700 }}>Gestión asignada</Typography>
+                  <Grid container spacing={1.5}>
+                    <Grid item xs={6}><Field l="Gerente de zona" v={pick(info, ['gerente_zona'])} /><Field l="Contacto gerente" v={pick(info, ['contacto_gerente', 'telefono_gerente'])} /></Grid>
+                    <Grid item xs={6}><Field l="Gestor" v={pick(info, ['gestor'])} /></Grid>
+                  </Grid>
                 </Stack>
-              </Paper>
-              <Typography sx={{ fontWeight: 700 }}>Datos generales</Typography>
-              <Grid container spacing={1.5}>
-                <Grid item xs={4}><Field l="Sector" v={pick(info, ['sector'])} /><Field l="LOA" v={pick(info, ['loa', 'l_o_a'])} /><Field l="LOS" v={pick(info, ['los', 'l_o_s'])} /></Grid>
-                <Grid item xs={4}><Field l="Departamento" v={pick(info, ['departamento'])} /><Field l="Municipio" v={pick(info, ['municipio'])} /></Grid>
-                <Grid item xs={4}>
-                  <Field l="Fecha de nacimiento" v={pick(info, ['fecha_de_nacimiento', 'fecha_nacimiento'])} />
-                  <Field l="Edad" v={pick(info, ['fecha_de_nacimiento', 'fecha_nacimiento']) === 'No disponible' ? 'No disponible' : edad(pick(info, ['fecha_de_nacimiento', 'fecha_nacimiento']))} />
-                </Grid>
-              </Grid>
-              <Divider />
-              <Typography sx={{ fontWeight: 700 }}>Contactos</Typography>
-              <Grid container spacing={1.5}>
-                <Grid item xs={6}><Field l="Teléfono celular" v={pick(info, ['telefono_celular', 'celular', 'telefono'])} /></Grid>
-                <Grid item xs={6}><Field l="Teléfono casa" v={pick(info, ['telefono_casa', 'casa'])} /></Grid>
-                <Grid item xs={6}><Field l="Teléfono trabajo" v={pick(info, ['telefono_trabajo', 'trabajo'])} /></Grid>
-                <Grid item xs={6}><Field l="Extensión" v={pick(info, ['extension_telefono_trabajo', 'extension'])} /></Grid>
-              </Grid>
-              <Divider />
-              <Typography sx={{ fontWeight: 700 }}>Referencias</Typography>
-              <Grid container spacing={1.5}>
-                <Grid item xs={6}><Field l="Nombre" v={pick(info, ['nombre_referencia', 'referencia', 'referencia_nombre'])} /></Grid>
-                <Grid item xs={6}><Field l="Teléfono 1" v={pick(info, ['telefono_referencia_1', 'referencia_telefono_1'])} /></Grid>
-                <Grid item xs={6}><Field l="Teléfono 2" v={pick(info, ['telefono_referencia_2', 'referencia_telefono_2'])} /></Grid>
-              </Grid>
-              <Divider />
-              <Typography sx={{ fontWeight: 700 }}>Gestión asignada</Typography>
-              <Grid container spacing={1.5}>
-                <Grid item xs={6}><Field l="Gerente de zona" v={pick(info, ['gerente_zona'])} /><Field l="Contacto gerente" v={pick(info, ['contacto_gerente', 'telefono_gerente'])} /></Grid>
-                <Grid item xs={6}><Field l="Gestor" v={pick(info, ['gestor'])} /></Grid>
-              </Grid>
-            </Stack>
-          ))}
-
-          {ptab === 1 && (!detalle ? <CircularProgress size={22} /> : (
-            <Stack spacing={1.5}>
-              {promVigente && (
-                <Alert severity="info" sx={{ py: 0.5 }}>
-                  Promesa: <strong>{str(promVigente.fecha_promesa)}</strong> · Monto {str(promVigente.monto) || '—'} · Estado {str(promVigente.estado)}
-                </Alert>
               )}
-              <Typography sx={{ fontWeight: 700 }}>Historial de gestión</Typography>
-              <TableContainer sx={{ maxHeight: 360 }}>
-                <Table stickyHeader size="small">
-                  <TableHead><TableRow>{['Tipificación', 'Fecha', 'Gestor', 'Tipo contacto', 'Canal', 'Observación'].map((h) => <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>)}</TableRow></TableHead>
-                  <TableBody>
-                    {detalle.historial.length === 0 && <TableRow><TableCell colSpan={6} align="center" sx={{ py: 2, color: 'text.secondary' }}>Sin gestiones.</TableCell></TableRow>}
-                    {detalle.historial.map((h, i) => (
-                      <TableRow key={i}>
-                        <TableCell>{str(h.tipificacion)}</TableCell>
-                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{str(h.created_at).slice(0, 16).replace('T', ' ')}</TableCell>
-                        <TableCell sx={{ fontSize: 12 }}>{str(h.gestor_id) || 'No disponible'}</TableCell>
-                        <TableCell sx={{ fontSize: 12 }}>{str(h.tipo_contacto) || 'No disponible'}</TableCell>
-                        <TableCell sx={{ fontSize: 12 }}>{str(h.canal) || 'No disponible'}</TableCell>
-                        <TableCell sx={{ fontSize: 12 }}>{str(h.comentario) || '—'}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
             </Stack>
-          ))}
 
-          {ptab === 2 && (
-            <Stack spacing={2}>
-              {/* Información de Cobro */}
-              <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, bgcolor: 'action.hover' }}>
-                <Typography sx={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'text.secondary', mb: 0.5 }}>Información de Cobro</Typography>
-                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                  <Chip size="small" label={`PD: ${cobroPD}`} />
-                  <Chip size="small" color="warning" variant="outlined" label={`Riesgo: ${cobroRiesgo}`} />
-                  <Chip size="small" variant="outlined" label={`Moneda: ${monedaCuenta}`} />
+            <Divider />
+
+            <Stack spacing={1.5}>
+              <Typography sx={{ fontWeight: 800, fontSize: 14 }}>Detalle</Typography>
+              {!detalle ? <CircularProgress size={22} /> : (
+                <Stack spacing={1.5}>
+                  {promVigente && (
+                    <Alert severity="info" sx={{ py: 0.5 }}>
+                      Promesa: <strong>{str(promVigente.fecha_promesa)}</strong> · Monto {str(promVigente.monto) || '—'} · Estado {str(promVigente.estado)}
+                    </Alert>
+                  )}
+                  <Typography sx={{ fontWeight: 700 }}>Historial de gestión</Typography>
+                  <TableContainer sx={{ maxHeight: 360 }}>
+                    <Table stickyHeader size="small">
+                      <TableHead><TableRow>{['Tipificación', 'Fecha', 'Gestor', 'Tipo contacto', 'Canal', 'Observación'].map((h) => <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>)}</TableRow></TableHead>
+                      <TableBody>
+                        {detalle.historial.length === 0 && <TableRow><TableCell colSpan={6} align="center" sx={{ py: 2, color: 'text.secondary' }}>Sin gestiones.</TableCell></TableRow>}
+                        {detalle.historial.map((h, i) => (
+                          <TableRow key={i}>
+                            <TableCell>{str(h.tipificacion)}</TableCell>
+                            <TableCell sx={{ whiteSpace: 'nowrap' }}>{str(h.created_at).slice(0, 16).replace('T', ' ')}</TableCell>
+                            <TableCell sx={{ fontSize: 12 }}>{str(h.gestor_id) || 'No disponible'}</TableCell>
+                            <TableCell sx={{ fontSize: 12 }}>{str(h.tipo_contacto) || 'No disponible'}</TableCell>
+                            <TableCell sx={{ fontSize: 12 }}>{str(h.canal) || 'No disponible'}</TableCell>
+                            <TableCell sx={{ fontSize: 12 }}>{str(h.comentario) || '—'}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
                 </Stack>
-              </Paper>
+              )}
+            </Stack>
+
+            <Divider />
+
+            <Stack spacing={2}>
+              <Typography sx={{ fontWeight: 800, fontSize: 14 }}>Gestión</Typography>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                 <TextField select label="Tipo de contacto" value={gForm.tipoContacto} onChange={(e) => setGForm({ ...gForm, tipoContacto: e.target.value })} size="small" fullWidth>
                   {catTC.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
@@ -561,7 +547,7 @@ const GestionPage = () => {
               <Button variant="outlined" component="label" sx={{ textTransform: 'none' }}>{adjFile ? adjFile.name : 'Seleccionar archivo'}<input hidden type="file" onChange={(e) => setAdjFile(e.target.files?.[0] ?? null)} /></Button>
               <Button variant="outlined" disabled={!canAdjunto || busy || !adjFile} onClick={() => adjFile && accion(() => subirAdjunto(cod, gForm.adjTipo, adjFile), 'Adjunto subido.')} sx={{ textTransform: 'none' }}>Subir adjunto</Button>
             </Stack>
-          )}
+          </Stack>
         </DialogContent>
         <DialogActions><Button onClick={() => setPanel(null)} sx={{ textTransform: 'none' }}>Cerrar</Button></DialogActions>
       </Dialog>
