@@ -634,27 +634,32 @@ const getUniqueOptions = (rows: CarteraRow[], keyVariants: string[]): string[] =
  * coincidía con 0 de las 18,107 filas reales de cartera; eliminarlo no
  * cambia ningún resultado de producción actual.
  *
- * RELACIÓN CRUZADA Gestor↔Gerente (`supervisoresPermitidos`): auditoría real
- * de Supabase (project vuazzailuqgbjnnbdtrg) confirmó que el modelo actual
- * NO tiene una tabla de relación directa Gestor→Gerente. La única relación
- * real es estructural: ambos dependen del mismo Supervisor, en dos ramas
- * paralelas (`supervisor_gestor` y `supervisor_gerente_zona`). Por eso,
- * cuando el usuario tiene seleccionado un Gestor y/o un Gerente, la OTRA
- * dimensión se acota a las personas que comparten AL MENOS UN Supervisor con
- * la/las persona(s) seleccionada(s) — nunca a "todas las personas del
- * alcance del usuario conectado" (eso permitiría, p. ej., que seleccionar al
- * Gestor Angie Buch, supervisada por Daniel Monge, siguiera mostrando
- * Gerentes de Oliver Santos). `supervisoresPermitidos = null` significa "sin
+ * RELACIÓN CRUZADA Gestor↔Gerente (`paisZonaDeOtraSeleccionada`): el modelo
+ * NO tiene una tabla de relación directa Gestor→Gerente ni Gerente→Gestor.
+ * La relación REAL y correcta para esta cascada es GEOGRÁFICA: cuando el
+ * usuario tiene seleccionado un Gestor y/o un Gerente, la OTRA dimensión se
+ * acota a las personas cuyo PROPIO País-Zona (`gestor_pais_zona`/
+ * `gerente_zona_zona`) intersecta AL MENOS UNA de las combinaciones
+ * País-Zona de la/las persona(s) seleccionada(s) — NUNCA por compartir
+ * Supervisor (decisión explícita: compartir Supervisor solo determina el
+ * ALCANCE/autorización, ya aplicado antes en `gestoresEnAlcance`/
+ * `gerentesZonaEnAlcance`; usarlo también como criterio de cascada mostraba,
+ * p. ej., los ~57 Gerentes de TODO un Supervisor al elegir un Gestor con
+ * solo 5 zonas reales — auditado en producción, project
+ * vuazzailuqgbjnnbdtrg). `paisZonaDeOtraSeleccionada = null` significa "sin
  * selección activa en la otra dimensión" (sin recorte); un `Set` vacío
- * significa "la persona seleccionada no tiene Supervisor vigente" y por lo
- * tanto NINGUNA persona de la otra dimensión puede compartir uno — 0
- * opciones, correcto (nunca se amplía el alcance).
+ * significa "la persona seleccionada no tiene ninguna relación País-Zona
+ * propia vigente" y por lo tanto NINGUNA persona de la otra dimensión puede
+ * intersectar — 0 opciones, correcto (nunca se amplía el alcance; un país
+ * sin ninguna relación `gerente_zona_zona` configurada, p. ej. REPUBLICA
+ * DOMINICANA hoy, produce 0 Gerentes hasta que se configure — nunca se
+ * fabrica una relación para evitarlo).
  */
 const opcionesPersonas = (
   personas: PersonaFiltro[],
   filtrosPais: string[],
   filtrosZona: string[],
-  supervisoresPermitidos: Set<string> | null
+  paisZonaDeOtraSeleccionada: Set<string> | null
 ): string[] => {
   const paisSet = new Set(filtrosPais.map((v) => v.trim().toLocaleLowerCase()).filter(Boolean));
   const zonaSet = new Set(filtrosZona.map((v) => v.trim().toLocaleLowerCase()).filter(Boolean));
@@ -662,7 +667,7 @@ const opcionesPersonas = (
 
   return personas
     .filter((persona) => {
-      if (supervisoresPermitidos && !persona.supervisorIds.some((id) => supervisoresPermitidos.has(id))) return false;
+      if (paisZonaDeOtraSeleccionada && !persona.paisZona.some((pz) => paisZonaDeOtraSeleccionada.has(paisZonaKey(pz.pais, pz.zona)))) return false;
       if (!hayFiltroGeografico) return true;
       return persona.paisZona.some(
         (pz) =>
@@ -674,19 +679,20 @@ const opcionesPersonas = (
     .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 };
 
-/** Supervisores vigentes de la(s) persona(s) actualmente SELECCIONADA(s) en
- *  un filtro (por nombre) — usado para acotar la dimensión Gestor↔Gerente
- *  cruzada (ver `opcionesPersonas`). `null` = sin selección (sin recorte). */
-const supervisorIdsDeSeleccion = (personas: PersonaFiltro[], seleccionados: string[]): Set<string> | null => {
+/** Unión de los pares País-Zona PROPIOS de la(s) persona(s) actualmente
+ *  SELECCIONADA(s) en un filtro (por nombre) — usado para acotar la
+ *  dimensión Gestor↔Gerente cruzada geográficamente (ver `opcionesPersonas`).
+ *  `null` = sin selección (sin recorte). */
+const paisZonaDeSeleccion = (personas: PersonaFiltro[], seleccionados: string[]): Set<string> | null => {
   if (seleccionados.length === 0) return null;
   const nombres = new Set(seleccionados.map((v) => v.trim().toLocaleLowerCase()));
-  const ids = new Set<string>();
+  const keys = new Set<string>();
   personas.forEach((persona) => {
     if (nombres.has(persona.nombre.trim().toLocaleLowerCase())) {
-      persona.supervisorIds.forEach((id) => ids.add(id));
+      persona.paisZona.forEach((pz) => keys.add(paisZonaKey(pz.pais, pz.zona)));
     }
   });
-  return ids;
+  return keys;
 };
 
 export const buildFilterOptions = (
@@ -694,13 +700,13 @@ export const buildFilterOptions = (
   filters: DashboardMultiFilterParams,
   personas: PersonasEnAlcance
 ): FilterOptions => {
-  const supervisoresDeGestorSeleccionado = supervisorIdsDeSeleccion(personas.gestores, filters.gestor);
-  const supervisoresDeGerenteSeleccionado = supervisorIdsDeSeleccion(personas.gerentes, filters.gerente);
+  const paisZonaDeGestorSeleccionado = paisZonaDeSeleccion(personas.gestores, filters.gestor);
+  const paisZonaDeGerenteSeleccionado = paisZonaDeSeleccion(personas.gerentes, filters.gerente);
   return {
     pais: getUniqueOptions(filterRows(rows, filters, personas, 'pais'), ['pais']),
     zona: getUniqueOptions(filterRows(rows, filters, personas, 'zona'), ['zona']),
-    gestor: opcionesPersonas(personas.gestores, filters.pais, filters.zona, supervisoresDeGerenteSeleccionado),
-    gerente: opcionesPersonas(personas.gerentes, filters.pais, filters.zona, supervisoresDeGestorSeleccionado),
+    gestor: opcionesPersonas(personas.gestores, filters.pais, filters.zona, paisZonaDeGerenteSeleccionado),
+    gerente: opcionesPersonas(personas.gerentes, filters.pais, filters.zona, paisZonaDeGestorSeleccionado),
     pd: getUniqueOptions(filterRows(rows, filters, personas, 'pd'), ['pd_actual', 'pd']),
     campania: getUniqueOptions(filterRows(rows, filters, personas, 'campania'), ['campania_adeuda', 'campania', 'campaña', 'campaign'])
   };

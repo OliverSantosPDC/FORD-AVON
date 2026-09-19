@@ -186,19 +186,16 @@ test('RD sin seleccionar persona: catálogo completo permitido por alcance (2 Ge
   assert.ok(optsSinFiltro.gerente.includes('Gerente Guatemala'));
 });
 
-test('RD + Gestor=Angie Buch → Gerente se cruza por Supervisor compartido (Daniel Monge): 0 opciones porque ninguno de los Gerentes de Daniel Monge tiene relación RD — no porque el cruce por Supervisor esté roto', async () => {
+test('RD + Gestor=Angie Buch → Gerente se cruza por GEOGRAFÍA (gestor_pais_zona de Angie): 0 opciones porque ningún Gerente tiene relación gerente_zona_zona en RD — nunca por Supervisor compartido', async () => {
   const personas = await obtenerPersonasAdmin();
-  // Sanity check: Daniel Monge SÍ tiene Gerentes en su alcance (Gerente Guatemala + Cristina Garcia).
-  const gerentesDeDaniel = personas.gerentes.filter((g) => g.supervisorIds.includes('user-daniel'));
-  assert.equal(gerentesDeDaniel.length, 2);
   const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, pais: ['REPUBLICA DOMINICANA'], gestor: ['Angie Buch'] }, personas);
-  assert.deepEqual(opts.gerente, [], 'El cruce por Supervisor funciona (2 candidatos), pero ninguno tiene relación RD: 0 es el resultado correcto');
+  assert.deepEqual(opts.gerente, [], 'Angie Buch solo tiene REPUBLICA DOMINICANA/110: ningún Gerente tiene esa combinación real, 0 es el resultado correcto (nunca se amplía vía Supervisor)');
 });
 
-test('RD + Gerente=Gerente Guatemala (si se forzara la selección) → Gestor se cruza por Supervisor compartido (Daniel Monge): solo Angie Buch, nunca Jasmin Ramirez (Supervisor distinto)', async () => {
+test('RD + Gerente=Gerente Guatemala → Gestor se cruza por GEOGRAFÍA (gerente_zona_zona de Gerente Guatemala = GUATEMALA/107): 0 opciones, pese a compartir Supervisor con Angie Buch (Daniel Monge)', async () => {
   const personas = await obtenerPersonasAdmin();
   const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gerente: ['Gerente Guatemala'] }, personas);
-  assert.deepEqual(opts.gestor, ['Angie Buch']);
+  assert.deepEqual(opts.gestor, [], 'Ningún Gestor (Angie/Jasmin, ambos 100% REPUBLICA DOMINICANA) tiene GUATEMALA/107: compartir Supervisor con Gerente Guatemala ya NO es suficiente');
 });
 
 test('Seleccionar Gerente=Gerente Guatemala + País=RD nunca devuelve cuentas de Guatemala (0 filas): el cruce por Supervisor nunca amplía el alcance geográfico real de la persona', async () => {

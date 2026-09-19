@@ -1,40 +1,35 @@
 'use strict';
 
 /**
- * AUDITORÍA REAL DE SUPABASE (project vuazzailuqgbjnnbdtrg) — estructura de
- * Gerentes agrupada por Gestor.
+ * REGLA DE NEGOCIO CORREGIDA (esta versión reemplaza la anterior) — cascada
+ * Gestor→Gerente y Gerente→Gestor en `buildFilterOptions`/`opcionesPersonas`
+ * (carteraAggregations.ts).
  *
- * Consultadas directamente las tablas profiles/roles/gestores/
- * supervisor_gestor/supervisor_gerente_zona/gestor_pais_zona/
- * gerente_zona_zona: NO EXISTE una tabla de relación directa Gestor→Gerente
- * de zona en el modelo actual. La única relación real es estructural:
+ * ANTES: al seleccionar un Gestor, Gerente se acotaba a "todas las personas
+ * que comparten AL MENOS UN Supervisor con el Gestor seleccionado" —
+ * `PersonaFiltro.supervisorIds` vía `supervisor_gestor`/`supervisor_gerente_zona`.
+ * Esto era demostrablemente incorrecto en producción: un Supervisor puede
+ * tener decenas de Gerentes (Daniel Monge: 57; Oliver Santos: 67) mientras
+ * el Gestor seleccionado solo tiene 5-10 zonas reales — seleccionar ese
+ * Gestor mostraba TODO el equipo del Supervisor, no las personas realmente
+ * compatibles geográficamente (auditado con datos reales de producción,
+ * project vuazzailuqgbjnnbdtrg, caso "Alejandra Diaz").
  *
- *   Supervisor
- *   ├── Gestores   (supervisor_gestor)
- *   └── Gerentes de zona (supervisor_gerente_zona)
+ * AHORA: la cascada es GEOGRÁFICA. Al seleccionar un Gestor, Gerente se
+ * acota a las personas cuyo PROPIO País-Zona (`gerente_zona_zona`)
+ * intersecta AL MENOS UNA combinación País-Zona propia del Gestor
+ * seleccionado (`gestor_pais_zona`) — nunca por Supervisor compartido. La
+ * relación Supervisor→Gestor/Supervisor→Gerente se conserva en el modelo
+ * (`PersonaFiltro.supervisorIds` sigue poblándose desde ScopeService) pero
+ * ya NO participa en esta cascada — solo en el ALCANCE/autorización previo
+ * (`gestoresEnAlcance`/`gerentesZonaEnAlcance`, sin cambios).
  *
- * (Posibilidad B del análisis, confirmada con datos reales: 18 Gestores
- * activos repartidos en 2 Supervisores — Daniel Monge: 9 Gestores/57
- * Gerentes; Oliver Santos: 9 Gestores/67 Gerentes —, 0 con más de un
- * Supervisor, 0 relaciones `gestor→gerente` de ningún tipo.)
- *
- * Caso real: Angie Buch (Gestor) → Supervisor Daniel Monge. Los 5 Gerentes
- * "Cristina Garcia, Ircania Guerrero, Julissa Rodriguez, Leydi Perez,
- * Stephanie German" (0 relaciones gerente_zona_zona) también son de Daniel
- * Monge — por eso, y SOLO por eso (compartir Supervisor), es correcto que
- * aparezcan como opciones al seleccionar Angie Buch. Jasmin Ramirez (Gestor)
- * → Supervisor Oliver Santos: sus Gerentes son un conjunto DISJUNTO — ningún
- * Gerente de Daniel Monge debe aparecer al seleccionar Jasmin, y viceversa.
- *
- * Antes de esta corrección, `opcionesPersonas` no aplicaba ningún recorte por
- * Gestor seleccionado: mostraba el catálogo COMPLETO del alcance del usuario
- * conectado (todos los Gerentes de AMBOS Supervisores, si es Administrador)
- * sin importar qué Gestor estuviera seleccionado — violando "todo debe ser
- * intersección, nunca una selección debe recuperar información fuera del
- * alcance autorizado". Ahora `PersonaFiltro.supervisorIds` (ScopeService) +
- * el recorte cruzado en `opcionesPersonas` (carteraAggregations.ts) hacen que
- * seleccionar un Gestor acote el catálogo de Gerente a los que comparten AL
- * MENOS UN Supervisor — y viceversa — nunca vía cartera/ASIGNACION.
+ * IMPORTANTE (caso real verificado antes de implementar, sin inventar
+ * cifras): REPUBLICA DOMINICANA tiene 0 filas en `gerente_zona_zona` en
+ * TODA la base real — por lo tanto un Gestor de RD (p. ej. Angie Buch,
+ * Jasmin Ramirez) produce 0 Gerentes compatibles hasta que un administrador
+ * configure esas relaciones. Esto NO es un defecto: es la regla ("no
+ * fabricar datos ni relaciones", ya establecida explícitamente para RD).
  *
  * Ejecutar (tras `npm run build`): node --test test/gestor-gerente-relacion-supervisor.test.cjs
  */
@@ -55,54 +50,62 @@ const db = {
     { id: 'role-gerente-zona', clave: 'gerente_zona' },
     { id: 'role-gestor', clave: 'gestor' }
   ],
-  zonas: ['133', '140', '154', '126', '146', '201', '210'].map((z) => ({ id: `zona-${z}`, nombre: z, activo: true })),
+  zonas: ['614', '615', '616', '107', '999'].map((z) => ({ id: `zona-${z}`, nombre: z, activo: true })),
   profiles: [
     { id: 'user-daniel', activo: true, nombre: 'Daniel', apellido: 'Monge', role_id: null },
-    { id: 'user-oliver', activo: true, nombre: 'Oliver', apellido: 'Santos', role_id: null },
-    // Rama Daniel Monge: Angie Buch (Gestor) + 5 Gerentes reales SIN zonas + 1 con zona.
-    { id: 'user-angie', activo: true, nombre: 'Angie', apellido: 'Buch', role_id: 'role-gestor' },
-    { id: 'user-cristina', activo: true, nombre: 'Cristina', apellido: 'Garcia', role_id: 'role-gerente-zona' },
-    { id: 'user-ircania', activo: true, nombre: 'Ircania', apellido: 'Guerrero', role_id: 'role-gerente-zona' },
-    { id: 'user-julissa', activo: true, nombre: 'Julissa', apellido: 'Rodriguez', role_id: 'role-gerente-zona' },
-    { id: 'user-leydi', activo: true, nombre: 'Leydi', apellido: 'Perez', role_id: 'role-gerente-zona' },
-    { id: 'user-stephanie', activo: true, nombre: 'Stephanie', apellido: 'German', role_id: 'role-gerente-zona' },
-    { id: 'user-gerente-daniel-con-zona', activo: true, nombre: 'Gerente', apellido: 'DeDaniel', role_id: 'role-gerente-zona' },
-    // Rama Oliver Santos: Jasmin Ramirez (Gestor) + 2 Gerentes.
+    // Alejandra Diaz (Gestor real, caso PANAMA/614,615,616 — auditado en producción).
+    { id: 'user-alejandra', activo: true, nombre: 'Alejandra', apellido: 'Diaz', role_id: 'role-gestor' },
+    // Jasmin Ramirez (Gestor real, caso REPUBLICA DOMINICANA/107 — 0 gerente_zona_zona en RD).
     { id: 'user-jasmin', activo: true, nombre: 'Jasmin', apellido: 'Ramirez', role_id: 'role-gestor' },
-    { id: 'user-gerente-oliver-1', activo: true, nombre: 'Gerente', apellido: 'DeOliverUno', role_id: 'role-gerente-zona' },
-    { id: 'user-gerente-oliver-2', activo: true, nombre: 'Gerente', apellido: 'DeOliverDos', role_id: 'role-gerente-zona' },
-    // Gerente sin Supervisor asignado (13 casos reales en producción).
-    { id: 'user-gerente-sin-supervisor', activo: true, nombre: 'Gerente', apellido: 'SinSupervisor', role_id: 'role-gerente-zona' }
+    // Gerentes reales compatibles geográficamente con Alejandra (614, 615).
+    { id: 'user-evelyn', activo: true, nombre: 'Evelyn', apellido: 'Trotman', role_id: 'role-gerente-zona' },
+    { id: 'user-linette', activo: true, nombre: 'Linette', apellido: 'Cardenas', role_id: 'role-gerente-zona' },
+    // Gerente con zona PANAMA/999 (Alejandra no tiene esa zona): NO compatible.
+    { id: 'user-humberto', activo: true, nombre: 'Humberto', apellido: 'Pinto', role_id: 'role-gerente-zona' },
+    // Gerente con el MISMO código numérico de zona (614) pero en OTRO país: NO debe mezclarse.
+    { id: 'user-guate614', activo: true, nombre: 'Gerente', apellido: 'GuatemalaSameCode', role_id: 'role-gerente-zona' },
+    // Gerente sin ninguna relación gerente_zona_zona (13 casos reales en producción).
+    { id: 'user-gerente-sin-zonas', activo: true, nombre: 'Gerente', apellido: 'SinZonas', role_id: 'role-gerente-zona' },
+    // Comparten Supervisor con Alejandra (Daniel Monge) pero NO comparten geografía:
+    // deben quedar EXCLUIDOS — prueba directa de que ya no se usa Supervisor.
+    { id: 'user-mismosupervisor-otrageografia', activo: true, nombre: 'Gerente', apellido: 'MismoSupervisorOtraGeografia', role_id: 'role-gerente-zona' }
   ],
   gestores: [
-    { id: 'gestor-angie', usuario_id: 'user-angie', nombre_cartera: 'Angie Buch', activo: true },
+    { id: 'gestor-alejandra', usuario_id: 'user-alejandra', nombre_cartera: 'Alejandra Diaz', activo: true },
     { id: 'gestor-jasmin', usuario_id: 'user-jasmin', nombre_cartera: 'Jasmin Ramirez', activo: true }
   ],
   gestor_pais_zona: [
-    { id: 'gpz-angie-1', gestor_id: 'gestor-angie', zona_id: 'zona-133', pais: 'REPUBLICA DOMINICANA', activo: true, fecha_inicio: AYER, fecha_fin: null },
-    { id: 'gpz-jasmin-1', gestor_id: 'gestor-jasmin', zona_id: 'zona-201', pais: 'HONDURAS', activo: true, fecha_inicio: AYER, fecha_fin: null }
+    { id: 'gpz-alejandra-1', gestor_id: 'gestor-alejandra', zona_id: 'zona-614', pais: 'PANAMA', activo: true, fecha_inicio: AYER, fecha_fin: null },
+    { id: 'gpz-alejandra-2', gestor_id: 'gestor-alejandra', zona_id: 'zona-615', pais: 'PANAMA', activo: true, fecha_inicio: AYER, fecha_fin: null },
+    { id: 'gpz-alejandra-3', gestor_id: 'gestor-alejandra', zona_id: 'zona-616', pais: 'PANAMA', activo: true, fecha_inicio: AYER, fecha_fin: null },
+    { id: 'gpz-jasmin-1', gestor_id: 'gestor-jasmin', zona_id: 'zona-107', pais: 'REPUBLICA DOMINICANA', activo: true, fecha_inicio: AYER, fecha_fin: null }
   ],
   gerente_zona_zona: [
-    { id: 'gzz-daniel-1', usuario_id: 'user-gerente-daniel-con-zona', zona_id: 'zona-146', pais: 'REPUBLICA DOMINICANA', activo: true, fecha_inicio: AYER, fecha_fin: null },
-    { id: 'gzz-oliver-1', usuario_id: 'user-gerente-oliver-1', zona_id: 'zona-201', pais: 'HONDURAS', activo: true, fecha_inicio: AYER, fecha_fin: null },
-    { id: 'gzz-oliver-2', usuario_id: 'user-gerente-oliver-2', zona_id: 'zona-210', pais: 'HONDURAS', activo: true, fecha_inicio: AYER, fecha_fin: null }
-    // Cristina/Ircania/Julissa/Leydi/Stephanie: 0 filas (el caso real de producción).
-    // Gerente SinSupervisor: 0 filas (irrelevante, no tiene Supervisor de todas formas).
+    { id: 'gzz-evelyn', usuario_id: 'user-evelyn', zona_id: 'zona-614', pais: 'PANAMA', activo: true, fecha_inicio: AYER, fecha_fin: null },
+    { id: 'gzz-linette', usuario_id: 'user-linette', zona_id: 'zona-615', pais: 'PANAMA', activo: true, fecha_inicio: AYER, fecha_fin: null },
+    // Humberto: zona 616 pero -- ver abajo, lo dejamos SIN relación con 616 (usa una zona ajena)
+    // para simular "gerente con zona real pero fuera del conjunto de Alejandra": no hay zona-999
+    // en este fixture, así que Humberto queda deliberadamente SIN fila (0 relaciones) — ver test.
+    // GuatemalaSameCode: MISMO código "614" que Alejandra pero en GUATEMALA (no PANAMA) — nunca debe mezclarse.
+    { id: 'gzz-guate614', usuario_id: 'user-guate614', zona_id: 'zona-614', pais: 'GUATEMALA', activo: true, fecha_inicio: AYER, fecha_fin: null },
+    // Zona 999 de HONDURAS: no coincide con NINGUNA zona real de Alejandra (PANAMA) ni de Jasmin (REPUBLICA DOMINICANA/107).
+    { id: 'gzz-mismosuper', usuario_id: 'user-mismosupervisor-otrageografia', zona_id: 'zona-999', pais: 'HONDURAS', activo: true, fecha_inicio: AYER, fecha_fin: null }
+    // Gerente SinZonas: 0 filas (caso real de producción).
   ],
   supervisor_gestor: [
-    { id: 'sg-angie', supervisor_id: 'user-daniel', gestor_id: 'gestor-angie', activo: true, fecha_inicio: AYER, fecha_fin: null },
-    { id: 'sg-jasmin', supervisor_id: 'user-oliver', gestor_id: 'gestor-jasmin', activo: true, fecha_inicio: AYER, fecha_fin: null }
+    { id: 'sg-alejandra', supervisor_id: 'user-daniel', gestor_id: 'gestor-alejandra', activo: true, fecha_inicio: AYER, fecha_fin: null },
+    { id: 'sg-jasmin', supervisor_id: 'user-daniel', gestor_id: 'gestor-jasmin', activo: true, fecha_inicio: AYER, fecha_fin: null }
   ],
   supervisor_gerente_zona: [
-    { id: 'sgz-cristina', supervisor_id: 'user-daniel', gerente_zona_id: 'user-cristina', activo: true, fecha_inicio: AYER, fecha_fin: null },
-    { id: 'sgz-ircania', supervisor_id: 'user-daniel', gerente_zona_id: 'user-ircania', activo: true, fecha_inicio: AYER, fecha_fin: null },
-    { id: 'sgz-julissa', supervisor_id: 'user-daniel', gerente_zona_id: 'user-julissa', activo: true, fecha_inicio: AYER, fecha_fin: null },
-    { id: 'sgz-leydi', supervisor_id: 'user-daniel', gerente_zona_id: 'user-leydi', activo: true, fecha_inicio: AYER, fecha_fin: null },
-    { id: 'sgz-stephanie', supervisor_id: 'user-daniel', gerente_zona_id: 'user-stephanie', activo: true, fecha_inicio: AYER, fecha_fin: null },
-    { id: 'sgz-daniel-con-zona', supervisor_id: 'user-daniel', gerente_zona_id: 'user-gerente-daniel-con-zona', activo: true, fecha_inicio: AYER, fecha_fin: null },
-    { id: 'sgz-oliver-1', supervisor_id: 'user-oliver', gerente_zona_id: 'user-gerente-oliver-1', activo: true, fecha_inicio: AYER, fecha_fin: null },
-    { id: 'sgz-oliver-2', supervisor_id: 'user-oliver', gerente_zona_id: 'user-gerente-oliver-2', activo: true, fecha_inicio: AYER, fecha_fin: null }
-    // user-gerente-sin-supervisor: 0 filas — sin Supervisor, el caso real (13 en producción).
+    // TODOS estos Gerentes comparten el MISMO Supervisor (Daniel Monge) que Alejandra —
+    // bajo la regla ANTERIOR (Supervisor) todos aparecerían; bajo la regla NUEVA
+    // (geografía) solo Evelyn/Linette deben aparecer para Alejandra.
+    { id: 'sgz-evelyn', supervisor_id: 'user-daniel', gerente_zona_id: 'user-evelyn', activo: true, fecha_inicio: AYER, fecha_fin: null },
+    { id: 'sgz-linette', supervisor_id: 'user-daniel', gerente_zona_id: 'user-linette', activo: true, fecha_inicio: AYER, fecha_fin: null },
+    { id: 'sgz-humberto', supervisor_id: 'user-daniel', gerente_zona_id: 'user-humberto', activo: true, fecha_inicio: AYER, fecha_fin: null },
+    { id: 'sgz-guate614', supervisor_id: 'user-daniel', gerente_zona_id: 'user-guate614', activo: true, fecha_inicio: AYER, fecha_fin: null },
+    { id: 'sgz-sinzonas', supervisor_id: 'user-daniel', gerente_zona_id: 'user-gerente-sin-zonas', activo: true, fecha_inicio: AYER, fecha_fin: null },
+    { id: 'sgz-mismosuper', supervisor_id: 'user-daniel', gerente_zona_id: 'user-mismosupervisor-otrageografia', activo: true, fecha_inicio: AYER, fecha_fin: null }
   ],
   liderazgo_supervisor: []
 };
@@ -159,109 +162,112 @@ const obtenerPersonasAdmin = async () => {
   return { gestores: await gestoresEnAlcance(ctx), gerentes: await gerentesZonaEnAlcance(ctx) };
 };
 
-test('Auditoría: gestoresEnAlcance/gerentesZonaEnAlcance traen supervisorIds reales (supervisor_gestor / supervisor_gerente_zona) — nunca cartera', async () => {
+test('Auditoría: PersonaFiltro.supervisorIds se conserva (dato de alcance), pero ya NO se usa para la cascada Gestor↔Gerente', async () => {
   const personas = await obtenerPersonasAdmin();
-  const angie = personas.gestores.find((g) => g.nombre === 'Angie Buch');
-  const cristina = personas.gerentes.find((g) => g.nombre === 'Cristina Garcia');
-  assert.deepEqual(angie.supervisorIds, ['user-daniel']);
-  assert.deepEqual(cristina.supervisorIds, ['user-daniel']);
+  const alejandra = personas.gestores.find((g) => g.nombre === 'Alejandra Diaz');
+  assert.deepEqual(alejandra.supervisorIds, ['user-daniel'], 'La relación Supervisor→Gestor se conserva en el modelo');
 });
 
-test('Sin ningún Gestor/Gerente seleccionado: catálogo COMPLETO (Administrador ve ambas ramas, Daniel Monge y Oliver Santos)', async () => {
+test('Sin ningún Gestor/Gerente seleccionado: catálogo COMPLETO permitido por el alcance (Administrador ve todos)', async () => {
   const personas = await obtenerPersonasAdmin();
   const opts = buildFilterOptions(CARTERA, EMPTY_FILTERS, personas);
-  assert.ok(opts.gestor.includes('Angie Buch') && opts.gestor.includes('Jasmin Ramirez'));
-  for (const nombre of ['Cristina Garcia', 'Ircania Guerrero', 'Julissa Rodriguez', 'Leydi Perez', 'Stephanie German', 'Gerente DeDaniel', 'Gerente DeOliverUno', 'Gerente DeOliverDos', 'Gerente SinSupervisor']) {
-    assert.ok(opts.gerente.includes(nombre), `${nombre} debe estar en el catálogo completo`);
+  assert.ok(opts.gestor.includes('Alejandra Diaz') && opts.gestor.includes('Jasmin Ramirez'));
+  for (const nombre of ['Evelyn Trotman', 'Linette Cardenas', 'Humberto Pinto', 'Gerente GuatemalaSameCode', 'Gerente SinZonas', 'Gerente MismoSupervisorOtraGeografia']) {
+    assert.ok(opts.gerente.includes(nombre), `${nombre} debe estar en el catálogo completo (sin Gestor seleccionado)`);
   }
 });
 
-test('CASO ANGIE BUCH: seleccionar Gestor=Angie Buch (Supervisor Daniel Monge) muestra EXACTAMENTE los Gerentes de Daniel Monge, incluidos los 5 con 0 zonas — nunca los de Oliver Santos', async () => {
+test('CASO ALEJANDRA DIAZ (real, PANAMA 614/615/616): Gerente se acota EXCLUSIVAMENTE a quienes comparten País+Zona real — nunca por Supervisor compartido', async () => {
   const personas = await obtenerPersonasAdmin();
-  const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Angie Buch'] }, personas);
-  const esperados = ['Cristina Garcia', 'Gerente DeDaniel', 'Ircania Guerrero', 'Julissa Rodriguez', 'Leydi Perez', 'Stephanie German'].sort();
-  assert.deepEqual(opts.gerente.slice().sort(), esperados);
+  const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Alejandra Diaz'] }, personas);
+  assert.deepEqual(opts.gerente.slice().sort(), ['Evelyn Trotman', 'Linette Cardenas']);
+  // Comparten Supervisor (Daniel Monge) con Alejandra pero NINGUNA geografía en común: excluidos.
+  assert.ok(!opts.gerente.includes('Humberto Pinto'), 'Humberto no tiene ninguna zona real: nunca es compatible');
+  assert.ok(!opts.gerente.includes('Gerente MismoSupervisorOtraGeografia'), 'Mismo Supervisor pero otra geografía (HONDURAS/999): ya NO es suficiente para aparecer');
+  assert.ok(!opts.gerente.includes('Gerente SinZonas'), 'Sin relaciones geográficas propias: nunca compatible con un Gestor seleccionado');
 });
 
-test('CASO JASMIN RAMIREZ: seleccionar Gestor=Jasmin Ramirez (Supervisor Oliver Santos) muestra EXACTAMENTE los 2 Gerentes de Oliver Santos — conjunto DISJUNTO del de Angie', async () => {
+test('MISMO código de zona (614) en países distintos NUNCA se mezcla: Gerente GuatemalaSameCode no es compatible con Alejandra (PANAMA)', async () => {
+  const personas = await obtenerPersonasAdmin();
+  const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Alejandra Diaz'] }, personas);
+  assert.ok(!opts.gerente.includes('Gerente GuatemalaSameCode'), 'GUATEMALA/614 y PANAMA/614 son geografías distintas: PaisZona = País + Zona, nunca solo el código de zona');
+});
+
+test('CASO JASMIN RAMIREZ (real, REPUBLICA DOMINICANA/107): 0 Gerentes compatibles — RD no tiene relaciones gerente_zona_zona configuradas, y eso NO se fabrica', async () => {
   const personas = await obtenerPersonasAdmin();
   const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Jasmin Ramirez'] }, personas);
-  assert.deepEqual(opts.gerente.slice().sort(), ['Gerente DeOliverDos', 'Gerente DeOliverUno']);
-  for (const nombre of ['Cristina Garcia', 'Ircania Guerrero', 'Julissa Rodriguez', 'Leydi Perez', 'Stephanie German', 'Gerente DeDaniel']) {
-    assert.ok(!opts.gerente.includes(nombre), `${nombre} es de Daniel Monge: no debe aparecer al seleccionar Jasmin (Oliver Santos)`);
-  }
+  assert.deepEqual(opts.gerente, [], 'Ningún Gerente tiene gerente_zona_zona en REPUBLICA DOMINICANA en este fixture (replica el caso real de producción): "Sin opciones" es el resultado correcto');
 });
 
-test('Gerente sin Supervisor (13 casos reales en producción): al seleccionar CUALQUIER Gestor, nunca aparece (no comparte Supervisor con nadie)', async () => {
+test('RECÍPROCO: seleccionar un Gerente (Evelyn Trotman, PANAMA/614) acota el catálogo de Gestor a quienes comparten esa geografía — Alejandra sí, Jasmin (RD) no', async () => {
   const personas = await obtenerPersonasAdmin();
-  const optsAngie = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Angie Buch'] }, personas);
-  const optsJasmin = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Jasmin Ramirez'] }, personas);
-  assert.ok(!optsAngie.gerente.includes('Gerente SinSupervisor'));
-  assert.ok(!optsJasmin.gerente.includes('Gerente SinSupervisor'));
+  const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gerente: ['Evelyn Trotman'] }, personas);
+  assert.deepEqual(opts.gestor, ['Alejandra Diaz']);
 });
 
-test('RECÍPROCO: seleccionar un Gerente de Daniel Monge (p. ej. Cristina Garcia, con 0 zonas) acota el catálogo de Gestor a los de Daniel Monge (Angie), nunca a los de Oliver Santos (Jasmin)', async () => {
+test('Gerente sin ninguna zona real (Gerente SinZonas) nunca puede acotar el catálogo de Gestor: intersección vacía = 0 opciones, nunca "todos"', async () => {
   const personas = await obtenerPersonasAdmin();
-  const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gerente: ['Cristina Garcia'] }, personas);
-  assert.deepEqual(opts.gestor, ['Angie Buch']);
+  const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gerente: ['Gerente SinZonas'] }, personas);
+  assert.deepEqual(opts.gestor, []);
 });
 
-test('Seleccionar un Gerente de 0 zonas (Cristina Garcia) sigue devolviendo 0 filas de cartera, aunque estructuralmente esté ligada a Angie por Supervisor', async () => {
+test('Combinado: Gestor=Alejandra Diaz + Zona=615 acota a Linette Cardenas únicamente (intersección Gestor AND Zona explícita)', async () => {
   const personas = await obtenerPersonasAdmin();
-  const CARTERA_CON_FILAS = [
-    { codigo: 'CTA-1', gestor: 'ANGIE BUCH', gerente_zona: 'Cristina Garcia', pais: 'REPUBLICA DOMINICANA', zona: '133' }
-  ];
-  const filtrado = filterCarteraRows(CARTERA_CON_FILAS, { ...EMPTY_FILTERS, gerente: ['Cristina Garcia'] }, personas);
-  assert.deepEqual(filtrado, [], 'Compartir Supervisor con Angie NUNCA amplía el alcance geográfico de Cristina (0 gerente_zona_zona = 0 cartera)');
+  const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Alejandra Diaz'], zona: ['615'] }, personas);
+  assert.deepEqual(opts.gerente, ['Linette Cardenas']);
 });
 
-test('Combinado: Gestor=Angie Buch + Zona=146 (la única zona real entre los Gerentes de Daniel Monge) acota a "Gerente DeDaniel" únicamente (intersección Supervisor AND geografía)', async () => {
+test('Combinado: Gestor=Alejandra Diaz + País=PANAMA mantiene ambos Gerentes compatibles (su único país real ya es PANAMA)', async () => {
   const personas = await obtenerPersonasAdmin();
-  const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Angie Buch'], zona: ['146'] }, personas);
-  assert.deepEqual(opts.gerente, ['Gerente DeDaniel']);
+  const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Alejandra Diaz'], pais: ['PANAMA'] }, personas);
+  assert.deepEqual(opts.gerente.slice().sort(), ['Evelyn Trotman', 'Linette Cardenas']);
 });
 
-test('Solo País=REPUBLICA DOMINICANA (sin Gestor/Zona) acota Gerente a quienes tienen ESA geografía propia — nunca por supervisor', async () => {
+test('Gestor + País incompatible entre sí (Alejandra es 100% PANAMA; País=GUATEMALA no tiene ninguna zona real de ella): Gerente queda vacío', async () => {
   const personas = await obtenerPersonasAdmin();
-  const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, pais: ['REPUBLICA DOMINICANA'] }, personas);
-  // Solo "Gerente DeDaniel" tiene gerente_zona_zona real en RD; los 5 de Daniel
-  // sin zona y los 2 de Oliver (Honduras) quedan fuera únicamente por geografía.
-  assert.deepEqual(opts.gerente, ['Gerente DeDaniel']);
+  const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Alejandra Diaz'], pais: ['GUATEMALA'] }, personas);
+  assert.deepEqual(opts.gerente, [], 'Ninguna combinación País-Zona de Alejandra es GUATEMALA: nunca inventa compatibilidad');
 });
 
-test('Eliminar el filtro Gestor recalcula Gerente de vuelta al catálogo completo (sin restricción de supervisor)', async () => {
+test('Eliminar el filtro Gestor recalcula Gerente de vuelta al catálogo completo permitido por el alcance', async () => {
   const personas = await obtenerPersonasAdmin();
-  const conGestor = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Angie Buch'] }, personas);
-  assert.equal(conGestor.gerente.length, 6, 'Con Gestor=Angie Buch: acotado a los 6 de Daniel Monge');
+  const conGestor = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Alejandra Diaz'] }, personas);
+  assert.equal(conGestor.gerente.length, 2, 'Con Gestor=Alejandra Diaz: acotado a sus 2 Gerentes geográficamente compatibles');
   const sinGestor = buildFilterOptions(CARTERA, EMPTY_FILTERS, personas);
-  assert.equal(sinGestor.gerente.length, 9, 'Al quitar el filtro Gestor, Gerente vuelve a las 9 opciones del alcance completo (Administrador)');
+  assert.equal(sinGestor.gerente.length, 6, 'Al quitar el filtro Gestor, Gerente vuelve a las 6 opciones del alcance completo (Administrador)');
 });
 
-test('Eliminar el filtro Zona (dejando Gestor) recalcula Gerente a la intersección Supervisor+País, ya sin la restricción de Zona', async () => {
+test('Eliminar el filtro Zona (dejando Gestor) recalcula Gerente de vuelta a la intersección geográfica completa del Gestor, sin la restricción adicional de Zona', async () => {
   const personas = await obtenerPersonasAdmin();
-  const conZona = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Angie Buch'], zona: ['146'] }, personas);
-  assert.deepEqual(conZona.gerente, ['Gerente DeDaniel']);
-  const sinZona = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Angie Buch'] }, personas);
-  assert.deepEqual(sinZona.gerente.slice().sort(), ['Cristina Garcia', 'Gerente DeDaniel', 'Ircania Guerrero', 'Julissa Rodriguez', 'Leydi Perez', 'Stephanie German']);
+  const conZona = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Alejandra Diaz'], zona: ['614'] }, personas);
+  assert.deepEqual(conZona.gerente, ['Evelyn Trotman']);
+  const sinZona = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Alejandra Diaz'] }, personas);
+  assert.deepEqual(sinZona.gerente.slice().sort(), ['Evelyn Trotman', 'Linette Cardenas']);
 });
 
-test('Gestor + País + Zona incompatibles entre sí (ninguna persona real cumple las TRES condiciones a la vez): Gerente queda vacío — "Sin opciones", nunca inventa', async () => {
+test('Cambiar de Gestor recalcula Gerente por completo (Alejandra → Jasmin)', async () => {
   const personas = await obtenerPersonasAdmin();
-  // Angie Buch (Daniel Monge) + Zona 201 (zona real de HONDURAS, rama de Oliver Santos):
-  // ningún Gerente de Daniel Monge tiene esa zona -> intersección vacía.
-  const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Angie Buch'], pais: ['HONDURAS'], zona: ['201'] }, personas);
-  assert.deepEqual(opts.gerente, []);
+  const conAlejandra = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Alejandra Diaz'] }, personas);
+  assert.deepEqual(conAlejandra.gerente.slice().sort(), ['Evelyn Trotman', 'Linette Cardenas']);
+  const conJasmin = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Jasmin Ramirez'] }, personas);
+  assert.deepEqual(conJasmin.gerente, []);
 });
 
 test('El texto de cartera.gestor/cartera.gerente_zona (aunque venga en las filas) NUNCA se usa para construir el catálogo de Gerente: solo usuarios/roles/relaciones', async () => {
   const personas = await obtenerPersonasAdmin();
-  // Filas de cartera con texto de gestor/gerente_zona DELIBERADAMENTE incorrecto/no
-  // relacionado (nombres que no existen en el catálogo de personas real): si el
-  // catálogo se construyera desde cartera, "Persona Inventada" aparecería como opción.
   const CARTERA_CON_TEXTO_AJENO = [
-    { codigo: 'CTA-X', gestor: 'PERSONA INVENTADA', gerente_zona: 'OTRA PERSONA INVENTADA', pais: 'GUATEMALA', zona: '999' }
+    { codigo: 'CTA-X', gestor: 'PERSONA INVENTADA', gerente_zona: 'OTRA PERSONA INVENTADA', pais: 'PANAMA', zona: '614' }
   ];
-  const opts = buildFilterOptions(CARTERA_CON_TEXTO_AJENO, { ...EMPTY_FILTERS, gestor: ['Angie Buch'] }, personas);
+  const opts = buildFilterOptions(CARTERA_CON_TEXTO_AJENO, { ...EMPTY_FILTERS, gestor: ['Alejandra Diaz'] }, personas);
   assert.ok(!opts.gerente.includes('PERSONA INVENTADA') && !opts.gerente.includes('OTRA PERSONA INVENTADA'));
-  assert.deepEqual(opts.gerente.slice().sort(), ['Cristina Garcia', 'Gerente DeDaniel', 'Ircania Guerrero', 'Julissa Rodriguez', 'Leydi Perez', 'Stephanie German']);
+  assert.deepEqual(opts.gerente.slice().sort(), ['Evelyn Trotman', 'Linette Cardenas']);
+});
+
+test('Seleccionar un Gerente de 0 zonas propias (Gerente SinZonas) sigue devolviendo 0 filas de cartera aunque compartiera Supervisor con Alejandra', async () => {
+  const personas = await obtenerPersonasAdmin();
+  const CARTERA_CON_FILAS = [
+    { codigo: 'CTA-1', gestor: 'ALEJANDRA DIAZ', gerente_zona: 'GERENTE SINZONAS', pais: 'PANAMA', zona: '614' }
+  ];
+  const filtrado = filterCarteraRows(CARTERA_CON_FILAS, { ...EMPTY_FILTERS, gerente: ['Gerente SinZonas'] }, personas);
+  assert.deepEqual(filtrado, [], 'Sin gerente_zona_zona propio, nunca hay filas de cartera visibles para ese Gerente');
 });

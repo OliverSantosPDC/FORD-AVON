@@ -106,20 +106,27 @@ const PERSONAS_GERENTE = [
   { nombre: 'Leydi Perez', paisZona: [], supervisorIds: [SUP_DANIEL] },
   { nombre: 'Stephanie German', paisZona: [], supervisorIds: [SUP_DANIEL] },
   { nombre: 'Gerente Con Relacion', paisZona: [{ pais: 'REPUBLICA DOMINICANA', zona: '999' }], supervisorIds: [SUP_DANIEL] },
-  // Gerente real pero de OTRO Supervisor (p. ej. Oliver Santos): NUNCA debe
-  // aparecer al seleccionar Angie Buch (Gestor de Daniel Monge) — prueba la
-  // relación cruzada Gestor↔Gerente vía Supervisor compartido (única
-  // relación real entre ambos, confirmada en la auditoría de Supabase).
+  // Gerente de OTRO Supervisor (Oliver Santos) pero con la MISMA zona real
+  // (133) que Angie Buch: bajo la regla GEOGRÁFICA sí debe aparecer al
+  // seleccionarla, pese al Supervisor distinto — prueba que Supervisor ya
+  // NO es el criterio de la cascada, solo la geografía propia de cada persona.
   { nombre: 'Gerente De Otro Supervisor', paisZona: [{ pais: 'REPUBLICA DOMINICANA', zona: '133' }], supervisorIds: ['sup-oliver-santos'] }
 ];
 const PERSONAS = { gestores: PERSONAS_GESTOR, gerentes: PERSONAS_GERENTE };
 
 const NOMBRES_SIN_RELACION = ['Cristina Garcia', 'Ircania Guerrero', 'Julissa Rodriguez', 'Leydi Perez', 'Stephanie German'];
 
-test('CORREGIDO (ya no "Sin opciones"): sin filtro geográfico activo, los 5 Gerentes reales con 0 relaciones SÍ aparecen en el catálogo — siguen siendo personas Gerente autorizadas, solo con alcance geográfico vacío', () => {
-  const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Angie Buch'] }, PERSONAS);
+test('Sin ningún Gestor/Gerente seleccionado, los 5 Gerentes reales con 0 relaciones SÍ aparecen en el catálogo — siguen siendo personas Gerente autorizadas, solo con alcance geográfico vacío', () => {
+  const opts = buildFilterOptions(CARTERA, EMPTY_FILTERS, PERSONAS);
   for (const nombre of NOMBRES_SIN_RELACION) {
     assert.ok(opts.gerente.includes(nombre), `"${nombre}" debe aparecer como opción de Gerente: es una persona autorizada (identidad), aunque tenga 0 relaciones gerente_zona_zona (alcance).`);
+  }
+});
+
+test('REGLA GEOGRÁFICA (Gestor↔Gerente ya no se cruza por Supervisor): con Gestor=Angie Buch seleccionado, los 5 Gerentes con 0 relaciones geográficas propias YA NO aparecen — no hay ninguna combinación País-Zona que puedan compartir con ella', () => {
+  const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Angie Buch'] }, PERSONAS);
+  for (const nombre of NOMBRES_SIN_RELACION) {
+    assert.ok(!opts.gerente.includes(nombre), `"${nombre}" tiene 0 relaciones gerente_zona_zona: nunca puede ser geográficamente compatible con un Gestor seleccionado, aunque comparta Supervisor.`);
   }
 });
 
@@ -175,9 +182,9 @@ test('Gerente con MÚLTIPLES zonas aparece una sola vez y conserva todas sus rel
   assert.deepEqual(filtrado.map((r) => r.codigo).sort(), ['CTA-1', 'CTA-5']);
 });
 
-test('RELACIÓN CRUZADA Gestor↔Gerente (única relación real: mismo Supervisor): seleccionar Angie Buch (Daniel Monge) NUNCA muestra un Gerente de OTRO Supervisor (Oliver Santos), aunque esté en el alcance global del catálogo', () => {
+test('RELACIÓN CRUZADA Gestor↔Gerente (GEOGRÁFICA, ya no por Supervisor): seleccionar Angie Buch SÍ muestra a "Gerente De Otro Supervisor" porque comparte la zona real 133, aunque su Supervisor sea distinto (Oliver Santos)', () => {
   const opts = buildFilterOptions(CARTERA, { ...EMPTY_FILTERS, gestor: ['Angie Buch'] }, PERSONAS);
-  assert.ok(!opts.gerente.includes('Gerente De Otro Supervisor'), 'No comparte Supervisor con Angie Buch: no debe aparecer al seleccionarla.');
+  assert.ok(opts.gerente.includes('Gerente De Otro Supervisor'), 'Comparte REPUBLICA DOMINICANA/133 con Angie Buch: el Supervisor distinto ya no lo excluye.');
 });
 
 test('Sin ningún Gestor seleccionado, el Gerente de otro Supervisor SÍ aparece (catálogo completo del alcance, sin recorte cruzado)', () => {
