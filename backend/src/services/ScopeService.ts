@@ -461,10 +461,29 @@ const todosGestoresActivos = async (): Promise<Array<{ id: string; nombre_carter
     .map((g) => ({ id: g.id, nombre_cartera: g.nombre_cartera }));
 };
 
+/**
+ * Cache TTL de `roles.clave -> roles.id`: a diferencia de `gestor_pais_zona`/
+ * `gerente_zona_zona` (conceden ALCANCE, nunca cacheables entre requests sin
+ * arriesgar permisos desactualizados — ver Sección 4 de la auditoría), esta
+ * tabla no es scope de ningún usuario: el id de un rol (`gerente_zona`, etc.)
+ * es el MISMO para cualquiera que pregunte, nunca depende de quién consulta
+ * ni de qué usuario está autenticado. Cachearlo no puede mezclar scopes entre
+ * usuarios porque no hay ningún usuario en la clave del cache. TTL corto (5
+ * min, no indefinido) solo por higiene ante una eventual migración de roles.
+ */
+const ROLE_ID_CACHE_TTL_MS = 5 * 60_000;
+const roleIdCache = new Map<string, { id: string | null; expires: number }>();
+
 const roleIdPorClave = async (clave: string): Promise<string | null> => {
+  const now = Date.now();
+  const cached = roleIdCache.get(clave);
+  if (cached && cached.expires > now) return cached.id;
+
   const { data, error } = await getSupabaseClient().from('roles').select('id').eq('clave', clave).maybeSingle();
   if (error) throw new ScopeResolutionError(`No se pudo leer el rol ${clave}: ${error.message}`);
-  return (data as { id: string } | null)?.id ?? null;
+  const id = (data as { id: string } | null)?.id ?? null;
+  roleIdCache.set(clave, { id, expires: now + ROLE_ID_CACHE_TTL_MS });
+  return id;
 };
 
 /**
