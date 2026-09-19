@@ -36,17 +36,15 @@ const coincideFiltro = (r: Row, valores: string[] | undefined, keys: string[]): 
 const paisZonaKey = (pais: unknown, zona: unknown): string => `${s(pais).trim().toUpperCase()}||${s(zona).trim().toUpperCase()}`;
 
 /**
- * ¿La fila queda incluida por la selección de Gestor? Coincide por NOMBRE
- * (cartera.gestor, cuando existe la coincidencia) O porque el País-Zona
- * EXACTO de la fila está entre los `gestor_pais_zona` de alguna persona
- * seleccionada — nunca depende de que su nombre exista en cartera (mismo
- * principio OR que ScopeFilter.applyScope, aplicado a la SELECCIÓN).
+ * ¿La fila queda incluida por la selección de Gestor? Coincide ÚNICAMENTE
+ * si el País-Zona EXACTO de la fila está entre los `gestor_pais_zona` de
+ * alguna persona seleccionada — nunca por el texto libre `cartera.gestor`
+ * (auditoría real: el puente de texto coincidía con 0/18,107 filas de
+ * producción, ver `carteraAggregations.ts`/`ScopeFilter.ts`).
  */
 const coincideFiltroGestor = (r: Row, valores: string[] | undefined, personasPorNombre: Map<string, PersonaFiltro>): boolean => {
   if (!valores?.length) return true;
   const seleccionadas = new Set(valores.map((v) => v.toUpperCase()));
-  const rowNombre = s(r.gestor).toUpperCase();
-  if (rowNombre && seleccionadas.has(rowNombre)) return true;
   const rowPais = s(r.pais); const rowZona = s(r.zona);
   if (!rowPais || !rowZona) return false;
   const rowKey = paisZonaKey(rowPais, rowZona);
@@ -60,29 +58,22 @@ const coincideFiltroGestor = (r: Row, valores: string[] | undefined, personasPor
 /**
  * OPCIONES de Gestor: SIEMPRE desde `personasGestor` (usuarios/roles/
  * gestor_pais_zona — ver ScopeService.gestoresEnAlcance), nunca desde
- * `uniq(filas, 'gestor')` sobre cartera. IDENTIDAD (pertenecer a
- * `personasGestor`, ya acotado por el alcance jerárquico del usuario
- * conectado) es independiente de ALCANCE GEOGRÁFICO (`gestor_pais_zona`):
- * una persona con 0 relaciones geográficas sigue siendo una persona
- * autorizada y no debe desaparecer del catálogo solo por eso (mismo
- * principio aplicado a Gerente de zona en `carteraAggregations.ts` —
- * ver `opcionesPersonas`). Solo cuando el usuario tiene un filtro
- * País/Zona ACTIVO se acota la lista a las personas cuyo propio
- * País-Zona coincide con los valores SELECCIONADOS (nunca contra qué
- * filas resultan visibles).
+ * `uniq(filas, 'gestor')` sobre cartera (auditoría real: 0/18,107 filas
+ * coincidían por texto). IDENTIDAD (pertenecer a `personasGestor`, ya
+ * acotado por el alcance jerárquico del usuario conectado) es independiente
+ * de ALCANCE GEOGRÁFICO (`gestor_pais_zona`): una persona con 0 relaciones
+ * geográficas sigue siendo una persona autorizada y no debe desaparecer del
+ * catálogo solo por eso (mismo principio aplicado a Gerente de zona en
+ * `carteraAggregations.ts` — ver `opcionesPersonas`). Solo cuando el
+ * usuario tiene un filtro País/Zona ACTIVO se acota la lista a las personas
+ * cuyo propio País-Zona coincide con los valores SELECCIONADOS.
  */
-const opcionesGestor = (filas: Row[], personasGestor: PersonaFiltro[], filtrosPais: string[] | undefined, filtrosZona: string[] | undefined): string[] => {
-  const nombresPresentes = new Set<string>();
-  filas.forEach((r) => {
-    const nombre = s(r.gestor).toUpperCase();
-    if (nombre) nombresPresentes.add(nombre);
-  });
+const opcionesGestor = (personasGestor: PersonaFiltro[], filtrosPais: string[] | undefined, filtrosZona: string[] | undefined): string[] => {
   const paisSet = new Set((filtrosPais ?? []).map((v) => v.trim().toUpperCase()).filter(Boolean));
   const zonaSet = new Set((filtrosZona ?? []).map((v) => v.trim().toUpperCase()).filter(Boolean));
   const hayFiltroGeografico = paisSet.size > 0 || zonaSet.size > 0;
   return personasGestor
     .filter((p) => {
-      if (nombresPresentes.has(p.nombre.toUpperCase())) return true;
       if (!hayFiltroGeografico) return true;
       return p.paisZona.some(
         (pz) =>
@@ -120,7 +111,7 @@ export const construirFilterOptionsCentro = (scopedRows: Row[], filtros: CentroF
     sector: uniq(filasPara('sector'), 'sector'),
     pd: uniq(filasPara('pd'), 'pd_actual', 'pd'),
     riesgo: uniq(filasPara('riesgo'), 'riesgo', 'nivel_riesgo', 'riesgo_pd'),
-    gestor: opcionesGestor(filasPara('gestor'), personasGestor, filtros.pais, filtros.zona)
+    gestor: opcionesGestor(personasGestor, filtros.pais, filtros.zona)
   };
 };
 export interface Hallazgo { categoria: 'Gestión' | 'Cartera' | 'Calendario' | 'Operación'; nivel: 'Crítico' | 'Atención' | 'Informativo' | 'Positivo'; titulo: string; detalle: string; valor?: string; }

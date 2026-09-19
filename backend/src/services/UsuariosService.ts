@@ -1383,19 +1383,7 @@ export const obtenerResumenAlcance = async (): Promise<{ totalUsuarios: number; 
   const perfilRows = (perfiles ?? []) as Array<{ id: string; activo: boolean; roles: { clave?: string; nivel?: number | null } | { clave?: string; nivel?: number | null }[] | null }>;
   const totalUsuarios = perfilRows.length;
 
-  const nombrePorGestorId = new Map(((gestores ?? []) as Array<{ id: string; nombre_cartera: string | null }>).map((g) => [g.id, g.nombre_cartera ?? '']));
   const gestorIdPorUsuario = new Map(((gestores ?? []) as Array<{ id: string; usuario_id: string | null }>).filter((g) => g.usuario_id).map((g) => [g.usuario_id as string, g.id]));
-
-  const carteraPorGestor = new Map<string, CarteraFila[]>();
-  for (const fila of cartera) {
-    if (!fila.gestor) continue;
-    const key = fila.gestor.toLowerCase();
-    const list = carteraPorGestor.get(key) ?? [];
-    list.push(fila);
-    carteraPorGestor.set(key, list);
-  }
-  const carteraDe = (nombresGestor: string[]): CarteraFila[] =>
-    nombresGestor.flatMap((n) => carteraPorGestor.get(n.toLowerCase()) ?? []);
 
   const gestoresPorSupervisor = new Map<string, string[]>();
   for (const r of (supGes ?? []) as Array<{ supervisor_id: string; gestor_id: string }>) {
@@ -1444,15 +1432,13 @@ export const obtenerResumenAlcance = async (): Promise<{ totalUsuarios: number; 
     return out;
   };
 
-  /** País/Zona alcanzado por un Gestor (gestores.id): UNIÓN de su
-   *  gestor_pais_zona explícito Y las filas de cartera con match de nombre —
-   *  nunca uno u otro condicionalmente (ver comentario de sección arriba). */
-  const paisZonaDeGestorId = (gestorId: string): Array<{ pais: string; zona: string }> => {
-    const explicito = zonasPorGestorId.get(gestorId) ?? [];
-    const nombre = nombrePorGestorId.get(gestorId) ?? '';
-    const porNombre = nombre ? carteraDe([nombre]).map((f) => ({ pais: f.pais, zona: f.zona })) : [];
-    return dedupPares([...explicito, ...porNombre]);
-  };
+  /** País/Zona alcanzado por un Gestor (gestores.id): EXCLUSIVAMENTE su
+   *  gestor_pais_zona explícito — nunca coincidencia de nombre contra
+   *  `cartera.gestor` (auditoría real: el puente de texto coincidía con
+   *  0/18,107 filas reales; consistente con `ScopeFilter.applyScope`, cuya
+   *  única fuente de autorización real es `paisZonaGrant`). */
+  const paisZonaDeGestorId = (gestorId: string): Array<{ pais: string; zona: string }> =>
+    dedupPares(zonasPorGestorId.get(gestorId) ?? []);
 
   const items: AlcanceResumenItem[] = perfilRows.map((p) => {
     const roleRaw = Array.isArray(p.roles) ? p.roles[0] : p.roles;

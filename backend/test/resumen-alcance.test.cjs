@@ -2,22 +2,19 @@
 
 /**
  * Prueba de `UsuariosService.obtenerResumenAlcance` (resumen visual de
- * Grupos y Niveles) tras eliminar el fallback condicional a `cartera` para
- * calcular el País/Zona alcanzado por un Gestor.
+ * Grupos y Niveles): el País/Zona alcanzado por un Gestor (propio o el de su
+ * Supervisor/Liderazgo) sale EXCLUSIVAMENTE de `gestor_pais_zona` — nunca de
+ * coincidencia de nombre contra `cartera.gestor`.
  *
- * ANTES: para Liderazgo/Supervisor, el País/Zona mostrado de cada uno de sus
- * Gestores salía EXCLUSIVAMENTE de `carteraDe(nombres)` (coincidencia de
- * nombre en cartera.gestor) — nunca se consultaba `gestor_pais_zona` para
- * ellos (sí se consultaba, pero solo para el propio renglón del Gestor, con
- * un if/else exclusivo: si tenía explícito, NUNCA sumaba lo de cartera). Un
- * Gestor con alcance SOLO vía gestor_pais_zona (sin match de nombre, el caso
- * Bryan Rodriguez/Angie Buch) aportaba CERO País/Zona al resumen de su
- * Supervisor/Liderazgo, aunque su scope real (ScopeFilter.applyScope) sí lo
- * incluyera correctamente.
- *
- * AHORA: `paisZonaDeGestorId` es una UNIÓN (nunca condicional) de ambas
- * fuentes, reutilizada tanto por el renglón propio del Gestor como por el de
- * su Supervisor/Liderazgo — consistente con ScopeFilter.applyScope.
+ * El puente de texto (`carteraDe`/`nombrePorGestorId`, que antes UNÍA
+ * gestor_pais_zona con las filas de cartera cuyo nombre coincidía) se
+ * eliminó por completo: auditoría real (project vuazzailuqgbjnnbdtrg)
+ * confirmó que coincidía con 0 de las 18,107 filas reales de cartera —
+ * consistente con `ScopeFilter.applyScope`, cuya única fuente de
+ * autorización real es `paisZonaGrant` (`gestor_pais_zona`). Un Gestor sin
+ * `gestor_pais_zona` configurado ahora muestra 0 País/Zona en el resumen
+ * (reflejando fielmente su alcance real), aunque su nombre coincida con
+ * filas de cartera.
  *
  * Ejercita el código YA COMPILADO en dist/ con un cliente Supabase falso en
  * memoria (datos 100% ficticios).
@@ -38,13 +35,18 @@ const db = {
     { id: 'user-lider1', activo: true, role_id: 'r-lid', roles: { clave: 'liderazgo', nivel: 2 } },
     { id: 'user-sup1', activo: true, role_id: 'r-sup', roles: { clave: 'supervisor', nivel: 3 } },
     { id: 'user-gestorA', activo: true, role_id: 'r-ges', roles: { clave: 'gestor', nivel: 4 } },
-    { id: 'user-gestorB', activo: true, role_id: 'r-ges', roles: { clave: 'gestor', nivel: 4 } }
+    { id: 'user-gestorB', activo: true, role_id: 'r-ges', roles: { clave: 'gestor', nivel: 4 } },
+    { id: 'user-gestorC', activo: true, role_id: 'r-ges', roles: { clave: 'gestor', nivel: 4 } }
   ],
   gestores: [
-    // gestorA: coincide por NOMBRE con una fila real de cartera.
+    // gestorA: SU nombre TAMBIÉN coincide (por casualidad) con una fila de
+    // cartera — pero su alcance real viene ÚNICAMENTE de gestor_pais_zona.
     { id: 'g-A', usuario_id: 'user-gestorA', nombre_cartera: 'GESTOR REAL EN CARTERA', activo: true },
     // gestorB: SIN ninguna fila en cartera.gestor — su único alcance real es gestor_pais_zona.
-    { id: 'g-B', usuario_id: 'user-gestorB', nombre_cartera: 'GESTOR FANTASMA SIN CARTERA', activo: true }
+    { id: 'g-B', usuario_id: 'user-gestorB', nombre_cartera: 'GESTOR FANTASMA SIN CARTERA', activo: true },
+    // gestorC: nombre coincide con una fila de cartera, pero SIN gestor_pais_zona configurado:
+    // debe mostrar 0 País/Zona (nunca recuperarlo vía el puente de texto eliminado).
+    { id: 'g-C', usuario_id: 'user-gestorC', nombre_cartera: 'GESTOR SOLO EN CARTERA SIN RELACION', activo: true }
   ],
   supervisor_gestor: [
     { supervisor_id: 'user-sup1', gestor_id: 'g-A', activo: true },
@@ -55,11 +57,13 @@ const db = {
   ],
   gerente_zona_zona: [],
   gestor_pais_zona: [
+    { gestor_id: 'g-A', pais: 'EL SALVADOR', activo: true, zonas: { nombre: '201' } },
     { gestor_id: 'g-B', pais: 'GUATEMALA', activo: true, zonas: { nombre: '107' } }
   ],
   supervisor_gerente_zona: [],
   cartera: [
-    { gestor: 'GESTOR REAL EN CARTERA', pais: 'EL SALVADOR', zona: '201', sector: 'S1' }
+    { gestor: 'GESTOR REAL EN CARTERA', pais: 'EL SALVADOR', zona: '201', sector: 'S1' },
+    { gestor: 'GESTOR SOLO EN CARTERA SIN RELACION', pais: 'HONDURAS', zona: '301', sector: 'S2' }
     // Ninguna fila con gestor = "GESTOR FANTASMA SIN CARTERA": a propósito.
   ]
 };
@@ -96,11 +100,18 @@ test('obtenerResumenAlcance: el Gestor con solo gestor_pais_zona (sin match en c
   assert.deepEqual(gestorB.zonas, ['107']);
 });
 
-test('obtenerResumenAlcance: el Gestor con match de nombre en cartera muestra SU País/Zona real (vía el puente de texto)', async () => {
+test('obtenerResumenAlcance: el Gestor muestra SU País/Zona real vía gestor_pais_zona (aunque su nombre también coincida con cartera)', async () => {
   const { items } = await obtenerResumenAlcance();
   const gestorA = items.find((i) => i.userId === 'user-gestorA');
   assert.deepEqual(gestorA.paises, ['EL SALVADOR']);
   assert.deepEqual(gestorA.zonas, ['201']);
+});
+
+test('obtenerResumenAlcance: un Gestor cuyo nombre coincide con cartera PERO sin gestor_pais_zona configurado muestra 0 País/Zona (nunca recupera el puente de texto eliminado)', async () => {
+  const { items } = await obtenerResumenAlcance();
+  const gestorC = items.find((i) => i.userId === 'user-gestorC');
+  assert.deepEqual(gestorC.paises, []);
+  assert.deepEqual(gestorC.zonas, []);
 });
 
 test('obtenerResumenAlcance: el Supervisor ve la UNIÓN de AMBOS Gestores (antes: solo el que coincidía por nombre)', async () => {

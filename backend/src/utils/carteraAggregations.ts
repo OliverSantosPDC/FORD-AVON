@@ -203,11 +203,11 @@ interface GroupAccumulator {
  * arrays de filas + una segunda pasada en buildGroupSummary). Resultados
  * idénticos a groupBy + buildGroupSummary, sin almacenar los arrays de filas.
  */
-const aggregateGroupSummaries = (records: CarteraRow[], keys: string[], fallback: string): GroupSummary[] => {
+const aggregateGroupSummaries = (records: CarteraRow[], keyResolver: (row: CarteraRow) => string): GroupSummary[] => {
   const groups = new Map<string, GroupAccumulator>();
 
   for (const row of records) {
-    const key = getString(row, keys) || fallback;
+    const key = keyResolver(row);
     let group = groups.get(key);
     if (!group) {
       group = {
@@ -268,13 +268,21 @@ const aggregateGroupSummaries = (records: CarteraRow[], keys: string[], fallback
   return result;
 };
 
-export const aggregateTopGestores = (records: CarteraRow[], limit = 20): GroupSummary[] =>
-  aggregateGroupSummaries(records, FIELD_KEYS.gestor, 'Sin gestor')
+/**
+ * Top Gestores: agrupa por la IDENTIDAD real del Gestor (`gestor_pais_zona`,
+ * vía el mapa País-Zona→nombre de `gestorPorPaisZona`), nunca por el texto
+ * `cartera.gestor` — mismo criterio que la autorización/el catálogo del
+ * filtro (ver `rowMatchesPersonaFilter`/`opcionesPersonas`). Una fila cuyo
+ * País-Zona no tiene ningún Gestor real asignado cae en "Sin gestor
+ * asignado" (nunca inventa una persona a partir del texto de cartera).
+ */
+export const aggregateTopGestores = (records: CarteraRow[], gestorPorZona: Map<string, string>, limit = 20): GroupSummary[] =>
+  aggregateGroupSummaries(records, (row) => resolverGestorReal(row, gestorPorZona))
     .sort((a, b) => b.recuperadoUsd - a.recuperadoUsd)
     .slice(0, limit);
 
 export const aggregateTopZonas = (records: CarteraRow[], limit = 20): GroupSummary[] =>
-  aggregateGroupSummaries(records, FIELD_KEYS.zona, 'Sin zona')
+  aggregateGroupSummaries(records, (row) => getString(row, FIELD_KEYS.zona) || 'Sin zona')
     .sort((a, b) => b.saldoActualUsd - a.saldoActualUsd)
     .slice(0, limit);
 
@@ -469,8 +477,51 @@ export interface PersonasEnAlcance {
   gerentes: PersonaFiltro[];
 }
 
-const paisZonaKey = (pais: unknown, zona: unknown): string =>
+export const paisZonaKey = (pais: unknown, zona: unknown): string =>
   `${normalizeValue(pais).toLocaleLowerCase()}||${normalizeValue(zona).toLocaleLowerCase()}`;
+
+/**
+ * Mapa País-Zona → nombre del Gestor real que lo tiene asignado
+ * (`gestor_pais_zona`), para agregaciones que necesitan la IDENTIDAD real
+ * del Gestor (Top Gestores, Ranking de Gestores) en vez de `cartera.gestor`
+ * (texto de exhibición: puede estar vacío, desactualizado o no vinculado a
+ * ningún usuario real). Si dos Gestores compartieran el mismo País-Zona, se
+ * atribuye al primero en orden alfabético — caso límite documentado, NO una
+ * regla de negocio definitiva: auditado en producción (project
+ * vuazzailuqgbjnnbdtrg), hoy cada Zona real tiene como máximo un Gestor y un
+ * Gerente de zona asignado, así que esta rama nunca se activa actualmente.
+ */
+export const gestorPorPaisZona = (gestores: PersonaFiltro[]): Map<string, string> => {
+  const map = new Map<string, string>();
+  const ordenados = [...gestores].sort((a, b) => a.nombre.localeCompare(b.nombre, undefined, { sensitivity: 'base' }));
+  for (const persona of ordenados) {
+    for (const pz of persona.paisZona) {
+      const key = paisZonaKey(pz.pais, pz.zona);
+      if (!map.has(key)) map.set(key, persona.nombre);
+    }
+  }
+  return map;
+};
+
+/**
+ * Resuelve el Gestor real de una fila de cartera: si la cuenta tiene un
+ * GESTOR EFECTIVO vigente (override de `asignaciones.gestor_nuevo_id`, ya
+ * validado por `CarteraService.overlayEffectiveGestor` contra
+ * `gestores.nombre_cartera` con `usuario_id`/`activo`), usa esa identidad
+ * confirmada — marca presente en la fila como `gestor_original` (solo
+ * existe cuando hubo override). Si no, resuelve por País-Zona
+ * (`gestor_pais_zona`). Nunca el texto crudo `cartera.gestor` sin validar.
+ */
+const resolverGestorReal = (row: CarteraRow, gestorPorZona: Map<string, string>, fallback = 'Sin gestor asignado'): string => {
+  if ((row as Record<string, unknown>).gestor_original !== undefined) {
+    const efectivo = getFieldValue(row, ['gestor']);
+    return efectivo || fallback;
+  }
+  const pais = getFieldValue(row, ['pais']);
+  const zona = getFieldValue(row, ['zona']);
+  if (!pais || !zona) return fallback;
+  return gestorPorZona.get(paisZonaKey(pais, zona)) ?? fallback;
+};
 
 const personasPorNombre = (personas: PersonaFiltro[]): Map<string, PersonaFiltro> => {
   const map = new Map<string, PersonaFiltro>();

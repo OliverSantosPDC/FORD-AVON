@@ -35,10 +35,13 @@ const ROWS = [
  * a su nombre en cartera, solo con gestor_pais_zona en REPUBLICA DOMINICANA/110
  * (el caso crítico de la tarea: debe aparecer en el filtro igual). */
 const PERSONAS_GESTOR = [
-  { nombre: 'GESTOR GT 1', paisZona: [] },
-  { nombre: 'GESTOR GT 2', paisZona: [] },
-  { nombre: 'GESTOR RD 1', paisZona: [] },
-  { nombre: 'GESTOR RD 2', paisZona: [] },
+  // Cada uno con SU PROPIO gestor_pais_zona (nunca por coincidencia de texto
+  // en cartera.gestor, aunque el nombre también coincida — auditoría real:
+  // el puente de texto fue eliminado, coincidía con 0/18,107 filas reales).
+  { nombre: 'GESTOR GT 1', paisZona: [{ pais: 'GUATEMALA', zona: '107' }] },
+  { nombre: 'GESTOR GT 2', paisZona: [{ pais: 'GUATEMALA', zona: '108' }] },
+  { nombre: 'GESTOR RD 1', paisZona: [{ pais: 'REPUBLICA DOMINICANA', zona: '107' }] },
+  { nombre: 'GESTOR RD 2', paisZona: [{ pais: 'REPUBLICA DOMINICANA', zona: '110' }] },
   { nombre: 'GESTOR NUEVO', paisZona: [{ pais: 'REPUBLICA DOMINICANA', zona: '110' }] }
 ];
 
