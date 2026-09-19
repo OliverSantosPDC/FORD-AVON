@@ -421,46 +421,57 @@ const GestionPage = () => {
         </Paper>
       )}
 
-      {/* Panel único: Información general + Detalle (izquierda) y Gestión (derecha), dos columnas, sin tabs. */}
-      <Dialog open={Boolean(panel)} onClose={() => setPanel(null)} maxWidth="lg" fullWidth>
-        <DialogTitle sx={{ fontWeight: 700 }}>Cuenta {cod} · {str(panel?.nombre)}</DialogTitle>
-        <DialogContent dividers sx={{ py: 1.5 }}>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1.1fr' }, gap: 2.5 }}>
+      {/* Panel único: Información general + Detalle (izquierda), Historial + Gestión (derecha), dos columnas, sin tabs. */}
+      <Dialog open={Boolean(panel)} onClose={() => setPanel(null)} maxWidth="lg" fullWidth sx={{ '& .MuiDialog-paper': { margin: '16px', maxHeight: 'calc(100% - 32px)' } }}>
+        <DialogTitle sx={{ fontWeight: 700, py: 1.25 }}>Cuenta {cod} · {str(panel?.nombre)}</DialogTitle>
+        <DialogContent dividers sx={{ py: 0.75 }}>
+          {/* minmax(0, Xfr), no "Xfr" a secas: un track de grid sin el minmax
+              hereda un mínimo "auto" = el ancho mínimo de su contenido: la tabla
+              de historial (con columnas whiteSpace:nowrap) podía así robarle
+              ancho a la columna izquierda en vez de recortarse ella misma. */}
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1fr) minmax(0, 1.1fr)' }, gap: 2 }}>
             {/* ===== Columna izquierda: Información general + Detalle ===== */}
-            <Stack spacing={1.5}>
-              <Stack spacing={1.25}>
+            <Stack spacing={1}>
+              <Stack spacing={0.75}>
                 <Typography sx={{ fontWeight: 800, fontSize: 14 }}>Información general</Typography>
                 {!info ? <CircularProgress size={22} /> : (
-                  <Stack spacing={1.25}>
+                  <Stack spacing={0.75}>
                     <Typography sx={{ fontWeight: 700, fontSize: 12.5 }}>Datos generales</Typography>
-                    <Grid container spacing={1}>
-                      <Grid item xs={4}><Field l="Sector" v={pick(info, ['sector'])} /><Field l="LOA" v={pick(info, ['loa', 'l_o_a'])} /><Field l="LOS" v={pick(info, ['los', 'l_o_s'])} /></Grid>
-                      <Grid item xs={4}><Field l="Departamento" v={pick(info, ['departamento'])} /><Field l="Municipio" v={pick(info, ['municipio'])} /></Grid>
-                      <Grid item xs={4}>
-                        <Field l="Fecha de nacimiento" v={pick(info, ['fecha_de_nacimiento', 'fecha_nacimiento'])} />
+                    {/* Un Field por celda (nunca agrupados en columnas verticales
+                        desiguales): el grid empaqueta 4 por fila y usa el alto
+                        mínimo real en vez de la altura de la columna más larga. */}
+                    <Grid container spacing={0.75}>
+                      <Grid item xs={3}><Field l="Sector" v={pick(info, ['sector'])} /></Grid>
+                      <Grid item xs={3}><Field l="LOA" v={pick(info, ['loa', 'l_o_a'])} /></Grid>
+                      <Grid item xs={3}><Field l="LOS" v={pick(info, ['los', 'l_o_s'])} /></Grid>
+                      <Grid item xs={3}><Field l="Departamento" v={pick(info, ['departamento'])} /></Grid>
+                      <Grid item xs={3}><Field l="Municipio" v={pick(info, ['municipio'])} /></Grid>
+                      <Grid item xs={3}><Field l="Fecha de nacimiento" v={pick(info, ['fecha_de_nacimiento', 'fecha_nacimiento'])} /></Grid>
+                      <Grid item xs={3}>
                         <Field l="Edad" v={pick(info, ['fecha_de_nacimiento', 'fecha_nacimiento']) === 'No disponible' ? 'No disponible' : edad(pick(info, ['fecha_de_nacimiento', 'fecha_nacimiento']))} />
                       </Grid>
                     </Grid>
                     <Divider />
                     <Typography sx={{ fontWeight: 700, fontSize: 12.5 }}>Contactos</Typography>
-                    <Grid container spacing={1}>
-                      <Grid item xs={6}><Field l="Teléfono celular" v={pick(info, ['telefono_celular', 'celular', 'telefono'])} /></Grid>
-                      <Grid item xs={6}><Field l="Teléfono casa" v={pick(info, ['telefono_casa', 'casa'])} /></Grid>
-                      <Grid item xs={6}><Field l="Teléfono trabajo" v={pick(info, ['telefono_trabajo', 'trabajo'])} /></Grid>
-                      <Grid item xs={6}><Field l="Extensión" v={pick(info, ['extension_telefono_trabajo', 'extension'])} /></Grid>
+                    <Grid container spacing={0.75}>
+                      <Grid item xs={3}><Field l="Teléfono celular" v={pick(info, ['telefono_celular', 'celular', 'telefono'])} /></Grid>
+                      <Grid item xs={3}><Field l="Teléfono casa" v={pick(info, ['telefono_casa', 'casa'])} /></Grid>
+                      <Grid item xs={3}><Field l="Teléfono trabajo" v={pick(info, ['telefono_trabajo', 'trabajo'])} /></Grid>
+                      <Grid item xs={3}><Field l="Extensión" v={pick(info, ['extension_telefono_trabajo', 'extension'])} /></Grid>
                     </Grid>
                     <Divider />
                     <Typography sx={{ fontWeight: 700, fontSize: 12.5 }}>Referencias</Typography>
-                    <Grid container spacing={1}>
-                      <Grid item xs={6}><Field l="Nombre" v={pick(info, ['nombre_referencia', 'referencia', 'referencia_nombre'])} /></Grid>
-                      <Grid item xs={6}><Field l="Teléfono 1" v={pick(info, ['telefono_referencia_1', 'referencia_telefono_1'])} /></Grid>
-                      <Grid item xs={6}><Field l="Teléfono 2" v={pick(info, ['telefono_referencia_2', 'referencia_telefono_2'])} /></Grid>
+                    <Grid container spacing={0.75}>
+                      <Grid item xs={4}><Field l="Nombre" v={pick(info, ['nombre_referencia', 'referencia', 'referencia_nombre'])} /></Grid>
+                      <Grid item xs={4}><Field l="Teléfono 1" v={pick(info, ['telefono_referencia_1', 'referencia_telefono_1'])} /></Grid>
+                      <Grid item xs={4}><Field l="Teléfono 2" v={pick(info, ['telefono_referencia_2', 'referencia_telefono_2'])} /></Grid>
                     </Grid>
                     <Divider />
                     <Typography sx={{ fontWeight: 700, fontSize: 12.5 }}>Gestión asignada</Typography>
-                    <Grid container spacing={1}>
-                      <Grid item xs={6}><Field l="Gerente de zona" v={pick(info, ['gerente_zona'])} /><Field l="Contacto gerente" v={pick(info, ['contacto_gerente', 'telefono_gerente'])} /></Grid>
-                      <Grid item xs={6}><Field l="Gestor" v={pick(info, ['gestor'])} /></Grid>
+                    <Grid container spacing={0.75}>
+                      <Grid item xs={4}><Field l="Gerente de zona" v={pick(info, ['gerente_zona'])} /></Grid>
+                      <Grid item xs={4}><Field l="Contacto gerente" v={pick(info, ['contacto_gerente', 'telefono_gerente'])} /></Grid>
+                      <Grid item xs={4}><Field l="Gestor" v={pick(info, ['gestor'])} /></Grid>
                     </Grid>
                   </Stack>
                 )}
@@ -468,33 +479,54 @@ const GestionPage = () => {
 
               <Divider />
 
-              <Stack spacing={1}>
+              {/* Detalle de cuenta: datos de la propia fila (cartera) + último estado ya
+                  cargado por la tabla (getEstadoCuentas), sin ninguna consulta nueva. */}
+              <Stack spacing={0.75}>
                 <Typography sx={{ fontWeight: 800, fontSize: 14 }}>Detalle</Typography>
+                <Grid container spacing={0.75}>
+                  <Grid item xs={3}><Field l="Cuenta" v={cod} /></Grid>
+                  <Grid item xs={3}><Field l="PD" v={cobroPD} /></Grid>
+                  <Grid item xs={3}><Field l="País" v={str(panel?.pais) || 'No disponible'} /></Grid>
+                  <Grid item xs={3}><Field l="Zona" v={str(panel?.zona) || 'No disponible'} /></Grid>
+                  <Grid item xs={3}><Field l="Saldo local" v={money(Number(str(panel?.saldo_actual)))} /></Grid>
+                  <Grid item xs={3}><Field l="Saldo USD" v={money(Number(str(panel?.saldo_actual_usd)))} /></Grid>
+                  <Grid item xs={3}><Field l="Campaña" v={str(panel?.campania_adeuda) || 'No disponible'} /></Grid>
+                  <Grid item xs={3}><Field l="Moneda" v={monedaCuenta} /></Grid>
+                  <Grid item xs={3}><Field l="Última tipificación" v={estado[cod]?.ultimaTipificacion || 'No disponible'} /></Grid>
+                </Grid>
+              </Stack>
+            </Stack>
+
+            {/* ===== Columna derecha: Historial de gestión + Gestión ===== */}
+            <Stack spacing={1}>
+              <Stack spacing={0.75}>
+                <Typography sx={{ fontWeight: 800, fontSize: 14 }}>Historial de gestión</Typography>
                 {!detalle ? <CircularProgress size={22} /> : (
-                  <Stack spacing={1}>
+                  <Stack spacing={0.75}>
                     {promVigente && (
-                      <Alert severity="info" sx={{ py: 0.25 }}>
+                      <Alert severity="info" sx={{ py: 0.25, fontSize: 11.5, '& .MuiAlert-message': { fontSize: 11.5 } }}>
                         Promesa: <strong>{str(promVigente.fecha_promesa)}</strong> · Monto {str(promVigente.monto) || '—'} · Estado {str(promVigente.estado)}
                       </Alert>
                     )}
-                    <Typography sx={{ fontWeight: 700, fontSize: 12.5 }}>Historial de gestión</Typography>
-                    {/* Único elemento con alto acotado: el historial puede crecer sin
-                        límite (una fila por gestión histórica). Se prioriza mostrar
-                        TODO el historial (nunca recortarlo) sobre eliminar el scroll
-                        aquí — el resto del modal no tiene ningún scroll interno. */}
-                    <TableContainer sx={{ maxHeight: 230 }}>
-                      <Table stickyHeader size="small">
-                        <TableHead><TableRow>{['Tipificación', 'Fecha', 'Gestor', 'Tipo contacto', 'Canal', 'Observación'].map((h) => <TableCell key={h} sx={{ fontWeight: 700, fontSize: 11 }}>{h}</TableCell>)}</TableRow></TableHead>
+                    {/* Sin scroll interno propio ni tope de alto: filas compactas (fontSize
+                        11) para que quepan en el flujo normal de la columna. Nunca se
+                        recortan registros — se muestra el historial completo. */}
+                    <TableContainer>
+                      <Table size="small">
+                        <TableHead><TableRow>{['Tipificación', 'Fecha', 'Gestor', 'Contacto', 'Canal', 'Observación'].map((h) => <TableCell key={h} sx={{ fontWeight: 700, fontSize: 10.5, py: 0.25 }}>{h}</TableCell>)}</TableRow></TableHead>
                         <TableBody>
-                          {detalle.historial.length === 0 && <TableRow><TableCell colSpan={6} align="center" sx={{ py: 2, color: 'text.secondary' }}>Sin gestiones.</TableCell></TableRow>}
+                          {detalle.historial.length === 0 && <TableRow><TableCell colSpan={6} align="center" sx={{ py: 0.75, fontSize: 11.5, color: 'text.secondary' }}>Sin gestiones.</TableCell></TableRow>}
                           {detalle.historial.map((h, i) => (
                             <TableRow key={i}>
-                              <TableCell sx={{ fontSize: 12 }}>{str(h.tipificacion)}</TableCell>
-                              <TableCell sx={{ fontSize: 12, whiteSpace: 'nowrap' }}>{str(h.created_at).slice(0, 16).replace('T', ' ')}</TableCell>
-                              <TableCell sx={{ fontSize: 12 }}>{str(h.gestor_id) || 'No disponible'}</TableCell>
-                              <TableCell sx={{ fontSize: 12 }}>{str(h.tipo_contacto) || 'No disponible'}</TableCell>
-                              <TableCell sx={{ fontSize: 12 }}>{str(h.canal) || 'No disponible'}</TableCell>
-                              <TableCell sx={{ fontSize: 12 }}>{str(h.comentario) || '—'}</TableCell>
+                              <TableCell sx={{ fontSize: 11, py: 0.25 }}>{str(h.tipificacion)}</TableCell>
+                              <TableCell sx={{ fontSize: 11, py: 0.25, whiteSpace: 'nowrap' }}>{str(h.created_at).slice(0, 16).replace('T', ' ')}</TableCell>
+                              <TableCell sx={{ fontSize: 11, py: 0.25 }}>{str(h.gestor_id) || 'No disponible'}</TableCell>
+                              <TableCell sx={{ fontSize: 11, py: 0.25 }}>{str(h.tipo_contacto) || 'No disponible'}</TableCell>
+                              <TableCell sx={{ fontSize: 11, py: 0.25 }}>{str(h.canal) || 'No disponible'}</TableCell>
+                              {/* Observación: texto completo disponible al pasar el cursor
+                                  (title) — nunca se elimina, solo se recorta visualmente a 1
+                                  línea para que el historial no dispare la altura de la fila. */}
+                              <TableCell title={str(h.comentario) || undefined} sx={{ fontSize: 11, py: 0.25, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{str(h.comentario) || '—'}</TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
@@ -503,61 +535,63 @@ const GestionPage = () => {
                   </Stack>
                 )}
               </Stack>
-            </Stack>
 
-            {/* ===== Columna derecha: Gestión ===== */}
-            <Stack spacing={1.25}>
-              <Typography sx={{ fontWeight: 800, fontSize: 14 }}>Gestión</Typography>
-              <Stack direction="row" spacing={1.5}>
-                <TextField select label="Tipo de contacto" value={gForm.tipoContacto} onChange={(e) => setGForm({ ...gForm, tipoContacto: e.target.value })} size="small" fullWidth>
-                  {catTC.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
-                </TextField>
-                <TextField select label="Canal" value={gForm.canal} onChange={(e) => setGForm({ ...gForm, canal: e.target.value })} size="small" fullWidth>
-                  {catCanal.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
-                </TextField>
-              </Stack>
               <Divider />
-              <Typography sx={{ fontWeight: 700, fontSize: 12.5 }}>Tipificación *</Typography>
-              <TextField select label="Tipificación" value={gForm.tip} onChange={(e) => setGForm({ ...gForm, tip: e.target.value })} size="small" fullWidth>
-                {catTip.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
-              </TextField>
-              <TextField label="Comentario" value={gForm.tipCom} onChange={(e) => setGForm({ ...gForm, tipCom: e.target.value })} size="small" fullWidth multiline minRows={2} />
 
-              {/* Promesa de pago: solo si la tipificación es PROMESA DE PAGO; fecha y monto obligatorios en moneda local */}
-              {esPromesa && (
-                <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2 }}>
-                  <Typography sx={{ fontWeight: 700, fontSize: 12.5, mb: 1 }}>Promesa de pago (obligatoria)</Typography>
-                  <Stack direction="row" spacing={1.5}>
-                    <TextField label="Fecha de promesa" type="date" required value={gForm.fechaProm} onChange={(e) => setGForm({ ...gForm, fechaProm: e.target.value })} size="small" fullWidth InputLabelProps={{ shrink: true }} error={!gForm.fechaProm} />
-                    <TextField label={`Monto (${monedaCuenta})`} type="number" required value={gForm.montoProm} onChange={(e) => setGForm({ ...gForm, montoProm: e.target.value })} size="small" fullWidth
-                      error={Boolean(gForm.montoProm) && !(montoPromNum > 0)}
-                      helperText={Boolean(gForm.montoProm) && !(montoPromNum > 0) ? 'El monto debe ser mayor que 0.' : `Se registra en moneda local: ${monedaCuenta}`}
-                      InputProps={{ inputProps: { min: 0, step: '0.01' } }} />
+              <Stack spacing={0.5}>
+                <Typography sx={{ fontWeight: 800, fontSize: 13 }}>Gestión</Typography>
+                <Stack direction="row" spacing={1.25}>
+                  <TextField select label="Tipo de contacto" value={gForm.tipoContacto} onChange={(e) => setGForm({ ...gForm, tipoContacto: e.target.value })} size="small" fullWidth InputLabelProps={{ sx: { fontSize: 12 } }} InputProps={{ sx: { fontSize: 12 } }}>
+                    {catTC.map((t) => <MenuItem key={t} value={t} sx={{ fontSize: 12 }}>{t}</MenuItem>)}
+                  </TextField>
+                  <TextField select label="Canal" value={gForm.canal} onChange={(e) => setGForm({ ...gForm, canal: e.target.value })} size="small" fullWidth InputLabelProps={{ sx: { fontSize: 12 } }} InputProps={{ sx: { fontSize: 12 } }}>
+                    {catCanal.map((t) => <MenuItem key={t} value={t} sx={{ fontSize: 12 }}>{t}</MenuItem>)}
+                  </TextField>
+                </Stack>
+                <Divider />
+                <Typography sx={{ fontWeight: 700, fontSize: 11.5 }}>Tipificación *</Typography>
+                <TextField select label="Tipificación" value={gForm.tip} onChange={(e) => setGForm({ ...gForm, tip: e.target.value })} size="small" fullWidth InputLabelProps={{ sx: { fontSize: 12 } }} InputProps={{ sx: { fontSize: 12 } }}>
+                  {catTip.map((t) => <MenuItem key={t} value={t} sx={{ fontSize: 12 }}>{t}</MenuItem>)}
+                </TextField>
+                <TextField label="Comentario" value={gForm.tipCom} onChange={(e) => setGForm({ ...gForm, tipCom: e.target.value })} size="small" fullWidth multiline minRows={1} InputLabelProps={{ sx: { fontSize: 12 } }} InputProps={{ sx: { fontSize: 12 } }} />
+
+                {/* Promesa de pago: solo si la tipificación es PROMESA DE PAGO; fecha y monto obligatorios en moneda local */}
+                {esPromesa && (
+                  <Paper variant="outlined" sx={{ p: 0.75, borderRadius: 2 }}>
+                    <Typography sx={{ fontWeight: 700, fontSize: 11.5, mb: 0.5 }}>Promesa de pago (obligatoria)</Typography>
+                    <Stack direction="row" spacing={1.25}>
+                      <TextField label="Fecha de promesa" type="date" required value={gForm.fechaProm} onChange={(e) => setGForm({ ...gForm, fechaProm: e.target.value })} size="small" fullWidth InputLabelProps={{ shrink: true, sx: { fontSize: 12 } }} InputProps={{ sx: { fontSize: 12 } }} error={!gForm.fechaProm} />
+                      <TextField label={`Monto (${monedaCuenta})`} type="number" required value={gForm.montoProm} onChange={(e) => setGForm({ ...gForm, montoProm: e.target.value })} size="small" fullWidth
+                        error={Boolean(gForm.montoProm) && !(montoPromNum > 0)}
+                        helperText={Boolean(gForm.montoProm) && !(montoPromNum > 0) ? 'El monto debe ser mayor que 0.' : `Moneda local: ${monedaCuenta}`}
+                        FormHelperTextProps={{ sx: { fontSize: 10 } }}
+                        InputLabelProps={{ sx: { fontSize: 12 } }} InputProps={{ sx: { fontSize: 12 }, inputProps: { min: 0, step: '0.01' } }} />
+                    </Stack>
+                  </Paper>
+                )}
+                <Button variant="contained" size="small" disabled={!canGestionar || busy || !gForm.tip || !promesaValida || (esPromesa && !canPromesa)} onClick={registrarGestion} sx={{ textTransform: 'none', fontSize: 12 }}>Registrar gestión{esPromesa ? ' + promesa' : ''}</Button>
+
+                <Divider />
+                {/* Carta y Adjunto, lado a lado: mismo contenido/acciones que antes,
+                    solo compactados en dos sub-columnas para evitar scroll vertical. */}
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.25 }}>
+                  <Stack spacing={0.5}>
+                    <Typography sx={{ fontWeight: 700, fontSize: 11.5 }}>Carta (opcional)</Typography>
+                    <TextField select label="Tipo de carta" value={gForm.cartaTipo} onChange={(e) => setGForm({ ...gForm, cartaTipo: e.target.value })} size="small" fullWidth InputLabelProps={{ sx: { fontSize: 12 } }} InputProps={{ sx: { fontSize: 12 } }}>
+                      {['Carta de cobro', 'Carta de acuerdo de pago'].map((t) => <MenuItem key={t} value={t} sx={{ fontSize: 12 }}>{t}</MenuItem>)}
+                    </TextField>
+                    <Button variant="outlined" size="small" disabled={!canCarta || busy} onClick={() => setCartaPrev({ tipo: gForm.cartaTipo, contenido: contenidoCarta(gForm.cartaTipo) })} sx={{ textTransform: 'none', fontSize: 11.5 }}>Generar carta (vista previa)</Button>
                   </Stack>
-                </Paper>
-              )}
-              <Button variant="contained" disabled={!canGestionar || busy || !gForm.tip || !promesaValida || (esPromesa && !canPromesa)} onClick={registrarGestion} sx={{ textTransform: 'none' }}>Registrar gestión{esPromesa ? ' + promesa' : ''}</Button>
-
-              <Divider />
-              {/* Carta y Adjunto, lado a lado: mismo contenido/acciones que antes,
-                  solo compactados en dos sub-columnas para evitar scroll vertical. */}
-              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
-                <Stack spacing={1}>
-                  <Typography sx={{ fontWeight: 700, fontSize: 12.5 }}>Carta (opcional)</Typography>
-                  <TextField select label="Tipo de carta" value={gForm.cartaTipo} onChange={(e) => setGForm({ ...gForm, cartaTipo: e.target.value })} size="small" fullWidth>
-                    {['Carta de cobro', 'Carta de acuerdo de pago'].map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
-                  </TextField>
-                  <Button variant="outlined" size="small" disabled={!canCarta || busy} onClick={() => setCartaPrev({ tipo: gForm.cartaTipo, contenido: contenidoCarta(gForm.cartaTipo) })} sx={{ textTransform: 'none' }}>Generar carta (vista previa)</Button>
-                </Stack>
-                <Stack spacing={1}>
-                  <Typography sx={{ fontWeight: 700, fontSize: 12.5 }}>Adjunto (opcional)</Typography>
-                  <TextField select label="Tipo de documento" value={gForm.adjTipo} onChange={(e) => setGForm({ ...gForm, adjTipo: e.target.value })} size="small" fullWidth>
-                    {['Carta recibida por la representante', 'Boleta de pago', 'Acuerdo de pago', 'Otro documento'].map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
-                  </TextField>
-                  <Button variant="outlined" size="small" component="label" sx={{ textTransform: 'none' }}>{adjFile ? adjFile.name : 'Seleccionar archivo'}<input hidden type="file" onChange={(e) => setAdjFile(e.target.files?.[0] ?? null)} /></Button>
-                  <Button variant="outlined" size="small" disabled={!canAdjunto || busy || !adjFile} onClick={() => adjFile && accion(() => subirAdjunto(cod, gForm.adjTipo, adjFile), 'Adjunto subido.')} sx={{ textTransform: 'none' }}>Subir adjunto</Button>
-                </Stack>
-              </Box>
+                  <Stack spacing={0.5}>
+                    <Typography sx={{ fontWeight: 700, fontSize: 11.5 }}>Adjunto (opcional)</Typography>
+                    <TextField select label="Tipo de documento" value={gForm.adjTipo} onChange={(e) => setGForm({ ...gForm, adjTipo: e.target.value })} size="small" fullWidth InputLabelProps={{ sx: { fontSize: 12 } }} InputProps={{ sx: { fontSize: 12 } }}>
+                      {['Carta recibida por la representante', 'Boleta de pago', 'Acuerdo de pago', 'Otro documento'].map((t) => <MenuItem key={t} value={t} sx={{ fontSize: 12 }}>{t}</MenuItem>)}
+                    </TextField>
+                    <Button variant="outlined" size="small" component="label" sx={{ textTransform: 'none', fontSize: 11.5 }}>{adjFile ? adjFile.name : 'Seleccionar archivo'}<input hidden type="file" onChange={(e) => setAdjFile(e.target.files?.[0] ?? null)} /></Button>
+                    <Button variant="outlined" size="small" disabled={!canAdjunto || busy || !adjFile} onClick={() => adjFile && accion(() => subirAdjunto(cod, gForm.adjTipo, adjFile), 'Adjunto subido.')} sx={{ textTransform: 'none', fontSize: 11.5 }}>Subir adjunto</Button>
+                  </Stack>
+                </Box>
+              </Stack>
             </Stack>
           </Box>
         </DialogContent>
