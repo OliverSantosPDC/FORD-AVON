@@ -5,6 +5,7 @@ import AppRoutes from './routes/AppRoutes';
 import ThemeProviderWrapper from './theme/ThemeProviderWrapper';
 import { LanguageProvider } from './i18n/LanguageProvider';
 import { AuthProvider } from './context/AuthContext';
+import { BrandingProvider } from './context/BrandingContext';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import './index.css';
 
@@ -14,9 +15,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <ThemeProviderWrapper>
         <BrowserRouter>
           <AuthProvider>
-            <ErrorBoundary>
-              <AppRoutes />
-            </ErrorBoundary>
+            <BrandingProvider>
+              <ErrorBoundary>
+                <AppRoutes />
+              </ErrorBoundary>
+            </BrandingProvider>
           </AuthProvider>
         </BrowserRouter>
       </ThemeProviderWrapper>

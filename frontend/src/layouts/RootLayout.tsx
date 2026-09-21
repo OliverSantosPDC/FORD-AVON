@@ -32,6 +32,7 @@ import LogoutIcon from '@mui/icons-material/Logout';
 import { useThemeMode } from '../theme/ThemeProviderWrapper';
 import { useI18n } from '../i18n/LanguageProvider';
 import { useAuth } from '../context/AuthContext';
+import { useBranding } from '../context/BrandingContext';
 import pdcLogo from '../assets/branding/pdc-logo.svg';
 import avonLogo from '../assets/branding/avon-logo.svg';
 
@@ -51,6 +52,15 @@ const RootLayout = () => {
   const { mode, toggleMode } = useThemeMode();
   const { lang, setLang, t } = useI18n();
   const { user, role, hasPermission, logout } = useAuth();
+  // Logo principal configurado (Configuración > General > Logos): fuente única
+  // para Sidebar/Header. Si no hay ninguno configurado, o si la URL firmada
+  // falla al cargar (expiró / Storage no disponible), cae al SVG estático
+  // — la app NUNCA se queda sin logo. El logo de AVON (marca del cliente,
+  // sin campo propio en Configuración) permanece estático, sin cambios.
+  const { logoPrincipalUrl } = useBranding();
+  const [logoPrincipalError, setLogoPrincipalError] = useState(false);
+  useEffect(() => { setLogoPrincipalError(false); }, [logoPrincipalUrl]);
+  const logoPrincipalSrc = logoPrincipalUrl && !logoPrincipalError ? logoPrincipalUrl : pdcLogo;
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [time, setTime] = useState(() => new Date());
   const location = useLocation();
@@ -134,7 +144,7 @@ const RootLayout = () => {
         <Toolbar sx={{ px: 1, py: 1.25, minHeight: 52, display: 'flex', alignItems: 'center', justifyContent: sidebarCollapsed ? 'center' : 'space-between', gap: 0.5 }}>
           {!sidebarCollapsed && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Box component="img" src={pdcLogo} alt="Logo PDC" sx={{ width: 54, height: 16 }} />
+              <Box component="img" src={logoPrincipalSrc} alt="Logo principal" onError={() => setLogoPrincipalError(true)} sx={{ width: 54, height: 16, objectFit: 'contain' }} />
               <Box component="img" src={avonLogo} alt="Logo AVON" sx={{ width: 54, height: 16 }} />
             </Box>
           )}
@@ -196,7 +206,7 @@ const RootLayout = () => {
               </IconButton>
             </Tooltip>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, px: 1.25, py: 0.5, borderRadius: 3, bgcolor: mode === 'light' ? 'rgba(30, 58, 138, 0.08)' : 'rgba(255, 255, 255, 0.06)', transition: 'background-color 220ms ease-in-out' }}>
-              <Box component="img" src={pdcLogo} alt="Logo PDC" sx={{ width: 68, height: 19 }} />
+              <Box component="img" src={logoPrincipalSrc} alt="Logo principal" onError={() => setLogoPrincipalError(true)} sx={{ width: 68, height: 19, objectFit: 'contain' }} />
               <Divider orientation="vertical" flexItem sx={{ borderColor: mode === 'light' ? '#D1D5DB' : '#17233F' }} />
               <Box component="img" src={avonLogo} alt="Logo AVON" sx={{ width: 68, height: 19 }} />
             </Box>

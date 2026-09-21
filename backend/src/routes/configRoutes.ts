@@ -36,7 +36,11 @@ router.get('/configuracion/plantillas/:clave/descargar', requireAuth, requirePer
 router.post('/configuracion/plantillas/:clave', requireAuth, requirePermission(EDIT), upload.single('file'), (req, res) => c.subirPlantilla(req, res));
 
 router.get('/configuracion/auditoria', requireAuth, requirePermission(VER), (req, res) => c.auditoria(req, res));
-router.get('/configuracion/assets/:clave/url', requireAuth, requirePermission(VER), (req, res) => c.urlAsset(req, res));
+// Sin requirePermission(VER) a propósito: logo_principal se resuelve desde el
+// Sidebar/Header para CUALQUIER usuario autenticado (no solo quienes tienen
+// acceso al módulo Configuración) — mostrar un logo ya configurado no es una
+// operación sensible; solo cambiarlo (POST más abajo) sigue exigiendo EDIT.
+router.get('/configuracion/assets/:clave/url', requireAuth, (req, res) => c.urlAsset(req, res));
 router.post('/configuracion/assets/:clave', requireAuth, requirePermission(EDIT), upload.single('file'), (req, res) => c.subirAsset(req, res));
 
 export default router;

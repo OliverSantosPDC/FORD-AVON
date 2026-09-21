@@ -14,6 +14,7 @@ import controlRoutes from './routes/controlRoutes';
 import catalogosRoutes from './routes/catalogosRoutes';
 import inteligenciaRoutes from './routes/inteligenciaRoutes';
 import asignacionRoutes from './routes/asignacionRoutes';
+import brandingRoutes from './routes/brandingRoutes';
 
 const app = express();
 const port = process.env.PORT ?? 4000;
@@ -51,6 +52,7 @@ app.use(express.json());
 // Auth (protegida). Dashboard/cartera/inteligencia siguen SIN protección en esta
 // fase para no romper el dashboard actual; el alcance se aplicará en la siguiente.
 app.use('/api', authRoutes);
+app.use('/api', brandingRoutes);
 app.use('/api', usuariosRoutes);
 app.use('/api', calendarRoutes);
 app.use('/api', infoRoutes);

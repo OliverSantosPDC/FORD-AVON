@@ -21,11 +21,17 @@ import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { useAuth } from '../../context/AuthContext';
+import { useBranding } from '../../context/BrandingContext';
 import { requestPasswordChange } from '../../services/usuariosService';
 
 const LoginPage = () => {
   const navigate = useNavigate();
   const { login } = useAuth();
+  // Logo Login configurado (Configuración > General > Logos): si no hay
+  // ninguno, o si la imagen falla al cargar, se conserva el diseño actual
+  // (círculo + ícono de candado) tal cual — nunca una pantalla rota.
+  const { logoLoginUrl } = useBranding();
+  const [logoLoginError, setLogoLoginError] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -81,9 +87,19 @@ const LoginPage = () => {
     >
       <Paper sx={{ p: { xs: 3, sm: 4 }, width: '100%', maxWidth: 400, borderRadius: 3, boxShadow: '0 24px 70px rgba(0,0,0,0.4)' }}>
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 3 }}>
-          <Box sx={{ width: 48, height: 48, borderRadius: 2, display: 'grid', placeItems: 'center', bgcolor: 'rgba(230,0,126,0.12)', color: '#E6007E', mb: 1.5 }}>
-            <LockOutlinedIcon />
-          </Box>
+          {logoLoginUrl && !logoLoginError ? (
+            <Box
+              component="img"
+              src={logoLoginUrl}
+              alt="Logo"
+              onError={() => setLogoLoginError(true)}
+              sx={{ width: 48, height: 48, objectFit: 'contain', borderRadius: 2, mb: 1.5 }}
+            />
+          ) : (
+            <Box sx={{ width: 48, height: 48, borderRadius: 2, display: 'grid', placeItems: 'center', bgcolor: 'rgba(230,0,126,0.12)', color: '#E6007E', mb: 1.5 }}>
+              <LockOutlinedIcon />
+            </Box>
+          )}
           <Typography sx={{ fontSize: 22, fontWeight: 800, letterSpacing: 0.5 }}>FORD-AVON</Typography>
           <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>Plataforma de gestión de cobranza</Typography>
         </Box>

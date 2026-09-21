@@ -10,6 +10,7 @@ import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import { TablePagination } from '@mui/material';
 import { useAuth } from '../../context/AuthContext';
+import { useBranding } from '../../context/BrandingContext';
 import { exportRowsToCsv, exportRowsToExcel } from '../../utils/tableExport';
 import { MODULES } from '../../config/modules';
 import UsuariosPage from '../Usuarios';
@@ -95,6 +96,7 @@ const ConfiguracionPage = () => {
   const { hasPermission } = useAuth();
   const canEdit = hasPermission('configuracion.editar');
   const canUsuarios = hasPermission('modulo.usuarios');
+  const { refresh: refreshBranding } = useBranding();
   const [tab, setTab] = useState(0);
   // Deep-link de pestaña desde la navegación (?tab=N). Compatibilidad con la ruta actual.
   const [searchParams] = useSearchParams();
@@ -172,8 +174,18 @@ const ConfiguracionPage = () => {
     // genérico — no solo png/jpg): el backend vuelve a validar el contentType
     // real del archivo, esta es solo una respuesta inmediata sin ida y vuelta.
     if (!file.type.startsWith('image/')) { setToast('El archivo debe ser una imagen (PNG, JPG, GIF, WEBP, SVG, etc.).'); return; }
-    try { await subirAsset(clave, file); setGeneral2(await getGeneral()); setToast('Imagen subida.'); }
-    catch (e) { setToast(e instanceof Error ? e.message : 'Error.'); }
+    try {
+      await subirAsset(clave, file);
+      setGeneral2(await getGeneral());
+      // logo_principal/logo_login/favicon alimentan Sidebar/Header/Login/favicon
+      // globalmente (BrandingContext): refrescar ahí también, no solo el estado
+      // local de esta página, para que el resto de la app use el nuevo asset
+      // sin esperar a un F5. Fondos de Apariencia no lo necesitan (no los usa
+      // BrandingContext); refrescar de más ahí es inofensivo, solo repite la
+      // misma llamada pública/autenticada ya barata.
+      if (clave === 'logo_principal' || clave === 'logo_login' || clave === 'favicon') refreshBranding();
+      setToast('Imagen subida.');
+    } catch (e) { setToast(e instanceof Error ? e.message : 'Error.'); }
   };
 
   const recargarCat = async () => setCatalogos(await getCatalogos());
