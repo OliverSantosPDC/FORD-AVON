@@ -32,6 +32,8 @@ const CAT_LABEL: Record<string, string> = {
   tipos_adjunto: 'Tipos de adjuntos', motivos_aprobacion: 'Motivos de aprobación', motivos_rechazo: 'Motivos de rechazo'
 };
 const VAR_TIPOS = ['texto', 'numero', 'booleano', 'fecha', 'json'];
+/** Claves resueltas por BrandingContext (Sidebar/Header/Login/favicon/fondos): ver uploadAsset(). */
+const BRANDING_CLAVES = new Set(['logo_principal', 'logo_login', 'favicon', 'fondo_login', 'fondo_principal', 'fondo_dashboard']);
 
 /**
  * Subida + previsualización real de un asset de imagen (logo/favicon/fondo).
@@ -177,13 +179,11 @@ const ConfiguracionPage = () => {
     try {
       await subirAsset(clave, file);
       setGeneral2(await getGeneral());
-      // logo_principal/logo_login/favicon alimentan Sidebar/Header/Login/favicon
-      // globalmente (BrandingContext): refrescar ahí también, no solo el estado
-      // local de esta página, para que el resto de la app use el nuevo asset
-      // sin esperar a un F5. Fondos de Apariencia no lo necesitan (no los usa
-      // BrandingContext); refrescar de más ahí es inofensivo, solo repite la
-      // misma llamada pública/autenticada ya barata.
-      if (clave === 'logo_principal' || clave === 'logo_login' || clave === 'favicon') refreshBranding();
+      // logo_principal/logo_login/favicon/fondo_login/fondo_principal/fondo_dashboard
+      // alimentan Sidebar/Header/Login/favicon/fondos globalmente (BrandingContext):
+      // refrescar ahí también, no solo el estado local de esta página, para que el
+      // resto de la app use el nuevo asset sin esperar a un F5.
+      if (BRANDING_CLAVES.has(clave)) refreshBranding();
       setToast('Imagen subida.');
     } catch (e) { setToast(e instanceof Error ? e.message : 'Error.'); }
   };

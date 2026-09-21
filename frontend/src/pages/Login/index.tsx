@@ -22,16 +22,23 @@ import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { useAuth } from '../../context/AuthContext';
 import { useBranding } from '../../context/BrandingContext';
+import { useLoadedBackgroundUrl } from '../../hooks/useLoadedBackgroundUrl';
 import { requestPasswordChange } from '../../services/usuariosService';
+
+const LOGIN_FALLBACK_BACKGROUND = 'linear-gradient(135deg, #0F172A 0%, #1E3A8A 100%)';
 
 const LoginPage = () => {
   const navigate = useNavigate();
   const { login } = useAuth();
-  // Logo Login configurado (Configuración > General > Logos): si no hay
-  // ninguno, o si la imagen falla al cargar, se conserva el diseño actual
-  // (círculo + ícono de candado) tal cual — nunca una pantalla rota.
-  const { logoLoginUrl } = useBranding();
+  // Logo Login / Fondo Login configurados (Configuración > General > Logos /
+  // Apariencia > Fondos): si no hay ninguno, o si la imagen falla al cargar,
+  // se conserva el diseño actual (círculo + ícono de candado, degradado de
+  // fondo) tal cual — nunca una pantalla rota.
+  const { logoLoginUrl, fondoLoginUrl } = useBranding();
   const [logoLoginError, setLogoLoginError] = useState(false);
+  // background-image no dispara onError: se precarga con <img> oculto (el
+  // hook) y solo se usa una vez confirmado que carga.
+  const fondoLoginLoaded = useLoadedBackgroundUrl(fondoLoginUrl);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -82,7 +89,9 @@ const LoginPage = () => {
         alignItems: 'center',
         justifyContent: 'center',
         p: 2,
-        background: 'linear-gradient(135deg, #0F172A 0%, #1E3A8A 100%)'
+        ...(fondoLoginLoaded
+          ? { backgroundImage: `url(${fondoLoginLoaded})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' }
+          : { background: LOGIN_FALLBACK_BACKGROUND })
       }}
     >
       <Paper sx={{ p: { xs: 3, sm: 4 }, width: '100%', maxWidth: 400, borderRadius: 3, boxShadow: '0 24px 70px rgba(0,0,0,0.4)' }}>

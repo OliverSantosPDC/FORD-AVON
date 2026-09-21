@@ -2,19 +2,23 @@
 
 /**
  * Integración Configuración → aplicación (Logo principal, Logo Login,
- * Favicon): valida los DOS puntos de entrada reales que usa el frontend
+ * Favicon, y Fondos de Apariencia: Fondo Login, Fondo principal, Fondo
+ * Dashboard): valida los DOS puntos de entrada reales que usa el frontend
  * para resolver estos assets, no solo la función de servicio subyacente
  * (esa ya está cubierta en config-assets-imagenes.test.cjs).
  *
  *  - GET /api/branding (brandingRoutes, público, sin sesión): usado por
- *    Login y por el <link rel="icon"> del navegador. Se invoca el handler
- *    real extraído del Router (mismo código que corre en producción), no
- *    una reimplementación.
+ *    Login (Logo Login + Fondo Login) y por el <link rel="icon"> del
+ *    navegador (Favicon). Se invoca el handler real extraído del Router
+ *    (mismo código que corre en producción), no una reimplementación.
  *  - GET /configuracion/assets/:clave/url (ConfigController.urlAsset):
- *    usado por el Sidebar/Header para logo_principal. Es la ruta cuyo
- *    permiso se relajó de 'configuracion.ver' a solo requireAuth — este
- *    archivo no re-verifica el middleware (eso es responsabilidad de
- *    configRoutes.ts/auth.ts), solo el comportamiento del handler.
+ *    usado por el Sidebar/Header para logo_principal, y por RootLayout/
+ *    Dashboard para fondo_principal/fondo_dashboard (mismo endpoint
+ *    genérico por clave, sin cambios de backend adicionales para los
+ *    fondos). Es la ruta cuyo permiso se relajó de 'configuracion.ver' a
+ *    solo requireAuth — este archivo no re-verifica el middleware (eso es
+ *    responsabilidad de configRoutes.ts/auth.ts), solo el comportamiento
+ *    del handler.
  *
  * Cubre además el caso que config-assets-imagenes.test.cjs no cubre: una
  * clave CON path guardado en config_general pero cuyo archivo ya no existe
@@ -37,7 +41,10 @@ const db = {
   config_general: [
     { clave: 'logo_principal', valor: '', updated_at: null, updated_by: null },
     { clave: 'logo_login', valor: '', updated_at: null, updated_by: null },
-    { clave: 'favicon', valor: '', updated_at: null, updated_by: null }
+    { clave: 'favicon', valor: '', updated_at: null, updated_by: null },
+    { clave: 'fondo_login', valor: '', updated_at: null, updated_by: null },
+    { clave: 'fondo_principal', valor: '', updated_at: null, updated_by: null },
+    { clave: 'fondo_dashboard', valor: '', updated_at: null, updated_by: null }
   ]
 };
 /** Simula el bucket Storage `config-assets`: path -> { contentType, buffer }. */
@@ -125,28 +132,30 @@ function mockRes() {
   return res;
 }
 
-test('GET /api/branding: sin ninguna imagen configurada, responde { logoLogin: null, favicon: null } sin lanzar', async () => {
+test('GET /api/branding: sin ninguna imagen configurada, responde { logoLogin: null, favicon: null, fondoLogin: null } sin lanzar', async () => {
   const res = mockRes();
   await brandingHandler({}, res);
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.body, { logoLogin: null, favicon: null });
+  assert.deepEqual(res.body, { logoLogin: null, favicon: null, fondoLogin: null });
 });
 
-test('GET /api/branding: con logo_login y favicon configurados, resuelve ambas URLs reales', async () => {
+test('GET /api/branding: con logo_login, favicon y fondo_login configurados, resuelve las 3 URLs reales', async () => {
   const login = await subirAsset('logo_login', 'login.png', Buffer.from('x'), 'image/png', 'admin-1');
   const fav = await subirAsset('favicon', 'fav.png', Buffer.from('y'), 'image/png', 'admin-1');
+  const fondoLogin = await subirAsset('fondo_login', 'fondo-login.jpg', Buffer.from('bg'), 'image/jpeg', 'admin-1');
 
   const res = mockRes();
   await brandingHandler({}, res);
 
   assert.ok(res.body.logoLogin && res.body.logoLogin.includes(login.path), 'logoLogin debe apuntar al path recién guardado');
   assert.ok(res.body.favicon && res.body.favicon.includes(fav.path), 'favicon debe apuntar al path recién guardado');
+  assert.ok(res.body.fondoLogin && res.body.fondoLogin.includes(fondoLogin.path), 'fondoLogin debe apuntar al path recién guardado');
 });
 
-test('GET /api/branding: nunca expone logo_principal (solo logoLogin/favicon, ninguna clave arbitraria)', async () => {
+test('GET /api/branding: nunca expone logo_principal/fondo_principal/fondo_dashboard (solo logoLogin/favicon/fondoLogin)', async () => {
   const res = mockRes();
   await brandingHandler({}, res);
-  assert.deepEqual(Object.keys(res.body).sort(), ['favicon', 'logoLogin']);
+  assert.deepEqual(Object.keys(res.body).sort(), ['favicon', 'fondoLogin', 'logoLogin']);
 });
 
 test('GET /api/branding: si Storage falla al firmar la URL (expirada/no disponible), responde null en vez de lanzar', async () => {
@@ -155,7 +164,7 @@ test('GET /api/branding: si Storage falla al firmar la URL (expirada/no disponib
     const res = mockRes();
     await brandingHandler({}, res);
     assert.equal(res.statusCode, 200, 'debe responder 200 igual, nunca un 500 por esto');
-    assert.deepEqual(res.body, { logoLogin: null, favicon: null });
+    assert.deepEqual(res.body, { logoLogin: null, favicon: null, fondoLogin: null });
   } finally {
     signedUrlFalla = false;
   }
@@ -187,4 +196,33 @@ test('ConfigController.urlAsset: path guardado pero archivo ya no existe en Stor
   await controller.urlAsset({ params: { clave: 'logo_principal' } }, res);
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.body, { url: null });
+});
+
+test('ConfigController.urlAsset (usado por RootLayout para fondo_principal): resuelve la URL cuando está configurado', async () => {
+  const subida = await subirAsset('fondo_principal', 'fondo-principal.png', Buffer.from('fp'), 'image/png', 'admin-1');
+  const controller = new ConfigController();
+  const res = mockRes();
+  await controller.urlAsset({ params: { clave: 'fondo_principal' } }, res);
+  assert.equal(res.statusCode, 200);
+  assert.ok(res.body.url && res.body.url.includes(subida.path));
+});
+
+test('ConfigController.urlAsset (usado por Dashboard para fondo_dashboard): resuelve la URL cuando está configurado', async () => {
+  const subida = await subirAsset('fondo_dashboard', 'fondo-dashboard.webp', Buffer.from('fd'), 'image/webp', 'admin-1');
+  const controller = new ConfigController();
+  const res = mockRes();
+  await controller.urlAsset({ params: { clave: 'fondo_dashboard' } }, res);
+  assert.equal(res.statusCode, 200);
+  assert.ok(res.body.url && res.body.url.includes(subida.path));
+});
+
+test('ConfigController.urlAsset: fondo_principal y fondo_dashboard sin configurar responden { url: null } (fallback al fondo estático)', async () => {
+  const controller = new ConfigController();
+  const resFondoPrincipal = mockRes();
+  await controller.urlAsset({ params: { clave: 'fondo_principal_nunca_configurada' } }, resFondoPrincipal);
+  assert.deepEqual(resFondoPrincipal.body, { url: null });
+
+  const resFondoDashboard = mockRes();
+  await controller.urlAsset({ params: { clave: 'fondo_dashboard_nunca_configurada' } }, resFondoDashboard);
+  assert.deepEqual(resFondoDashboard.body, { url: null });
 });

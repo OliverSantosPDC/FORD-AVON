@@ -33,6 +33,7 @@ import { useThemeMode } from '../theme/ThemeProviderWrapper';
 import { useI18n } from '../i18n/LanguageProvider';
 import { useAuth } from '../context/AuthContext';
 import { useBranding } from '../context/BrandingContext';
+import { useLoadedBackgroundUrl } from '../hooks/useLoadedBackgroundUrl';
 import pdcLogo from '../assets/branding/pdc-logo.svg';
 import avonLogo from '../assets/branding/avon-logo.svg';
 
@@ -57,10 +58,15 @@ const RootLayout = () => {
   // falla al cargar (expiró / Storage no disponible), cae al SVG estático
   // — la app NUNCA se queda sin logo. El logo de AVON (marca del cliente,
   // sin campo propio en Configuración) permanece estático, sin cambios.
-  const { logoPrincipalUrl } = useBranding();
+  const { logoPrincipalUrl, fondoPrincipalUrl } = useBranding();
   const [logoPrincipalError, setLogoPrincipalError] = useState(false);
   useEffect(() => { setLogoPrincipalError(false); }, [logoPrincipalUrl]);
   const logoPrincipalSrc = logoPrincipalUrl && !logoPrincipalError ? logoPrincipalUrl : pdcLogo;
+  // Fondo principal configurado (Configuración > Apariencia > Fondos): fuente única
+  // para el shell de toda la app autenticada (detrás de AppBar/Sidebar/contenido en
+  // TODOS los módulos, no solo Dashboard). Sin configurar, o si falla al cargar, se
+  // conserva el fondo plano actual del tema (CssBaseline body, sin cambios).
+  const fondoPrincipalLoaded = useLoadedBackgroundUrl(fondoPrincipalUrl);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [time, setTime] = useState(() => new Date());
   const location = useLocation();
@@ -184,7 +190,17 @@ const RootLayout = () => {
   );
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', '--sidebar-width': `${drawerWidth}px` }}>
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: '100vh',
+        '--sidebar-width': `${drawerWidth}px`,
+        ...(fondoPrincipalLoaded
+          ? { backgroundImage: `url(${fondoPrincipalLoaded})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' }
+          : {})
+      }}
+    >
       <CssBaseline />
       <AppBar
         position="static"

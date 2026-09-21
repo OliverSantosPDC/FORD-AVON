@@ -5,16 +5,19 @@ import { useAuth } from './AuthContext';
 
 /**
  * Fuente única de verdad para los assets visuales configurables (Configuración
- * General > Logos): Logo principal (Sidebar/Header), Logo Login y Favicon.
- * `config_general` guarda solo el PATH de Storage — este provider es lo único
- * que lo resuelve a una URL firmada usable, y lo mantiene actualizado.
+ * General > Logos, Configuración > Apariencia > Fondos): Logo principal
+ * (Sidebar/Header), Logo Login, Favicon, Fondo Login, Fondo principal y Fondo
+ * Dashboard. `config_general` guarda solo el PATH de Storage — este provider
+ * es lo único que lo resuelve a una URL firmada usable, y lo mantiene
+ * actualizado.
  *
  * Dos fuentes distintas porque el Login se renderiza SIN sesión:
- *  - logoLoginUrl/faviconUrl: GET /api/branding (público, sin requireAuth) —
- *    disponibles incluso antes de iniciar sesión.
- *  - logoPrincipalUrl: GET /api/configuracion/assets/logo_principal/url
- *    (requiere sesión, pero NINGÚN permiso de Configuración) — solo tiene
- *    sentido una vez autenticado, que es cuando existe Sidebar/Header.
+ *  - logoLoginUrl/faviconUrl/fondoLoginUrl: GET /api/branding (público, sin
+ *    requireAuth) — disponibles incluso antes de iniciar sesión.
+ *  - logoPrincipalUrl/fondoPrincipalUrl/fondoDashboardUrl:
+ *    GET /api/configuracion/assets/:clave/url (requiere sesión, pero NINGÚN
+ *    permiso de Configuración) — solo tienen sentido una vez autenticado,
+ *    que es cuando existen Sidebar/Header/Dashboard.
  *
  * Las URLs firmadas expiran (1 h, ver ConfigService.urlAsset en el backend):
  * nunca se persisten, se vuelven a pedir periódicamente mientras la app sigue
@@ -24,8 +27,11 @@ interface BrandingState {
   logoPrincipalUrl: string | null;
   logoLoginUrl: string | null;
   faviconUrl: string | null;
+  fondoLoginUrl: string | null;
+  fondoPrincipalUrl: string | null;
+  fondoDashboardUrl: string | null;
   loading: boolean;
-  /** Vuelve a resolver las 3 URLs ya mismo (llamar tras subir un logo nuevo en Configuración). */
+  /** Vuelve a resolver todas las URLs ya mismo (llamar tras subir un asset nuevo en Configuración). */
   refresh: () => void;
 }
 
@@ -33,6 +39,9 @@ export const BrandingContext = createContext<BrandingState>({
   logoPrincipalUrl: null,
   logoLoginUrl: null,
   faviconUrl: null,
+  fondoLoginUrl: null,
+  fondoPrincipalUrl: null,
+  fondoDashboardUrl: null,
   loading: true,
   refresh: () => undefined
 });
@@ -47,7 +56,10 @@ export const BrandingProvider = ({ children }: { children: ReactNode }) => {
   const { isAuthenticated } = useAuth();
   const [logoLoginUrl, setLogoLoginUrl] = useState<string | null>(null);
   const [faviconUrl, setFaviconUrl] = useState<string | null>(null);
+  const [fondoLoginUrl, setFondoLoginUrl] = useState<string | null>(null);
   const [logoPrincipalUrl, setLogoPrincipalUrl] = useState<string | null>(null);
+  const [fondoPrincipalUrl, setFondoPrincipalUrl] = useState<string | null>(null);
+  const [fondoDashboardUrl, setFondoDashboardUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [version, setVersion] = useState(0);
   const refresh = useCallback(() => setVersion((v) => v + 1), []);
@@ -56,22 +68,29 @@ export const BrandingProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     let active = true;
     apiFetch('/api/branding', { cache: 'no-store' })
-      .then((r) => (r.ok ? r.json() : { logoLogin: null, favicon: null }))
-      .then((b: { logoLogin: string | null; favicon: string | null }) => {
+      .then((r) => (r.ok ? r.json() : { logoLogin: null, favicon: null, fondoLogin: null }))
+      .then((b: { logoLogin: string | null; favicon: string | null; fondoLogin: string | null }) => {
         if (!active) return;
         setLogoLoginUrl(b.logoLogin ?? null);
         setFaviconUrl(b.favicon ?? null);
+        setFondoLoginUrl(b.fondoLogin ?? null);
       })
-      .catch(() => { if (active) { setLogoLoginUrl(null); setFaviconUrl(null); } })
+      .catch(() => { if (active) { setLogoLoginUrl(null); setFaviconUrl(null); setFondoLoginUrl(null); } })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [version]);
 
-  // Autenticado (Sidebar/Header): solo tiene sentido pedirlo con sesión iniciada.
+  // Autenticado (Sidebar/Header/Dashboard): solo tiene sentido pedirlo con sesión iniciada.
   useEffect(() => {
     let active = true;
-    if (!isAuthenticated) { setLogoPrincipalUrl(null); return undefined; }
-    obtenerUrlAsset('logo_principal').then((url) => { if (active) setLogoPrincipalUrl(url); });
+    if (!isAuthenticated) { setLogoPrincipalUrl(null); setFondoPrincipalUrl(null); setFondoDashboardUrl(null); return undefined; }
+    Promise.all([obtenerUrlAsset('logo_principal'), obtenerUrlAsset('fondo_principal'), obtenerUrlAsset('fondo_dashboard')])
+      .then(([logo, fondoPrincipal, fondoDashboard]) => {
+        if (!active) return;
+        setLogoPrincipalUrl(logo);
+        setFondoPrincipalUrl(fondoPrincipal);
+        setFondoDashboardUrl(fondoDashboard);
+      });
     return () => { active = false; };
   }, [isAuthenticated, version]);
 
@@ -98,8 +117,8 @@ export const BrandingProvider = ({ children }: { children: ReactNode }) => {
   }, [faviconUrl]);
 
   const value = useMemo<BrandingState>(
-    () => ({ logoPrincipalUrl, logoLoginUrl, faviconUrl, loading, refresh }),
-    [logoPrincipalUrl, logoLoginUrl, faviconUrl, loading, refresh]
+    () => ({ logoPrincipalUrl, logoLoginUrl, faviconUrl, fondoLoginUrl, fondoPrincipalUrl, fondoDashboardUrl, loading, refresh }),
+    [logoPrincipalUrl, logoLoginUrl, faviconUrl, fondoLoginUrl, fondoPrincipalUrl, fondoDashboardUrl, loading, refresh]
   );
 
   return <BrandingContext.Provider value={value}>{children}</BrandingContext.Provider>;

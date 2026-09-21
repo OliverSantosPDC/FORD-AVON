@@ -15,6 +15,8 @@ import ResumenCampaniaTable from '../../components/Dashboard/ResumenCampaniaTabl
 import OnePagePreviewDialog from '../../components/Dashboard/OnePagePreviewDialog';
 import { useDashboard } from '../../hooks/useDashboard';
 import { useTasasConversion } from '../../hooks/useTasasConversion';
+import { useBranding } from '../../context/BrandingContext';
+import { useLoadedBackgroundUrl } from '../../hooks/useLoadedBackgroundUrl';
 import { MONEDA_OPTIONS } from '../../utils/monedaOptions';
 import type { DashboardFilterOptions, DashboardFilterParams, DashboardMultiFilterParams, DashboardKpi } from '../../types/cartera';
 
@@ -30,6 +32,11 @@ const DashboardPage = () => {
   const { data: dashboard, loading, error } = useDashboard(dashboardFilters);
   const dashboardRootRef = useRef<HTMLDivElement | null>(null);
   const [onePagePreviewOpen, setOnePagePreviewOpen] = useState(false);
+  // Fondo Dashboard configurado (Configuración > Apariencia > Fondos): SOLO detrás
+  // de esta pantalla (no del resto de la app — eso es Fondo principal, en RootLayout).
+  // Sin configurar, o si falla al cargar, se conserva el fondo actual (transparente).
+  const { fondoDashboardUrl } = useBranding();
+  const fondoDashboardLoaded = useLoadedBackgroundUrl(fondoDashboardUrl);
 
   // Tasas de conversión oficiales (Configuración > Tasas de Conversión, tabla Supabase
   // config_tasas_conversion): fuente única para convertir USD a la moneda local
@@ -110,7 +117,19 @@ const DashboardPage = () => {
 
   return (
     <>
-    <Box ref={dashboardRootRef} sx={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: 2, alignItems: 'stretch', width: '100%' }}>
+    <Box
+      ref={dashboardRootRef}
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(12, minmax(0, 1fr))',
+        gap: 2,
+        alignItems: 'stretch',
+        width: '100%',
+        ...(fondoDashboardLoaded
+          ? { backgroundImage: `url(${fondoDashboardLoaded})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' }
+          : {})
+      }}
+    >
       <Box sx={{ gridColumn: '1 / -1' }}>
         <DashboardFilters filters={filters} onChange={handleChangeFilters} onClear={handleClearFilters} options={availableOptions} moneda={monedaFiltro} onMonedaChange={setMonedaFiltro} />
       </Box>
