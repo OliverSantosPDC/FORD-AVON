@@ -20,10 +20,11 @@ import {
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth, type PasswordPolicy } from '../../context/AuthContext';
 import { useBranding } from '../../context/BrandingContext';
 import { useLoadedBackgroundUrl } from '../../hooks/useLoadedBackgroundUrl';
 import { requestPasswordChange } from '../../services/usuariosService';
+import TemporaryPasswordChangeForm from '../../components/common/TemporaryPasswordChangeForm';
 
 const LOGIN_FALLBACK_BACKGROUND = 'linear-gradient(135deg, #0F172A 0%, #1E3A8A 100%)';
 
@@ -48,6 +49,10 @@ const LoginPage = () => {
   const [reqMotivo, setReqMotivo] = useState('');
   const [reqBusy, setReqBusy] = useState(false);
   const [toast, setToast] = useState('');
+  // Contraseña temporal administrativa (Avon2026, 15 días): si el login recién
+  // autenticado trae mustChangePassword=true, se detiene la navegación y se
+  // muestra el aviso/formulario aquí mismo, ANTES de entrar al Dashboard.
+  const [tempPolicy, setTempPolicy] = useState<PasswordPolicy | null>(null);
 
   const enviarSolicitud = async () => {
     setReqBusy(true);
@@ -68,9 +73,15 @@ const LoginPage = () => {
     setError('');
     setLoading(true);
     try {
-      const { error: loginError } = await login(email.trim(), password);
+      const { error: loginError, passwordPolicy } = await login(email.trim(), password);
       if (loginError) {
         setError('Correo o contraseña incorrectos, o el usuario está inactivo.');
+        return;
+      }
+      if (passwordPolicy?.mustChangePassword) {
+        // Vigente: se avisa pero se deja continuar. Vencida: se queda aquí forzosamente
+        // (ver el "Continuar sin cambiar ahora" más abajo, oculto cuando expired=true).
+        setTempPolicy(passwordPolicy);
         return;
       }
       navigate('/dashboard', { replace: true });
@@ -113,67 +124,86 @@ const LoginPage = () => {
           <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>Plataforma de gestión de cobranza</Typography>
         </Box>
 
-        <Box component="form" onSubmit={handleSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-            <Typography component="label" htmlFor="login-email" sx={{ fontSize: 13, fontWeight: 600, color: 'text.secondary' }}>
-              Correo electrónico
-            </Typography>
-            <TextField
-              id="login-email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              autoComplete="email"
-              size="small"
-              fullWidth
-              placeholder="usuario@grupopdc.com"
+        {tempPolicy ? (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Alert severity={tempPolicy.expired ? 'error' : 'warning'} sx={{ py: 0.5 }}>
+              {tempPolicy.expired
+                ? 'Tu contraseña temporal ha vencido. Debes cambiarla para continuar.'
+                : `Tu contraseña temporal vence en ${tempPolicy.diasRestantes} día${tempPolicy.diasRestantes === 1 ? '' : 's'}.`}
+            </Alert>
+            <TemporaryPasswordChangeForm
+              email={email.trim()}
+              onSuccess={() => navigate('/dashboard', { replace: true })}
             />
+            {!tempPolicy.expired && (
+              <Link component="button" type="button" onClick={() => navigate('/dashboard', { replace: true })} underline="hover" sx={{ fontSize: 13, textAlign: 'center' }}>
+                Continuar sin cambiar ahora
+              </Link>
+            )}
           </Box>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-            <Typography component="label" htmlFor="login-password" sx={{ fontSize: 13, fontWeight: 600, color: 'text.secondary' }}>
-              Contraseña
-            </Typography>
-            <TextField
-              id="login-password"
-              type={showPassword ? 'text' : 'password'}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              autoComplete="current-password"
-              size="small"
-              fullWidth
-              placeholder="••••••••"
-              InputProps={{
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton onClick={() => setShowPassword((v) => !v)} edge="end" size="small" aria-label="mostrar u ocultar contraseña">
-                      {showPassword ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
-                    </IconButton>
-                  </InputAdornment>
-                )
-              }}
-            />
+        ) : (
+          <Box component="form" onSubmit={handleSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+              <Typography component="label" htmlFor="login-email" sx={{ fontSize: 13, fontWeight: 600, color: 'text.secondary' }}>
+                Correo electrónico
+              </Typography>
+              <TextField
+                id="login-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoComplete="email"
+                size="small"
+                fullWidth
+                placeholder="usuario@grupopdc.com"
+              />
+            </Box>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+              <Typography component="label" htmlFor="login-password" sx={{ fontSize: 13, fontWeight: 600, color: 'text.secondary' }}>
+                Contraseña
+              </Typography>
+              <TextField
+                id="login-password"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                autoComplete="current-password"
+                size="small"
+                fullWidth
+                placeholder="••••••••"
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton onClick={() => setShowPassword((v) => !v)} edge="end" size="small" aria-label="mostrar u ocultar contraseña">
+                        {showPassword ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
+                      </IconButton>
+                    </InputAdornment>
+                  )
+                }}
+              />
+            </Box>
+
+            {error && <Alert severity="error" sx={{ py: 0.5 }}>{error}</Alert>}
+
+            <Button
+              type="submit"
+              variant="contained"
+              disabled={loading}
+              sx={{ mt: 1, borderRadius: 2, textTransform: 'none', fontWeight: 700, py: 1 }}
+            >
+              {loading ? <CircularProgress size={22} color="inherit" /> : 'Iniciar sesión'}
+            </Button>
+
+            <Link component={RouterLink} to="/forgot-password" underline="hover" sx={{ fontSize: 13, textAlign: 'center', mt: 0.5 }}>
+              ¿Olvidaste tu contraseña?
+            </Link>
+            <Link component="button" type="button" onClick={() => setReqOpen(true)} underline="hover" sx={{ fontSize: 13, textAlign: 'center' }}>
+              ¿Necesitas cambiar tu contraseña? Solicítalo al administrador
+            </Link>
           </Box>
-
-          {error && <Alert severity="error" sx={{ py: 0.5 }}>{error}</Alert>}
-
-          <Button
-            type="submit"
-            variant="contained"
-            disabled={loading}
-            sx={{ mt: 1, borderRadius: 2, textTransform: 'none', fontWeight: 700, py: 1 }}
-          >
-            {loading ? <CircularProgress size={22} color="inherit" /> : 'Iniciar sesión'}
-          </Button>
-
-          <Link component={RouterLink} to="/forgot-password" underline="hover" sx={{ fontSize: 13, textAlign: 'center', mt: 0.5 }}>
-            ¿Olvidaste tu contraseña?
-          </Link>
-          <Link component="button" type="button" onClick={() => setReqOpen(true)} underline="hover" sx={{ fontSize: 13, textAlign: 'center' }}>
-            ¿Necesitas cambiar tu contraseña? Solicítalo al administrador
-          </Link>
-        </Box>
+        )}
       </Paper>
 
       <Dialog open={reqOpen} onClose={() => setReqOpen(false)} maxWidth="xs" fullWidth>

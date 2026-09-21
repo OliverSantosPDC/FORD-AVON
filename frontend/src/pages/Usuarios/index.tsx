@@ -39,6 +39,7 @@ import {
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import LockResetIcon from '@mui/icons-material/LockReset';
+import LockClockIcon from '@mui/icons-material/LockClock';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -54,6 +55,7 @@ import {
   updateUsuario,
   deleteUsuario,
   resetPasswordUsuario,
+  resetPasswordTemporalUsuario,
   getPasswordRequests,
   resolvePasswordRequest,
   deletePasswordRequests,
@@ -157,6 +159,12 @@ const UsuariosPage = () => {
   const [resetUser, setResetUser] = useState<{ id: string; email: string } | null>(null);
   const [resetPw, setResetPw] = useState({ password: '', confirm: '' });
   const [resetBusy, setResetBusy] = useState(false);
+  // "Restablecer contraseña" (política Avon2026, 15 días) — distinta del reset de
+  // contraseña libre de arriba. Solo elegible para usuarios NO administradores
+  // (el botón ya no aparece para administradores; el backend lo re-valida igual).
+  const [resetTemporalUser, setResetTemporalUser] = useState<{ id: string; email: string } | null>(null);
+  const [resetTemporalBusy, setResetTemporalBusy] = useState(false);
+  const [resetTemporalResult, setResetTemporalResult] = useState<{ email: string; expiresAt: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [pwReqs, setPwReqs] = useState<PasswordRequest[]>([]);
@@ -468,6 +476,21 @@ const UsuariosPage = () => {
     }
   };
 
+  const doResetPasswordTemporal = async () => {
+    if (!resetTemporalUser) return;
+    setResetTemporalBusy(true);
+    try {
+      const result = await resetPasswordTemporalUsuario(resetTemporalUser.id);
+      setResetTemporalUser(null);
+      setResetTemporalResult(result);
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'No se pudo restablecer la contraseña temporal.');
+      setResetTemporalUser(null);
+    } finally {
+      setResetTemporalBusy(false);
+    }
+  };
+
   const handleDelete = async () => {
     if (!form.id) return;
     setDeleting(true);
@@ -711,6 +734,11 @@ const UsuariosPage = () => {
                                     <Button size="small" startIcon={<LockResetIcon fontSize="small" />} onClick={() => { setResetUser({ id: u.id, email: u.email }); setResetPw({ password: '', confirm: '' }); }} sx={{ textTransform: 'none' }}>
                                       Contraseña
                                     </Button>
+                                    {u.role?.clave !== 'administrador' && (
+                                      <Button size="small" startIcon={<LockClockIcon fontSize="small" />} onClick={() => setResetTemporalUser({ id: u.id, email: u.email })} sx={{ textTransform: 'none' }}>
+                                        Restablecer contraseña
+                                      </Button>
+                                    )}
                                   </>
                                 ) : '—'}
                               </TableCell>
@@ -1317,6 +1345,43 @@ const UsuariosPage = () => {
           <Button variant="contained" onClick={doResetPassword} disabled={resetBusy} sx={{ textTransform: 'none' }}>
             {resetBusy ? <CircularProgress size={18} color="inherit" /> : 'Restablecer'}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Restablecer contraseña (política Avon2026, 15 días) — confirmación */}
+      <Dialog open={Boolean(resetTemporalUser)} onClose={resetTemporalBusy ? undefined : () => setResetTemporalUser(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Restablecer contraseña</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={1.5} sx={{ mt: 0.5 }}>
+            <Typography sx={{ fontSize: 13 }}>
+              Se establecerá la contraseña temporal predeterminada para <strong>{resetTemporalUser?.email}</strong>.
+              Será válida por 15 días; el usuario deberá cambiarla antes de que venza.
+            </Typography>
+            <Alert severity="info" sx={{ fontSize: 12 }}>La contraseña no se muestra aquí ni queda visible en ningún listado.</Alert>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setResetTemporalUser(null)} disabled={resetTemporalBusy} sx={{ textTransform: 'none' }}>Cancelar</Button>
+          <Button variant="contained" onClick={doResetPasswordTemporal} disabled={resetTemporalBusy} sx={{ textTransform: 'none' }}>
+            {resetTemporalBusy ? <CircularProgress size={18} color="inherit" /> : 'Restablecer'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Restablecer contraseña (política Avon2026, 15 días) — resultado */}
+      <Dialog open={Boolean(resetTemporalResult)} onClose={() => setResetTemporalResult(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Contraseña restablecida correctamente</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={1.5} sx={{ mt: 0.5 }}>
+            <Typography sx={{ fontSize: 13 }}>Usuario: <strong>{resetTemporalResult?.email}</strong></Typography>
+            <Typography sx={{ fontSize: 13 }}>
+              El usuario debe cambiarla antes de{' '}
+              <strong>{resetTemporalResult ? new Intl.DateTimeFormat('es-ES', { dateStyle: 'long', timeStyle: 'short' }).format(new Date(resetTemporalResult.expiresAt)) : ''}</strong>.
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button variant="contained" onClick={() => setResetTemporalResult(null)} sx={{ textTransform: 'none' }}>Entendido</Button>
         </DialogActions>
       </Dialog>
 

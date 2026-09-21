@@ -1,7 +1,7 @@
 import { getSupabaseClient } from '../config/supabaseClient';
 import { SUPABASE_CARTERA_TABLE } from '../config/env';
 import { registrarAuditoria } from './AuditoriaService';
-import { generarPasswordTemporal } from '../utils/password';
+import { generarPasswordTemporal, PASSWORD_TEMPORAL_ADMINISTRATIVA, DIAS_VIGENCIA_PASSWORD_TEMPORAL_ADMINISTRATIVA } from '../utils/password';
 import { describirErrorAuth, esUsuarioAuthInexistente } from '../utils/authErrors';
 import {
   SHEET_USUARIOS, SHEET_LIDERAZGO_SUPERVISOR, SHEET_SUPERVISOR_GESTOR, SHEET_SUPERVISOR_GERENTE,
@@ -453,6 +453,73 @@ export const restablecerPassword = async (id: string, password: string): Promise
   if (pw.length < MIN_PASSWORD_LEN) throw new UsuariosError(`La contraseña debe tener al menos ${MIN_PASSWORD_LEN} caracteres.`);
   const { error } = await getSupabaseClient().auth.admin.updateUserById(id, { password: pw });
   if (error) throw new UsuariosError(describirErrorAuth(error, 'No se pudo restablecer la contraseña.'));
+};
+
+/**
+ * "Restablecer contraseña" (función administrativa, USUARIOS): distinta de
+ * restablecerPassword() de arriba (el admin escribe una contraseña libre).
+ * Aquí la contraseña SIEMPRE es la fija PASSWORD_TEMPORAL_ADMINISTRATIVA
+ * ('Avon2026'), vigente DIAS_VIGENCIA_PASSWORD_TEMPORAL_ADMINISTRATIVA (15)
+ * días. Bloquea SIEMPRE a usuarios con rol administrador — el rol se lee del
+ * propio perfil (fuente real de roles/permisos), nunca de lo que mande el
+ * cliente. La contraseña NUNCA se persiste en ninguna tabla de aplicación:
+ * solo se envía a Supabase Auth (admin.updateUserById); `profiles` guarda
+ * únicamente METADATOS de vigencia (is_temporary_password/
+ * must_change_password/temporary_password_*_at).
+ */
+export const restablecerPasswordTemporal = async (id: string): Promise<{ email: string; expiresAt: string }> => {
+  const client = getSupabaseClient();
+
+  const { data: perfil, error: perfilErr } = await client
+    .from('profiles')
+    .select('id, email, roles ( clave )')
+    .eq('id', id)
+    .single();
+  if (perfilErr || !perfil) throw new UsuariosError('Usuario no encontrado.');
+  const email = String((perfil as Record<string, unknown>).email ?? '');
+  const roleClave = roleRefOf((perfil as Record<string, unknown>).roles)?.clave ?? null;
+
+  if (roleClave === 'administrador') {
+    throw new UsuariosForbiddenError('Los usuarios administradores no pueden recibir la contraseña temporal predeterminada.');
+  }
+
+  const { error: authErr } = await client.auth.admin.updateUserById(id, { password: PASSWORD_TEMPORAL_ADMINISTRATIVA });
+  if (authErr) throw new UsuariosError(describirErrorAuth(authErr, 'No se pudo restablecer la contraseña.'));
+
+  const createdAt = new Date();
+  const expiresAt = new Date(createdAt.getTime() + DIAS_VIGENCIA_PASSWORD_TEMPORAL_ADMINISTRATIVA * 24 * 60 * 60 * 1000);
+  const { error: updateErr } = await client
+    .from('profiles')
+    .update({
+      is_temporary_password: true,
+      must_change_password: true,
+      temporary_password_created_at: createdAt.toISOString(),
+      temporary_password_expires_at: expiresAt.toISOString()
+    })
+    .eq('id', id);
+  if (updateErr) throw new UsuariosError(`Contraseña restablecida pero no se pudo registrar el estado temporal: ${updateErr.message}`);
+
+  return { email, expiresAt: expiresAt.toISOString() };
+};
+
+/**
+ * Limpia el estado de contraseña temporal de UN usuario (siempre el propio,
+ * llamado por AuthController.passwordChanged con req.auth.userId — nunca un
+ * id ajeno). Se invoca tras un cambio de contraseña exitoso vía Supabase
+ * Auth (hecho en el cliente, authService.updatePassword): este método NUNCA
+ * toca la contraseña en sí, solo los metadatos de vigencia.
+ */
+export const limpiarEstadoPasswordTemporal = async (id: string): Promise<void> => {
+  const { error } = await getSupabaseClient()
+    .from('profiles')
+    .update({
+      is_temporary_password: false,
+      must_change_password: false,
+      temporary_password_created_at: null,
+      temporary_password_expires_at: null
+    })
+    .eq('id', id);
+  if (error) throw new UsuariosError(`No se pudo actualizar el estado de la contraseña: ${error.message}`);
 };
 
 export const actualizarUsuario = async (id: string, input: ActualizarUsuarioInput): Promise<void> => {

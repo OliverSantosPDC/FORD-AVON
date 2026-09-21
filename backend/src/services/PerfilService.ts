@@ -30,13 +30,61 @@ export interface AuthRole {
   nombre: string;
 }
 
+/**
+ * Estado de contraseña temporal administrativa (política Avon2026, 15 días).
+ * Calculado en cada request a partir de columnas persistidas en `profiles`
+ * (nunca cacheado): `expired`/`diasRestantes` dependen de "ahora", así que se
+ * recalculan siempre contra el `temporary_password_expires_at` guardado —
+ * nunca se persiste un booleano "vencido" que pudiera quedar desactualizado.
+ */
+export interface PasswordPolicy {
+  mustChangePassword: boolean;
+  isTemporaryPassword: boolean;
+  temporaryPasswordCreatedAt: string | null;
+  temporaryPasswordExpiresAt: string | null;
+  /** true solo si mustChangePassword=true Y ya pasó temporary_password_expires_at. */
+  expired: boolean;
+  /** Días restantes (techo, nunca negativo) hasta el vencimiento; null si no aplica. */
+  diasRestantes: number | null;
+}
+
 export interface AuthContext {
   userId: string;
   profile: AuthProfile;
   role: AuthRole | null;
   permissions: string[];
   scope: AuthScope;
+  passwordPolicy: PasswordPolicy;
 }
+
+const MS_POR_DIA = 24 * 60 * 60 * 1000;
+
+/** Calcula el estado de contraseña temporal a partir de las columnas crudas de `profiles`. */
+const calcularPasswordPolicy = (row: {
+  must_change_password?: boolean | null;
+  is_temporary_password?: boolean | null;
+  temporary_password_created_at?: string | null;
+  temporary_password_expires_at?: string | null;
+}): PasswordPolicy => {
+  const mustChangePassword = Boolean(row.must_change_password);
+  const isTemporaryPassword = Boolean(row.is_temporary_password);
+  const createdAt = row.temporary_password_created_at ?? null;
+  const expiresAt = row.temporary_password_expires_at ?? null;
+  const expiresAtMs = expiresAt ? new Date(expiresAt).getTime() : null;
+  const nowMs = Date.now();
+
+  const expired = mustChangePassword && expiresAtMs !== null && nowMs > expiresAtMs;
+  const diasRestantes = expiresAtMs !== null ? Math.max(0, Math.ceil((expiresAtMs - nowMs) / MS_POR_DIA)) : null;
+
+  return {
+    mustChangePassword,
+    isTemporaryPassword,
+    temporaryPasswordCreatedAt: createdAt,
+    temporaryPasswordExpiresAt: expiresAt,
+    expired,
+    diasRestantes
+  };
+};
 
 /**
  * Carga el contexto autenticado (perfil + rol + permisos) desde Supabase usando
@@ -48,7 +96,7 @@ export const loadAuthContext = async (userId: string): Promise<AuthContext | nul
 
   const { data: profile, error } = await client
     .from('profiles')
-    .select('id, nombre, apellido, email, activo, role_id, roles ( clave, nombre )')
+    .select('id, nombre, apellido, email, activo, role_id, roles ( clave, nombre ), is_temporary_password, must_change_password, temporary_password_created_at, temporary_password_expires_at')
     .eq('id', userId)
     .single();
 
@@ -61,6 +109,10 @@ export const loadAuthContext = async (userId: string): Promise<AuthContext | nul
     activo: boolean;
     role_id: string;
     roles: { clave: string; nombre: string } | { clave: string; nombre: string }[] | null;
+    is_temporary_password: boolean | null;
+    must_change_password: boolean | null;
+    temporary_password_created_at: string | null;
+    temporary_password_expires_at: string | null;
   };
 
   if (!p.activo) return null;
@@ -85,6 +137,7 @@ export const loadAuthContext = async (userId: string): Promise<AuthContext | nul
     profile: { id: p.id, email: p.email, nombre: p.nombre, apellido: p.apellido },
     role,
     permissions,
-    scope: { paises: [], zonas: [], gestores: [] }
+    scope: { paises: [], zonas: [], gestores: [] },
+    passwordPolicy: calcularPasswordPolicy(p)
   };
 };

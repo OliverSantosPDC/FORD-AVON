@@ -31,6 +31,20 @@ const extractToken = (req: Request): string | null => {
 };
 
 /**
+ * Únicas rutas alcanzables mientras la contraseña temporal está VENCIDA
+ * (política Avon2026, 15 días — ver PerfilService.calcularPasswordPolicy):
+ * el usuario debe poder seguir autenticado el tiempo justo para cambiarla,
+ * nunca quedar en un callejón sin salida. `/auth/me` es indispensable para
+ * que el frontend SEPA que está vencida y muestre el formulario forzado;
+ * `/auth/password-changed` es el único endpoint que limpia el estado;
+ * `/auth/event` es auditoría de sesión, inocua, ya se llama en cada login.
+ * Todo lo demás (dashboard, cartera, usuarios, configuración, etc.) queda
+ * bloqueado con 403 — así una sesión anterior ya abierta no puede seguir
+ * operando ignorando el vencimiento (ver auditoría de SESSIONS).
+ */
+const RUTAS_PERMITIDAS_CON_PASSWORD_VENCIDA = new Set(['/api/auth/me', '/api/auth/event', '/api/auth/password-changed']);
+
+/**
  * Middleware que exige un JWT válido de Supabase Auth. Verifica la firma con la
  * clave PÚBLICA del JWKS del proyecto (ES256/RS256) o, como respaldo, con el
  * secreto HS256 legado; valida issuer/audience/expiración; y carga
@@ -64,6 +78,20 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
     if (!context) {
       await registrarAuditoria(userId, 'acceso_denegado', 'sesion', userId, { motivo: 'perfil inexistente o inactivo' });
       res.status(403).json({ error: 'Perfil no encontrado o inactivo.' });
+      return;
+    }
+
+    // Contraseña temporal VENCIDA (política Avon2026, 15 días): bloquea todo
+    // menos el puñado de rutas que el propio usuario necesita para cambiarla
+    // (ver RUTAS_PERMITIDAS_CON_PASSWORD_VENCIDA arriba). Antes de que venza,
+    // must_change_password=true NO bloquea nada — el usuario sigue operando
+    // normalmente y solo ve una advertencia (eso lo decide el frontend).
+    if (context.passwordPolicy.expired && !RUTAS_PERMITIDAS_CON_PASSWORD_VENCIDA.has(req.originalUrl.split('?')[0])) {
+      await registrarAuditoria(context.userId, 'acceso_denegado', 'password_temporal_vencida', context.userId, {});
+      res.status(403).json({
+        error: 'PASSWORD_TEMPORAL_VENCIDA',
+        mensaje: 'Tu contraseña temporal ha vencido. Debes cambiarla para continuar.'
+      });
       return;
     }
 

@@ -179,6 +179,19 @@ export const resetPasswordUsuario = async (id: string, password: string): Promis
   if (!res.ok) throw new Error(await parseError(res, 'No se pudo restablecer la contraseña.'));
 };
 
+/**
+ * "Restablecer contraseña" (política Avon2026, 15 días): distinta de
+ * resetPasswordUsuario() de arriba (contraseña libre). El backend rechaza
+ * usuarios con rol administrador (re-validado ahí, nunca solo en el
+ * frontend); la respuesta NUNCA incluye la contraseña, solo la fecha de
+ * vencimiento para mostrarla en la confirmación.
+ */
+export const resetPasswordTemporalUsuario = async (id: string): Promise<{ email: string; expiresAt: string }> => {
+  const res = await apiFetch(`/api/usuarios/${id}/reset-password`, { method: 'POST' });
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudo restablecer la contraseña temporal.'));
+  return res.json();
+};
+
 /* ===== Carga masiva de usuarios (módulo Repositorio) ===== */
 
 export interface PreviewItem {
@@ -272,6 +285,19 @@ export const requestPasswordChange = async (email: string, motivo?: string): Pro
     body: JSON.stringify({ email, motivo })
   });
   if (!res.ok) throw new Error(await parseError(res, 'No se pudo enviar la solicitud.'));
+};
+
+/**
+ * Confirma que el propio usuario ya cambió su contraseña (temporal vigente
+ * O vencida — requireAuth permite esta ruta en ambos casos): limpia SOLO su
+ * propio estado temporal (is_temporary_password/must_change_password/
+ * temporary_password_*_at). Llamar DESPUÉS de que authService.updatePassword()
+ * confirme el cambio real en Supabase Auth — este endpoint nunca recibe ni
+ * valida la contraseña en sí.
+ */
+export const confirmarPasswordCambiada = async (): Promise<void> => {
+  const res = await apiFetch('/api/auth/password-changed', { method: 'POST' });
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudo actualizar el estado de la contraseña.'));
 };
 
 /** Admin: lista solicitudes de cambio de contraseña. */

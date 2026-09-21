@@ -1,11 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link as RouterLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
+  Alert,
   AppBar,
   Avatar,
   Box,
+  Button,
   Collapse,
   CssBaseline,
+  Dialog,
+  DialogContent,
+  DialogTitle,
   Divider,
   Drawer,
   IconButton,
@@ -14,6 +19,7 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  Paper,
   Toolbar,
   Typography,
   Menu,
@@ -34,6 +40,7 @@ import { useI18n } from '../i18n/LanguageProvider';
 import { useAuth } from '../context/AuthContext';
 import { useBranding } from '../context/BrandingContext';
 import { useLoadedBackgroundUrl } from '../hooks/useLoadedBackgroundUrl';
+import TemporaryPasswordChangeForm from '../components/common/TemporaryPasswordChangeForm';
 import pdcLogo from '../assets/branding/pdc-logo.svg';
 import avonLogo from '../assets/branding/avon-logo.svg';
 
@@ -52,7 +59,13 @@ const RootLayout = () => {
   const navigate = useNavigate();
   const { mode, toggleMode } = useThemeMode();
   const { lang, setLang, t } = useI18n();
-  const { user, role, hasPermission, logout } = useAuth();
+  const { user, role, hasPermission, logout, passwordPolicy, refreshProfile } = useAuth();
+  // Contraseña temporal administrativa (Avon2026, 15 días): mientras esté vigente
+  // (no vencida), la app funciona con normalidad y solo se muestra un aviso no
+  // bloqueante (abajo, con acción "Cambiar contraseña"). Vencida, se reemplaza TODO
+  // el shell por el formulario forzado (más abajo) — cubre tanto un login recién
+  // hecho como una sesión ya abierta que cruzó el vencimiento sin volver a Login.
+  const [changePwOpen, setChangePwOpen] = useState(false);
   // Logo principal configurado (Configuración > General > Logos): fuente única
   // para Sidebar/Header. Si no hay ninguno configurado, o si la URL firmada
   // falla al cargar (expiró / Storage no disponible), cae al SVG estático
@@ -188,6 +201,21 @@ const RootLayout = () => {
       </Box>
     </Box>
   );
+
+  // Vencida (política Avon2026, 15 días): NO se deja continuar hacia ningún módulo
+  // (ver también el bloqueo espejo en el backend, requireAuth). Reemplaza TODO el
+  // shell — nunca solo un aviso — hasta que el cambio de contraseña tenga éxito.
+  if (passwordPolicy.expired) {
+    return (
+      <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2, bgcolor: mode === 'light' ? '#F6F8FB' : '#0F172A' }}>
+        <Paper sx={{ p: { xs: 3, sm: 4 }, width: '100%', maxWidth: 420, borderRadius: 3 }}>
+          <Typography sx={{ fontSize: 20, fontWeight: 800, mb: 2 }}>Cambio de contraseña obligatorio</Typography>
+          <Alert severity="error" sx={{ mb: 2 }}>Tu contraseña temporal ha vencido. Debes cambiarla para continuar.</Alert>
+          <TemporaryPasswordChangeForm email={user?.email ?? ''} onSuccess={refreshProfile} />
+        </Paper>
+      </Box>
+    );
+  }
 
   return (
     <Box
@@ -369,9 +397,28 @@ const RootLayout = () => {
         </Box>
 
         <Box component="main" sx={{ flexGrow: 1, minWidth: 0, p: 2, width: { md: `calc(100% - ${drawerWidth}px)` }, transition: 'width 220ms ease' }}>
+          {passwordPolicy.mustChangePassword && (
+            <Alert
+              severity="warning"
+              sx={{ mb: 2 }}
+              action={<Button size="small" onClick={() => setChangePwOpen(true)} sx={{ textTransform: 'none' }}>Cambiar contraseña</Button>}
+            >
+              Tu contraseña temporal vence en {passwordPolicy.diasRestantes} día{passwordPolicy.diasRestantes === 1 ? '' : 's'}.
+            </Alert>
+          )}
           <Outlet />
         </Box>
       </Box>
+
+      <Dialog open={changePwOpen} onClose={() => setChangePwOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Cambiar contraseña</DialogTitle>
+        <DialogContent dividers>
+          <TemporaryPasswordChangeForm
+            email={user?.email ?? ''}
+            onSuccess={async () => { setChangePwOpen(false); await refreshProfile(); }}
+          />
+        </DialogContent>
+      </Dialog>
     </Box>
   );
 };

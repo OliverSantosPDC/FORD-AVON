@@ -44,6 +44,9 @@ router.get('/usuarios', requireAuth, lectura, (req, res) => controller.list(req,
 router.get('/usuarios/:id', requireAuth, lectura, (req, res) => controller.detail(req, res));
 router.post('/usuarios', requireAuth, requirePermission(ADMIN), (req, res) => controller.create(req, res));
 router.patch('/usuarios/:id/password', requireAuth, requirePermission(ADMIN), (req, res) => controller.resetPassword(req, res));
+// "Restablecer contraseña" (política Avon2026, 15 días) — distinta de la de arriba
+// (contraseña fija, no libre); mismo permiso, rechaza administradores en el backend.
+router.post('/usuarios/:id/reset-password', requireAuth, requirePermission(ADMIN), (req, res) => controller.resetPasswordTemporal(req, res));
 router.patch('/usuarios/:id', requireAuth, requirePermission(ADMIN), (req, res) => controller.update(req, res));
 router.delete('/usuarios/:id', requireAuth, requirePermission(ADMIN), (req, res) => controller.remove(req, res));
 

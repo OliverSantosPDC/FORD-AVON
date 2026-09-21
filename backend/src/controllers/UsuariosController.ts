@@ -6,6 +6,7 @@ import {
   crearUsuario,
   actualizarUsuario,
   restablecerPassword,
+  restablecerPasswordTemporal,
   eliminarUsuario,
   validarEliminacionMasiva,
   eliminarUsuariosMasivo,
@@ -90,6 +91,25 @@ export class UsuariosController {
       return res.json({ ok: true });
     } catch (error) {
       return this.fail(res, error, 'No se pudo restablecer la contraseña.');
+    }
+  }
+
+  /**
+   * POST /api/usuarios/:id/reset-password — "Restablecer contraseña"
+   * (política Avon2026, 15 días). Rechaza administradores (backend, nunca
+   * confía en el frontend). Nunca devuelve la contraseña en la respuesta ni
+   * la registra en auditoría — solo la fecha de vencimiento.
+   */
+  async resetPasswordTemporal(req: Request, res: Response): Promise<Response> {
+    try {
+      const { email, expiresAt } = await restablecerPasswordTemporal(req.params.id);
+      await registrarAuditoria(req.auth?.userId ?? null, 'RESET_PASSWORD_TEMPORAL_USUARIO', 'usuarios', req.params.id, {
+        email,
+        expiresAt
+      });
+      return res.json({ ok: true, email, expiresAt });
+    } catch (error) {
+      return this.fail(res, error, 'No se pudo restablecer la contraseña temporal.');
     }
   }
 

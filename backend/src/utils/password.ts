@@ -23,3 +23,17 @@ export const generarPasswordTemporal = (length = 14): string => {
   }
   return chars.join('');
 };
+
+/**
+ * Política administrativa de "Restablecer contraseña" (Usuarios): una
+ * contraseña temporal FIJA (nunca aleatoria, a diferencia de
+ * generarPasswordTemporal() de arriba, que sigue intacta y en uso por
+ * crearUsuario()/PasswordRequestService — esta constante NO la reemplaza en
+ * ningún flujo existente, es exclusiva de la nueva función administrativa).
+ * Vigente por DIAS_VIGENCIA_PASSWORD_TEMPORAL_ADMINISTRATIVA días; el estado
+ * de vigencia se registra en profiles (is_temporary_password/
+ * must_change_password/temporary_password_*_at) — la contraseña en sí NUNCA
+ * se persiste en ninguna tabla de aplicación, solo en Supabase Auth.
+ */
+export const PASSWORD_TEMPORAL_ADMINISTRATIVA = 'Avon2026';
+export const DIAS_VIGENCIA_PASSWORD_TEMPORAL_ADMINISTRATIVA = 15;
