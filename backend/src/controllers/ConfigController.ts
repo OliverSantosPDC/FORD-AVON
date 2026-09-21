@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import {
   getGeneral, setGeneral, listCatalogos, crearCatalogo, actualizarCatalogo, eliminarCatalogo,
   listVariables, crearVariable, actualizarVariable, getRolesPermisos, setRolPermisos,
-  listPlantillas, subirPlantilla, subirAsset, urlPlantilla, listAuditoria,
+  listPlantillas, subirPlantilla, subirAsset, urlAsset, urlPlantilla, listAuditoria,
   listTasasConversion, actualizarTasaConversion, ConfigError
 } from '../services/ConfigService';
 import { getMetaGlobalComputada, guardarMetaGlobal } from '../services/MetasService';
@@ -85,6 +85,9 @@ export class ConfigController {
       await this.audit(req, 'CONFIG_ASSET', req.params.clave);
       return res.status(201).json(r);
     } catch (e) { return this.fail(res, e); }
+  }
+  async urlAsset(req: Request, res: Response) {
+    try { return res.json({ url: await urlAsset(req.params.clave) }); } catch (e) { return this.fail(res, e); }
   }
 
   async descargarPlantilla(req: Request, res: Response) {

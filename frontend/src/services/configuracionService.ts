@@ -59,6 +59,8 @@ export const getPlantillas = async (): Promise<Plantilla[]> => { const r = await
 export const subirPlantilla = async (clave: string, file: File) => { const f = new FormData(); f.append('file', file); const r = await apiFetch(`/api/configuracion/plantillas/${clave}`, { method: 'POST', body: f }); if (!r.ok) throw new Error(await err(r, 'No se pudo subir.')); };
 export const descargarPlantilla = async (clave: string): Promise<string> => { const r = await apiFetch(`/api/configuracion/plantillas/${clave}/descargar`, { cache: 'no-store' }); if (!r.ok) throw new Error(await err(r, 'No se pudo descargar.')); return (await r.json()).url as string; };
 export const subirAsset = async (clave: string, file: File) => { const f = new FormData(); f.append('file', file); const r = await apiFetch(`/api/configuracion/assets/${clave}`, { method: 'POST', body: f }); if (!r.ok) throw new Error(await err(r, 'No se pudo subir.')); };
+/** URL firmada temporal para previsualizar un asset (logo/fondo). `null` si la clave no tiene archivo configurado. */
+export const obtenerUrlAsset = async (clave: string): Promise<string | null> => { const r = await apiFetch(`/api/configuracion/assets/${clave}/url`, { cache: 'no-store' }); if (!r.ok) return null; return (await r.json()).url as string | null; };
 
 export const getAuditoria = async (params: Record<string, string>): Promise<{ items: AuditoriaRow[]; total: number }> => {
   const qs = new URLSearchParams(params).toString();

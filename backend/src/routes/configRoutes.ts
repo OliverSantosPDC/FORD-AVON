@@ -36,6 +36,7 @@ router.get('/configuracion/plantillas/:clave/descargar', requireAuth, requirePer
 router.post('/configuracion/plantillas/:clave', requireAuth, requirePermission(EDIT), upload.single('file'), (req, res) => c.subirPlantilla(req, res));
 
 router.get('/configuracion/auditoria', requireAuth, requirePermission(VER), (req, res) => c.auditoria(req, res));
+router.get('/configuracion/assets/:clave/url', requireAuth, requirePermission(VER), (req, res) => c.urlAsset(req, res));
 router.post('/configuracion/assets/:clave', requireAuth, requirePermission(EDIT), upload.single('file'), (req, res) => c.subirAsset(req, res));
 
 export default router;

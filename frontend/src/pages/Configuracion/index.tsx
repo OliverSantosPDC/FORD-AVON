@@ -15,7 +15,7 @@ import { MODULES } from '../../config/modules';
 import UsuariosPage from '../Usuarios';
 import {
   getGeneral, putGeneral, getCatalogos, crearCatalogo, actualizarCatalogo,
-  getVariables, crearVariable, actualizarVariable, getPlantillas, subirPlantilla, descargarPlantilla, subirAsset,
+  getVariables, crearVariable, actualizarVariable, getPlantillas, subirPlantilla, descargarPlantilla, subirAsset, obtenerUrlAsset,
   getAuditoria, getTasasConversion, actualizarTasaConversion, getMetaGlobal, guardarMetaGlobal,
   type Catalogo, type Variable, type Plantilla, type AuditoriaRow, type TasaConversion, type MetaGlobal
 } from '../../services/configuracionService';
@@ -31,6 +31,65 @@ const CAT_LABEL: Record<string, string> = {
   tipos_adjunto: 'Tipos de adjuntos', motivos_aprobacion: 'Motivos de aprobación', motivos_rechazo: 'Motivos de rechazo'
 };
 const VAR_TIPOS = ['texto', 'numero', 'booleano', 'fecha', 'json'];
+
+/**
+ * Subida + previsualización real de un asset de imagen (logo/favicon/fondo).
+ * Definido FUERA de ConfiguracionPage (a diferencia de la versión anterior,
+ * declarada dentro del render): así no se remonta —y no se destruye el
+ * <input type="file">— en cada cambio de estado de la página.
+ *
+ * La previsualización se resuelve con una URL FIRMADA (el bucket `config-assets`
+ * es privado — nunca se expone una URL pública): se pide de nuevo cada vez que
+ * `value` cambia, así que tras subir una imagen nueva (o al recargar la página,
+ * que vuelve a montar este componente con el `value` ya persistido) siempre
+ * apunta al archivo vigente, nunca a uno cacheado en el estado de React.
+ */
+const AssetUpload = ({ label, clave, value, canEdit, onUpload }: {
+  label: string; clave: string; value: string; canEdit: boolean; onUpload: (clave: string, file: File) => void;
+}) => {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setPreviewUrl(null);
+    if (!value) return undefined;
+    obtenerUrlAsset(clave).then((url) => { if (active) setPreviewUrl(url); });
+    return () => { active = false; };
+  }, [clave, value]);
+
+  return (
+    <Stack direction="row" spacing={1.5} alignItems="center">
+      <Typography sx={{ fontSize: 13, minWidth: 130 }}>{label}</Typography>
+      {previewUrl ? (
+        <Box
+          component="img"
+          src={previewUrl}
+          alt={label}
+          onError={() => setPreviewUrl(null)}
+          sx={{ height: 36, width: 36, objectFit: 'contain', borderRadius: 1, border: '1px solid', borderColor: 'divider', bgcolor: 'action.hover', p: 0.25 }}
+        />
+      ) : (
+        <Box sx={{ height: 36, width: 36, borderRadius: 1, border: '1px dashed', borderColor: 'divider', flexShrink: 0 }} />
+      )}
+      <Typography sx={{ fontSize: 12, color: 'text.secondary', flex: 1 }}>{value || 'No configurado'}</Typography>
+      {canEdit && (
+        <Button variant="outlined" size="small" component="label" sx={{ textTransform: 'none' }}>
+          Subir
+          <input
+            hidden
+            type="file"
+            accept="image/*"
+            onChange={(e) => {
+              const file = e.target.files?.[0] ?? null;
+              e.target.value = '';
+              if (file) onUpload(clave, file);
+            }}
+          />
+        </Button>
+      )}
+    </Stack>
+  );
+};
 
 const ConfiguracionPage = () => {
   const { hasPermission } = useAuth();
@@ -107,7 +166,15 @@ const ConfiguracionPage = () => {
   const sgv = (k: string, v: string) => setGeneral2((s) => ({ ...s, [k]: v }));
 
   const guardarGeneral = async () => { try { await putGeneral(general); setToast('Guardado.'); } catch (e) { setToast(e instanceof Error ? e.message : 'Error.'); } };
-  const uploadAsset = async (clave: string, file: File | null) => { if (!file) return; try { await subirAsset(clave, file); setGeneral2(await getGeneral()); setToast('Imagen subida.'); } catch (e) { setToast(e instanceof Error ? e.message : 'Error.'); } };
+  const uploadAsset = async (clave: string, file: File | null) => {
+    if (!file) return;
+    // Validación rápida en el cliente (MIME reportado por el navegador, image/*
+    // genérico — no solo png/jpg): el backend vuelve a validar el contentType
+    // real del archivo, esta es solo una respuesta inmediata sin ida y vuelta.
+    if (!file.type.startsWith('image/')) { setToast('El archivo debe ser una imagen (PNG, JPG, GIF, WEBP, SVG, etc.).'); return; }
+    try { await subirAsset(clave, file); setGeneral2(await getGeneral()); setToast('Imagen subida.'); }
+    catch (e) { setToast(e instanceof Error ? e.message : 'Error.'); }
+  };
 
   const recargarCat = async () => setCatalogos(await getCatalogos());
   const catList = useMemo(() => catalogos.filter((c) => c.catalogo === catSel && c.nombre.toLowerCase().includes(catSearch.toLowerCase())), [catalogos, catSel, catSearch]);
@@ -158,14 +225,6 @@ const ConfiguracionPage = () => {
 
   if (loading) return <Box sx={{ display: 'flex', gap: 1.5, p: 3, alignItems: 'center' }}><CircularProgress size={22} /><Typography sx={{ fontSize: 14 }}>Cargando configuración...</Typography></Box>;
 
-  const AssetUpload = ({ label, clave }: { label: string; clave: string }) => (
-    <Stack direction="row" spacing={1.5} alignItems="center">
-      <Typography sx={{ fontSize: 13, minWidth: 130 }}>{label}</Typography>
-      <Typography sx={{ fontSize: 12, color: 'text.secondary', flex: 1 }}>{gv(clave) || 'No configurado'}</Typography>
-      {canEdit && <Button variant="outlined" size="small" component="label" sx={{ textTransform: 'none' }}>Subir<input hidden type="file" accept="image/*" onChange={(e) => uploadAsset(clave, e.target.files?.[0] ?? null)} /></Button>}
-    </Stack>
-  );
-
   return (
     <Box sx={{ p: { xs: 1, md: 2 } }}>
       <Tabs value={tab} onChange={(_e, v) => setTab(v)} variant="scrollable" sx={{ mb: 2 }}>
@@ -185,9 +244,9 @@ const ConfiguracionPage = () => {
               <Grid item xs={12}><TextField label="Descripción" value={gv('descripcion_sistema')} onChange={(e) => sgv('descripcion_sistema', e.target.value)} size="small" fullWidth multiline minRows={2} disabled={!canEdit} /></Grid>
             </Grid>
             <Divider /><Typography sx={{ fontWeight: 700 }}>Logos</Typography>
-            <AssetUpload label="Logo principal" clave="logo_principal" />
-            <AssetUpload label="Logo Login" clave="logo_login" />
-            <AssetUpload label="Favicon" clave="favicon" />
+            <AssetUpload label="Logo principal" clave="logo_principal" value={gv('logo_principal')} canEdit={canEdit} onUpload={uploadAsset} />
+            <AssetUpload label="Logo Login" clave="logo_login" value={gv('logo_login')} canEdit={canEdit} onUpload={uploadAsset} />
+            <AssetUpload label="Favicon" clave="favicon" value={gv('favicon')} canEdit={canEdit} onUpload={uploadAsset} />
             <Divider /><Typography sx={{ fontWeight: 700 }}>Configuración</Typography>
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6}><TextField label="Zona horaria" value={gv('zona_horaria')} onChange={(e) => sgv('zona_horaria', e.target.value)} size="small" fullWidth disabled={!canEdit} /></Grid>
@@ -291,9 +350,9 @@ const ConfiguracionPage = () => {
             </Stack>
             {canEdit && <Box><Button variant="outlined" onClick={guardarOrden} sx={{ textTransform: 'none' }}>Guardar orden</Button></Box>}
             <Divider /><Typography sx={{ fontWeight: 700 }}>Fondos</Typography>
-            <AssetUpload label="Fondo Login" clave="fondo_login" />
-            <AssetUpload label="Fondo principal" clave="fondo_principal" />
-            <AssetUpload label="Fondo Dashboard" clave="fondo_dashboard" />
+            <AssetUpload label="Fondo Login" clave="fondo_login" value={gv('fondo_login')} canEdit={canEdit} onUpload={uploadAsset} />
+            <AssetUpload label="Fondo principal" clave="fondo_principal" value={gv('fondo_principal')} canEdit={canEdit} onUpload={uploadAsset} />
+            <AssetUpload label="Fondo Dashboard" clave="fondo_dashboard" value={gv('fondo_dashboard')} canEdit={canEdit} onUpload={uploadAsset} />
             {canEdit && <Box><Button variant="contained" onClick={guardarGeneral} sx={{ textTransform: 'none' }}>Guardar apariencia</Button></Box>}
           </Stack>
         </Paper>
