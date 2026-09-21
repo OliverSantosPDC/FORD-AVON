@@ -44,7 +44,7 @@ interface AuthContextValue {
   passwordPolicy: PasswordPolicy;
   loading: boolean;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<{ error: string | null; passwordPolicy?: PasswordPolicy }>;
+  login: (email: string, password: string) => Promise<{ error: string | null; passwordPolicy?: PasswordPolicy; permissions?: string[] }>;
   logout: () => Promise<void>;
   hasPermission: (permission: string) => boolean;
   hasRole: (roleClave: string) => boolean;
@@ -122,7 +122,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tipo: 'login' })
     }).catch(() => undefined);
-    return { error: null, passwordPolicy: data?.passwordPolicy };
+    return { error: null, passwordPolicy: data?.passwordPolicy, permissions: data?.permissions };
   }, [loadMe]);
 
   const logout = useCallback(async () => {

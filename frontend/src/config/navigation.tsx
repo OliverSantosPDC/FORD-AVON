@@ -78,7 +78,13 @@ export const NAVIGATION: NavNode[] = [
             ]
           },
           leaf('co-calidad', 'nav.control_calidad', 'Control de Calidad', '/control-operativo', 'control_operativo.calidad.ver', VerifiedOutlinedIcon),
-          leaf('co-calendario', 'nav.calendario', 'Calendario', '/calendario', 'modulo.calendario', CalendarMonthIcon)
+          // Atajo de Calendario DENTRO de Control Operativo: se gatea con
+          // control_operativo.ver (no con modulo.calendario, que también usa el
+          // atajo de Gestión más abajo) — así un rol sin acceso a Control
+          // Operativo no ve un nodo "Control Operativo" hueco con solo este
+          // atajo dentro, aunque sí tenga modulo.calendario para su propio
+          // Calendario de Gestión.
+          leaf('co-calendario', 'nav.calendario', 'Calendario', '/calendario', 'control_operativo.ver', CalendarMonthIcon)
         ]
       },
       {
@@ -136,6 +142,26 @@ export const nodeHasVisibleLeaf = (item: NavItem, has: (perm: string) => boolean
 
 export const firstLeafPath = (item: NavItem): string =>
   item.kind === 'leaf' ? item.path : (item.children[0] ? firstLeafPath(item.children[0]) : '/');
+
+/**
+ * Primer leaf ACCESIBLE (permiso concedido) en el orden real del árbol de
+ * navegación — a diferencia de firstLeafPath (que ignora permisos). Fuente
+ * única para "a dónde redirigir tras iniciar sesión / al entrar a '/'":
+ * evita hardcodear '/dashboard', que ya no es accesible para todos los
+ * roles (Gerente/Gestor no tienen Análisis). Nunca depende de `if (rol ===
+ * ...)`: recorre el MISMO árbol y las MISMAS claves de permiso que ya
+ * deciden qué se ve en el Sidebar.
+ */
+const firstAccessibleIn = (items: NavItem[], has: (perm: string) => boolean): string | null => {
+  for (const item of items) {
+    if (item.kind === 'leaf') { if (has(item.permission)) return item.path; }
+    else { const found = firstAccessibleIn(item.children, has); if (found) return found; }
+  }
+  return null;
+};
+
+export const firstAccessiblePath = (has: (perm: string) => boolean): string =>
+  firstAccessibleIn(NAVIGATION, has) ?? '/dashboard';
 
 const railWalk = (items: NavItem[], depth: number): NavItem[] =>
   items.flatMap((it) => (it.kind === 'leaf' ? [it] : [...(depth === 1 ? [it] : []), ...railWalk(it.children, depth + 1)]));

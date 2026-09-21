@@ -25,6 +25,7 @@ import { useBranding } from '../../context/BrandingContext';
 import { useLoadedBackgroundUrl } from '../../hooks/useLoadedBackgroundUrl';
 import { requestPasswordChange } from '../../services/usuariosService';
 import TemporaryPasswordChangeForm from '../../components/common/TemporaryPasswordChangeForm';
+import { firstAccessiblePath } from '../../config/navigation';
 
 const LOGIN_FALLBACK_BACKGROUND = 'linear-gradient(135deg, #0F172A 0%, #1E3A8A 100%)';
 
@@ -51,8 +52,12 @@ const LoginPage = () => {
   const [toast, setToast] = useState('');
   // Contraseña temporal administrativa (Avon2026, 15 días): si el login recién
   // autenticado trae mustChangePassword=true, se detiene la navegación y se
-  // muestra el aviso/formulario aquí mismo, ANTES de entrar al Dashboard.
+  // muestra el aviso/formulario aquí mismo, ANTES de entrar a la app.
   const [tempPolicy, setTempPolicy] = useState<PasswordPolicy | null>(null);
+  // A dónde navegar tras autenticar: NUNCA hardcodeado a /dashboard (Gerente/
+  // Gestor no tienen Análisis) — el primer módulo realmente accesible según
+  // los permisos reales recién obtenidos de /api/auth/me.
+  const [redirectPath, setRedirectPath] = useState('/dashboard');
 
   const enviarSolicitud = async () => {
     setReqBusy(true);
@@ -73,18 +78,20 @@ const LoginPage = () => {
     setError('');
     setLoading(true);
     try {
-      const { error: loginError, passwordPolicy } = await login(email.trim(), password);
+      const { error: loginError, passwordPolicy, permissions } = await login(email.trim(), password);
       if (loginError) {
         setError('Correo o contraseña incorrectos, o el usuario está inactivo.');
         return;
       }
+      const target = firstAccessiblePath((perm) => (permissions ?? []).includes(perm));
+      setRedirectPath(target);
       if (passwordPolicy?.mustChangePassword) {
         // Vigente: se avisa pero se deja continuar. Vencida: se queda aquí forzosamente
         // (ver el "Continuar sin cambiar ahora" más abajo, oculto cuando expired=true).
         setTempPolicy(passwordPolicy);
         return;
       }
-      navigate('/dashboard', { replace: true });
+      navigate(target, { replace: true });
     } catch {
       setError('No se pudo iniciar sesión. Intenta de nuevo.');
     } finally {
@@ -133,10 +140,10 @@ const LoginPage = () => {
             </Alert>
             <TemporaryPasswordChangeForm
               email={email.trim()}
-              onSuccess={() => navigate('/dashboard', { replace: true })}
+              onSuccess={() => navigate(redirectPath, { replace: true })}
             />
             {!tempPolicy.expired && (
-              <Link component="button" type="button" onClick={() => navigate('/dashboard', { replace: true })} underline="hover" sx={{ fontSize: 13, textAlign: 'center' }}>
+              <Link component="button" type="button" onClick={() => navigate(redirectPath, { replace: true })} underline="hover" sx={{ fontSize: 13, textAlign: 'center' }}>
                 Continuar sin cambiar ahora
               </Link>
             )}

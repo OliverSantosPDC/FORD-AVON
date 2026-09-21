@@ -7,6 +7,8 @@ import ForgotPasswordPage from '../pages/ForgotPassword';
 import ResetPasswordPage from '../pages/ResetPassword';
 import PlaceholderPage from '../pages/PlaceholderPage';
 import { ProtectedRoute, PermissionRoute } from '../components/ProtectedRoute';
+import { useAuth } from '../context/AuthContext';
+import { firstAccessiblePath } from '../config/navigation';
 
 // Code splitting: páginas autenticadas pesadas se cargan bajo demanda (React.lazy).
 // Reduce el bundle inicial sin alterar rutas, permisos ni layout.
@@ -26,6 +28,14 @@ const PageLoader = () => (
     <CircularProgress size={26} />
   </Box>
 );
+
+/** Redirige a '/' (o a cualquier ruta desconocida) al primer módulo REALMENTE
+ *  accesible según los permisos del usuario — nunca hardcodeado a '/dashboard'
+ *  (Gerente/Gestor no tienen Análisis). Misma fuente que el Sidebar. */
+const IndexRedirect = () => {
+  const { hasPermission } = useAuth();
+  return <Navigate replace to={firstAccessiblePath(hasPermission)} />;
+};
 
 /**
  * Rutas de la aplicación — arquitectura de 9 módulos (fuente: config/modules.tsx).
@@ -47,7 +57,7 @@ const AppRoutes = () => (
 
     <Route element={<ProtectedRoute />}>
       <Route path="/" element={<RootLayout />}>
-        <Route index element={<Navigate replace to="dashboard" />} />
+        <Route index element={<IndexRedirect />} />
 
         <Route element={<PermissionRoute permission="modulo.dashboard" />}>
           <Route path="dashboard" element={<DashboardPage />} />
@@ -89,7 +99,7 @@ const AppRoutes = () => (
           <Route path="informacion" element={<InformacionPage />} />
         </Route>
 
-        <Route path="*" element={<Navigate replace to="dashboard" />} />
+        <Route path="*" element={<IndexRedirect />} />
       </Route>
     </Route>
   </Routes>
