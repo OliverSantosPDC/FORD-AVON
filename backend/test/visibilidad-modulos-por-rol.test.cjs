@@ -48,16 +48,20 @@ require.cache[supabaseJsPath] = fakeSupabaseModule;
 
 const distDir = path.join(__dirname, '..', 'dist');
 
-/** Matriz de permisos por rol tal como quedó aplicada en Supabase en esta
- *  ronda (migración corregir_visibilidad_permisos_por_rol). Administrador y
+/** Matriz de permisos por rol tal como quedó aplicada en Supabase. Administrador y
  *  liderazgo NO se tocaron — no se listan aquí porque no forman parte de lo
- *  que este test verifica (la tarea no pidió cambiarlos). */
+ *  que este test verifica (la tarea no pidió cambiarlos).
+ *
+ *  gerente_zona actualizado por la migración corregir_visibilidad_acciones_gerente_zona
+ *  (ronda posterior a corregir_visibilidad_permisos_por_rol): perdió calendario.crear,
+ *  gestion.gestionar, gestion.promesa.crear/editar, gestion.adjunto.subir y
+ *  gestion.carta.crear — ver gerente-zona-acciones.test.cjs para el detalle de
+ *  por qué cada uno se retiró y qué esconde/bloquea cada uno. */
 const PERMISOS_POR_ROL = {
   gerente_zona: [
-    'calendario.crear', 'calendario.editar', 'calendario.eliminar', 'calendario.ver',
-    'convenio.solicitar', 'gestion.adjunto.subir', 'gestion.carta.crear', 'gestion.gestionar',
-    'gestion.promesa.crear', 'gestion.promesa.editar', 'gestion.ver', 'informacion.ver',
-    'modulo.calendario', 'modulo.gestion', 'modulo.informacion', 'permiso.solicitar'
+    'calendario.editar', 'calendario.eliminar', 'calendario.ver', 'convenio.solicitar',
+    'gestion.ver', 'informacion.ver', 'modulo.calendario', 'modulo.gestion',
+    'modulo.informacion', 'permiso.solicitar'
   ],
   gestor: [
     'calendario.ver', 'carta.solicitar', 'control_operativo.ver', 'escalamiento.crear',

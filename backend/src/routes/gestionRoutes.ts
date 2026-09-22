@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { requireAuth } from '../middleware/auth';
-import { requirePermission } from '../middleware/requirePermission';
+import { requirePermission, requireAnyPermission } from '../middleware/requirePermission';
 import { GestionController } from '../controllers/GestionController';
 
 const router = Router();
@@ -16,7 +16,13 @@ router.get('/gestion/pd-campanas', requireAuth, requirePermission('gestion.ver')
 router.post('/gestion/estado', requireAuth, requirePermission('gestion.ver'), (req, res) => c.estado(req, res));
 router.get('/gestion/cuentas/:codigo/detalle', requireAuth, requirePermission('gestion.ver'), (req, res) => c.detalle(req, res));
 router.get('/gestion/cuentas/:codigo/info', requireAuth, requirePermission('gestion.ver'), (req, res) => c.info(req, res));
-router.get('/gestion/cartas', requireAuth, requirePermission('gestion.ver'), (req, res) => c.listarCartas(req, res));
+// Listado de cartas: exige además una de las dos acciones reales sobre
+// cartas (crearlas o aprobarlas/rechazarlas), no solo gestion.ver — así
+// un rol con acceso de solo lectura a Gestión (p. ej. gerente_zona, tras la
+// corrección de visibilidad/acciones) no ve la pestaña "Cartas" ni puede
+// listarlas por API directa. Todo rol que hoy tiene gestion.ver también
+// tiene al menos uno de estos dos permisos, así que ninguno pierde acceso.
+router.get('/gestion/cartas', requireAuth, requireAnyPermission('gestion.carta.crear', 'gestion.carta.aprobar'), (req, res) => c.listarCartas(req, res));
 
 // Escrituras.
 router.post('/gestion/cuentas/:codigo/tipificacion', requireAuth, requirePermission('gestion.gestionar'), (req, res) => c.tipificar(req, res));

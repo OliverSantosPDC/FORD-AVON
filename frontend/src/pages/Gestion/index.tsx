@@ -118,6 +118,11 @@ const GestionPage = () => {
   const canCarta = hasPermission('gestion.carta.crear');
   const canAdjunto = hasPermission('gestion.adjunto.subir');
   const canAprobar = hasPermission('gestion.carta.aprobar');
+  // "Cartas" es una pestaña interna de Gestión, no un módulo del Sidebar: se
+  // oculta con las MISMAS claves de permiso ya usadas para sus acciones
+  // (crear/aprobar carta) — ningún rol pierde acceso que ya tuviera, solo
+  // deja de verse para quien no puede ni crear ni aprobar cartas.
+  const canVerCartas = canCarta || canAprobar;
 
   const [tab, setTab] = useState(0);
   const [filters, setFilters] = useState<DashboardMultiFilterParams>(EMPTY_FILTERS);
@@ -180,7 +185,7 @@ const GestionPage = () => {
     }
   };
   useEffect(() => { void load(); /* eslint-disable-next-line */ }, [filters]);
-  useEffect(() => { if (tab === 1) getCartas().then(setCartas).catch(() => undefined); }, [tab]);
+  useEffect(() => { if (tab === 1 && canVerCartas) getCartas().then(setCartas).catch(() => undefined); }, [tab, canVerCartas]);
 
   const opts = dashboard?.filterOptions ?? EMPTY_OPTS;
   const monedaLocal = useMemo(() => {
@@ -288,7 +293,7 @@ const GestionPage = () => {
     <Box sx={{ p: { xs: 1, md: 2 } }}>
       <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ mb: 2 }}>
         <Tab label="Operación" sx={{ textTransform: 'none' }} />
-        <Tab label="Cartas" sx={{ textTransform: 'none' }} />
+        {canVerCartas && <Tab label="Cartas" sx={{ textTransform: 'none' }} />}
       </Tabs>
 
       {tab === 0 && dashboard && (
@@ -380,11 +385,15 @@ const GestionPage = () => {
           </Box>
           <TableContainer sx={{ maxHeight: '62vh' }}>
             <Table stickyHeader size="small">
-              <TableHead><TableRow>{['Acciones', 'Cuenta', 'País', 'Zona', 'PD', 'Campaña', 'Saldo Local', 'Saldo USD'].map((h) => <TableCell key={h} sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</TableCell>)}</TableRow></TableHead>
+              {/* Columna "Acciones" (abre el panel de gestión de la cuenta): visible
+                  solo con gestion.gestionar, la misma clave que ya gatea el botón
+                  "Registrar gestión" dentro de ese panel — sin ella, el panel no
+                  tiene ninguna acción disponible, así que la columna se omite. */}
+              <TableHead><TableRow>{[...(canGestionar ? ['Acciones'] : []), 'Cuenta', 'País', 'Zona', 'PD', 'Campaña', 'Saldo Local', 'Saldo USD'].map((h) => <TableCell key={h} sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</TableCell>)}</TableRow></TableHead>
               <TableBody>
                 {paged.map((r, i) => (
                   <TableRow key={str(r.codigo) || i} hover>
-                    <TableCell><Button size="small" variant="outlined" onClick={() => abrirPanel(r)} sx={{ textTransform: 'none', minWidth: 0 }}>Acciones</Button></TableCell>
+                    {canGestionar && <TableCell><Button size="small" variant="outlined" onClick={() => abrirPanel(r)} sx={{ textTransform: 'none', minWidth: 0 }}>Acciones</Button></TableCell>}
                     <TableCell>{str(r.codigo)}</TableCell>
                     <TableCell><Chip size="small" label={siglaPais(str(r.pais))} /></TableCell><TableCell>{str(r.zona)}</TableCell>
                     <TableCell><Chip size="small" label={str(r.pd_actual)} /></TableCell>
@@ -400,7 +409,7 @@ const GestionPage = () => {
         </Paper>
       )}
 
-      {tab === 1 && (
+      {tab === 1 && canVerCartas && (
         <Paper sx={{ mt: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
           <TableContainer sx={{ maxHeight: '65vh' }}>
             <Table stickyHeader size="small">
