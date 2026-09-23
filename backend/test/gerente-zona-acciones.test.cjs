@@ -8,8 +8,14 @@
  * Verifica, contra el código YA COMPILADO en dist/ (nunca una
  * reimplementación), que los permisos retirados de gerente_zona en la
  * migración `corregir_visibilidad_acciones_gerente_zona` bloquean también el
- * acceso DIRECTO por API a cada acción que la UI ahora oculta — y que
- * ningún otro rol (gestor/supervisor/administrador) pierde nada.
+ * acceso DIRECTO por API a cada acción que la UI ahora oculta.
+ *
+ * NOTA (ronda posterior `corregir_control_operativo_cartas_gestor`): gestor
+ * perdió control_operativo.ver/modulo.control_operativo/gestion.carta.crear
+ * en una migración posterior a esta — el snapshot de gestor y las pruebas de
+ * cartas de este archivo ya reflejan ese estado actual (ver también
+ * gestor-control-operativo-cartas.test.cjs, dedicado a esa ronda). Supervisor
+ * y Administrador siguen intactos.
  *
  * Ejecutar (tras `npm run build`): node --test test/gerente-zona-acciones.test.cjs
  */
@@ -42,10 +48,10 @@ const PERMISOS_POR_ROL = {
     'modulo.informacion', 'permiso.solicitar'
   ],
   gestor: [
-    'calendario.ver', 'carta.solicitar', 'control_operativo.ver', 'escalamiento.crear',
-    'gestion.adjunto.subir', 'gestion.carta.crear', 'gestion.gestionar', 'gestion.promesa.crear',
+    'calendario.ver', 'carta.solicitar', 'escalamiento.crear',
+    'gestion.adjunto.subir', 'gestion.gestionar', 'gestion.promesa.crear',
     'gestion.promesa.editar', 'gestion.ver', 'informacion.ver', 'modulo.calendario',
-    'modulo.control_operativo', 'modulo.gestion', 'modulo.informacion', 'permiso.solicitar',
+    'modulo.gestion', 'modulo.informacion', 'permiso.solicitar',
     'rec.solicitar'
   ],
   supervisor: [
@@ -171,7 +177,7 @@ test('GET /api/gestion/cuentas (columnas de la tabla, sin "Acciones"): Gerente s
  * 3) OPERACIÓN > GESTIÓN > "Cartas": bloqueado para Gerente, intacto para Gestor/Supervisor
  * ========================================================================== */
 
-test('POST /api/gestion/cuentas/:codigo/cartas: Gerente DENEGADO, Gestor PERMITIDO', async () => {
+test('POST /api/gestion/cuentas/:codigo/cartas: Gerente y Gestor DENEGADOS (ronda posterior igualó Cartas a ambos), Supervisor PERMITIDO', async () => {
   const gestionRoutes = require(path.join(distDir, 'routes', 'gestionRoutes.js')).default;
   const gate = routeHandlerAt(gestionRoutes, 'post', '/gestion/cuentas/:codigo/cartas', 1);
 
@@ -180,18 +186,25 @@ test('POST /api/gestion/cuentas/:codigo/cartas: Gerente DENEGADO, Gestor PERMITI
   assert.equal(gerente.statusCode, 403);
 
   const gestorRes = await probarAutorizacion(gate, 'gestor');
-  assert.equal(gestorRes.nextCalled, true, 'Gestor (gestion.carta.crear intacto) sigue creando cartas con normalidad');
+  assert.equal(gestorRes.nextCalled, false, 'Gestor (gestion.carta.crear retirado en ronda posterior) tampoco debe poder crear cartas');
+  assert.equal(gestorRes.statusCode, 403);
+
+  const supervisorRes = await probarAutorizacion(gate, 'supervisor');
+  assert.equal(supervisorRes.nextCalled, true, 'Supervisor (sin cambios) sigue creando cartas con normalidad');
 });
 
-test('GET /api/gestion/cartas (listado, gate nuevo de esta ronda): Gerente DENEGADO, Gestor/Supervisor/Administrador PERMITIDOS', async () => {
+test('GET /api/gestion/cartas (listado): Gerente y Gestor DENEGADOS, Supervisor/Administrador PERMITIDOS', async () => {
   const gestionRoutes = require(path.join(distDir, 'routes', 'gestionRoutes.js')).default;
   const gate = routeHandlerAt(gestionRoutes, 'get', '/gestion/cartas', 1);
 
-  const gerente = await probarAutorizacion(gate, 'gerente_zona');
-  assert.equal(gerente.nextCalled, false, 'Gerente no debe poder listar cartas directamente por API (pestaña "Cartas" oculta)');
-  assert.equal(gerente.statusCode, 403);
+  for (const rol of ['gerente_zona', 'gestor']) {
+    // eslint-disable-next-line no-await-in-loop
+    const resultado = await probarAutorizacion(gate, rol);
+    assert.equal(resultado.nextCalled, false, `${rol} no debe poder listar cartas directamente por API (pestaña "Cartas" oculta)`);
+    assert.equal(resultado.statusCode, 403);
+  }
 
-  for (const rol of ['gestor', 'supervisor', 'administrador']) {
+  for (const rol of ['supervisor', 'administrador']) {
     // eslint-disable-next-line no-await-in-loop
     const resultado = await probarAutorizacion(gate, rol);
     assert.equal(resultado.nextCalled, true, `${rol} debe seguir listando cartas con normalidad (permiso ya lo tenía)`);
@@ -214,7 +227,7 @@ test('Matriz final: Gerente pierde exactamente 6 permisos de acción; Gestor/Sup
   for (const permiso of ['calendario.crear', 'gestion.gestionar', 'gestion.promesa.crear', 'gestion.promesa.editar', 'gestion.adjunto.subir', 'gestion.carta.crear']) {
     assert.equal(has('gerente_zona')(permiso), false, `gerente_zona no debe tener ${permiso}`);
   }
-  assert.equal(has('gestor')('gestion.gestionar'), true, 'gestor conserva gestion.gestionar');
+  assert.equal(has('gestor')('gestion.gestionar'), true, 'gestor conserva gestion.gestionar (Cuentas > Acciones no se tocó para gestor)');
   assert.equal(has('supervisor')('gestion.carta.crear'), true, 'supervisor conserva gestion.carta.crear');
   assert.equal(has('administrador')('gestion.adjunto.subir'), true, 'administrador conserva gestion.adjunto.subir');
 });

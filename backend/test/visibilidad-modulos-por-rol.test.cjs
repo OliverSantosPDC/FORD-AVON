@@ -64,10 +64,10 @@ const PERMISOS_POR_ROL = {
     'modulo.informacion', 'permiso.solicitar'
   ],
   gestor: [
-    'calendario.ver', 'carta.solicitar', 'control_operativo.ver', 'escalamiento.crear',
-    'gestion.adjunto.subir', 'gestion.carta.crear', 'gestion.gestionar', 'gestion.promesa.crear',
+    'calendario.ver', 'carta.solicitar', 'escalamiento.crear',
+    'gestion.adjunto.subir', 'gestion.gestionar', 'gestion.promesa.crear',
     'gestion.promesa.editar', 'gestion.ver', 'informacion.ver', 'modulo.calendario',
-    'modulo.control_operativo', 'modulo.gestion', 'modulo.informacion', 'permiso.solicitar',
+    'modulo.gestion', 'modulo.informacion', 'permiso.solicitar',
     'rec.solicitar'
   ],
   supervisor: [
@@ -144,10 +144,13 @@ test('GET /api/inteligencia: requiere modulo.centro_inteligencia, no solo requir
 });
 
 /* ============================================================================
- * 2) CONTROL OPERATIVO: Gerente ❌, Gestor ✅ (distinción obligatoria)
+ * 2) CONTROL OPERATIVO: Gerente ❌, Gestor ❌ (ronda corregir_control_operativo_
+ *    cartas_gestor igualó a Gestor con Gerente — ya NO hay distinción; el
+ *    "Gestor ✅" original de esta sección quedó revertido por instrucción
+ *    posterior explícita del usuario).
  * ========================================================================== */
 
-test('GET /api/control/dashboard: Gerente DENEGADO, Gestor PERMITIDO (distinción obligatoria de la tarea)', async () => {
+test('GET /api/control/dashboard: Gerente y Gestor DENEGADOS (ronda posterior igualó a ambos)', async () => {
   const controlRoutes = require(path.join(distDir, 'routes', 'controlRoutes.js')).default;
   const gate = routeHandlerAt(controlRoutes, 'get', '/control/dashboard', 1);
 
@@ -156,15 +159,16 @@ test('GET /api/control/dashboard: Gerente DENEGADO, Gestor PERMITIDO (distinció
   assert.equal(gerente.statusCode, 403);
 
   const gestorRes = await probarAutorizacion(gate, 'gestor');
-  assert.equal(gestorRes.nextCalled, true, 'Gestor SÍ debe tener acceso a Control Operativo');
+  assert.equal(gestorRes.nextCalled, false, 'Gestor (control_operativo.ver retirado) tampoco debe tener acceso a Control Operativo');
+  assert.equal(gestorRes.statusCode, 403);
 });
 
-test('GET /control-operativo (frontend AppRoutes usa control_operativo.ver): mismo permiso, misma distinción', () => {
+test('GET /control-operativo (frontend AppRoutes usa control_operativo.ver): ambos roles ahora denegados', () => {
   // No hay Router de frontend que probar aquí (es React Router, no Express) — se
   // confirma que la matriz de permisos aplicada es exactamente la que gatea esa
   // ruta en frontend/src/routes/AppRoutes.tsx (PermissionRoute permission="control_operativo.ver").
   assert.equal(has('gerente_zona')('control_operativo.ver'), false);
-  assert.equal(has('gestor')('control_operativo.ver'), true);
+  assert.equal(has('gestor')('control_operativo.ver'), false);
 });
 
 test('POST /api/control/asignacion/simular: Gerente denegado (perdió TODO Control Operativo, incluida Asignación)', async () => {
@@ -212,7 +216,10 @@ test('Matriz final Análisis/Gestión/Control Operativo/Información/Usuarios �
   });
 
   assert.deepEqual(matriz('gerente_zona'), { analisis: false, gestion: true, controlOperativo: false, informacion: true, usuarios: false });
-  assert.deepEqual(matriz('gestor'), { analisis: false, gestion: true, controlOperativo: true, informacion: true, usuarios: false });
+  // controlOperativo: false para gestor — corregido por la migración
+  // corregir_control_operativo_cartas_gestor, que igualó a Gestor con Gerente
+  // en este punto (instrucción posterior explícita, revierte el "true" original).
+  assert.deepEqual(matriz('gestor'), { analisis: false, gestion: true, controlOperativo: false, informacion: true, usuarios: false });
 });
 
 test('Supervisor: mantiene todo lo demás, pierde ÚNICAMENTE Usuarios', () => {
