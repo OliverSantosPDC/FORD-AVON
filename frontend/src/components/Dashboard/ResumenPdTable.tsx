@@ -43,7 +43,7 @@ const columns: { id: ColumnId; label: string; align: 'center'; width: number }[]
   { id: 'porcentajeRecuperacionUsd', label: '%', align: 'center', width: 56 }
 ];
 
-const formatCurrency = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+const formatCurrency = (value: number) => value.toLocaleString('en-US', { maximumFractionDigits: 2 });
 const formatPercent = (value: number) => `${value.toFixed(2)}%`;
 
 // Resumen agrupado por PD INICIAL (pd_inicial) — ya agregado en el backend

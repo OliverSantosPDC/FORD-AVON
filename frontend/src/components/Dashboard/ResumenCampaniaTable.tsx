@@ -22,7 +22,7 @@ const columns: { id: ColumnId; label: string; align: 'center'; width: number; wr
   { id: 'porcentajeRecuperacion', label: '%', align: 'center', width: 56 }
 ];
 
-const formatCurrency = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+const formatCurrency = (value: number) => value.toLocaleString('en-US', { maximumFractionDigits: 2 });
 
 // recuperadoLocal no existe en CampaniaSummary: se deriva con la misma fórmula usada en todo el proyecto (asignado - actual).
 const recuperadoLocalDe = (row: CampaniaSummary) => row.saldoAsignadoLocal - row.saldoActualLocal;

@@ -3,6 +3,7 @@ import { CarteraService } from '../services/CarteraService';
 import { CarteraRepository } from '../repositories/CarteraRepository';
 import { getCarteraDataSource } from '../config/dataSource';
 import { aggGestores, aggZonasGestores, aggPdCampanas, contadores, indicadores, pendientes, ControlError, crearEvaluacionCalidad, listarEvaluacionesCalidad, resumenCalidad, gestoresParaCalidad, resumenOperativo, type CalidadInput } from '../services/ControlService';
+import { getTasasPorMoneda } from '../services/ConfigService';
 
 const carteraService = new CarteraService(new CarteraRepository(getCarteraDataSource()));
 
@@ -25,13 +26,13 @@ export class ControlController {
     } catch (e) { return this.fail(res, e); }
   }
   async gestores(req: Request, res: Response): Promise<Response | void> {
-    try { const ctx = this.scope(req, res); if (!ctx) return; const rows = await carteraService.listCartera(filtros(req.query), 1000000, ctx); return res.json(aggGestores(rows)); } catch (e) { return this.fail(res, e); }
+    try { const ctx = this.scope(req, res); if (!ctx) return; const [rows, tasas] = await Promise.all([carteraService.listCartera(filtros(req.query), 1000000, ctx), getTasasPorMoneda()]); return res.json(aggGestores(rows, tasas)); } catch (e) { return this.fail(res, e); }
   }
   async zonas(req: Request, res: Response): Promise<Response | void> {
-    try { const ctx = this.scope(req, res); if (!ctx) return; const rows = await carteraService.listCartera(filtros(req.query), 1000000, ctx); return res.json(aggZonasGestores(rows)); } catch (e) { return this.fail(res, e); }
+    try { const ctx = this.scope(req, res); if (!ctx) return; const [rows, tasas] = await Promise.all([carteraService.listCartera(filtros(req.query), 1000000, ctx), getTasasPorMoneda()]); return res.json(aggZonasGestores(rows, tasas)); } catch (e) { return this.fail(res, e); }
   }
   async pdCampanas(req: Request, res: Response): Promise<Response | void> {
-    try { const ctx = this.scope(req, res); if (!ctx) return; const rows = await carteraService.listCartera(filtros(req.query), 1000000, ctx); return res.json(aggPdCampanas(rows)); } catch (e) { return this.fail(res, e); }
+    try { const ctx = this.scope(req, res); if (!ctx) return; const [rows, tasas] = await Promise.all([carteraService.listCartera(filtros(req.query), 1000000, ctx), getTasasPorMoneda()]); return res.json(aggPdCampanas(rows, tasas)); } catch (e) { return this.fail(res, e); }
   }
   async cuentas(req: Request, res: Response): Promise<Response | void> {
     try { const ctx = this.scope(req, res); if (!ctx) return; return res.json(await carteraService.listCartera(filtros(req.query), 100000, ctx)); } catch (e) { return this.fail(res, e); }
@@ -43,7 +44,7 @@ export class ControlController {
     try { const ctx = this.scope(req, res); if (!ctx) return; return res.json(await pendientes(ctx)); } catch (e) { return this.fail(res, e); }
   }
   async resumenOperativo(req: Request, res: Response): Promise<Response | void> {
-    try { const ctx = this.scope(req, res); if (!ctx) return; const rows = await carteraService.listCartera(filtros(req.query), 1000000, ctx); return res.json(await resumenOperativo(ctx, rows)); } catch (e) { return this.fail(res, e); }
+    try { const ctx = this.scope(req, res); if (!ctx) return; const [rows, tasas] = await Promise.all([carteraService.listCartera(filtros(req.query), 1000000, ctx), getTasasPorMoneda()]); return res.json(await resumenOperativo(ctx, rows, tasas)); } catch (e) { return this.fail(res, e); }
   }
 
   // ===== Calidad de Gestión =====

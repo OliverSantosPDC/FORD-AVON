@@ -3,7 +3,8 @@ import type { ScopeContext } from './ScopeService';
 import { applyScope } from './ScopeFilter';
 import { listarEventos } from './CalendarService';
 import { getMetaGlobalComputada } from './MetasService';
-import { filterCarteraRowsAndBuildFilterOptions, type CarteraRow, type DashboardMultiFilterParams, type PersonasEnAlcance } from '../utils/carteraAggregations';
+import { filterCarteraRowsAndBuildFilterOptions, usdEquivalente, type CarteraRow, type DashboardMultiFilterParams, type PersonasEnAlcance } from '../utils/carteraAggregations';
+import { getTasasPorMoneda } from './ConfigService';
 
 /**
  * Centro de Inteligencia: agrega en el backend (una sola carga) métricas ejecutivas
@@ -66,13 +67,13 @@ export interface Hallazgo { categoria: 'Gestión' | 'Cartera' | 'Calendario' | '
 
 interface Grupo { clave: string; saldoAsignadoUsd: number; saldoActualUsd: number; recuperadoUsd: number; cuentas: number; pctRecuperacion: number; }
 
-const agrupar = (rows: Row[], keyFn: (r: Row) => string): Grupo[] => {
+const agrupar = (rows: Row[], keyFn: (r: Row) => string, tasas: Record<string, number>): Grupo[] => {
   const m = new Map<string, { asig: number; act: number; cuentas: number }>();
   for (const r of rows) {
     const k = keyFn(r) || 'Sin dato';
     const it = m.get(k) ?? { asig: 0, act: 0, cuentas: 0 };
-    it.asig += num(field(r, 'saldo_inicial_usd', 'saldo_inicial'));
-    it.act += num(field(r, 'saldo_actual_usd', 'saldo_actual'));
+    it.asig += usdEquivalente(num(field(r, 'saldo_inicial')), r.pais, tasas);
+    it.act += usdEquivalente(num(field(r, 'saldo_actual')), r.pais, tasas);
     it.cuentas += 1;
     m.set(k, it);
   }
@@ -90,10 +91,15 @@ export const getCentroInteligencia = async (ctx: ScopeContext, filtros: CentroFi
   const diasRestantes = Math.max(0, diasTotal - now.getDate());
 
   // ---- KPIs monetarios (USD y local) ----
+  // CORRECCIÓN DE CONVERSIÓN MONETARIA: el "USD" se deriva SIEMPRE del campo
+  // local (saldo_inicial/saldo_actual) dividido entre la tasa VIGENTE de la
+  // moneda del país de cada fila — nunca de saldo_inicial_usd/saldo_actual_usd
+  // (congeladas al importar, ver usdEquivalente en utils/carteraAggregations.ts).
+  const tasas = await getTasasPorMoneda();
   let asigUsd = 0, actUsd = 0, asigLocal = 0, actLocal = 0;
   for (const r of rows) {
-    asigUsd += num(field(r, 'saldo_inicial_usd', 'saldo_inicial'));
-    actUsd += num(field(r, 'saldo_actual_usd', 'saldo_actual'));
+    asigUsd += usdEquivalente(num(field(r, 'saldo_inicial')), r.pais, tasas);
+    actUsd += usdEquivalente(num(field(r, 'saldo_actual')), r.pais, tasas);
     asigLocal += num(field(r, 'saldo_inicial'));
     actLocal += num(field(r, 'saldo_actual'));
   }
@@ -105,12 +111,12 @@ export const getCentroInteligencia = async (ctx: ScopeContext, filtros: CentroFi
     cuentas: rows.length, pctRecuperacion: pct(recUsd, asigUsd)
   };
 
-  const recPorPais = agrupar(rows, (r) => s(field(r, 'pais')));
-  const recPorPD = agrupar(rows, (r) => s(field(r, 'pd_actual', 'pd')));
-  const porZona = agrupar(rows, (r) => s(field(r, 'zona')));
-  const porSector = agrupar(rows, (r) => s(field(r, 'sector')));
-  const porRiesgo = agrupar(rows, (r) => s(field(r, 'riesgo', 'nivel_riesgo', 'riesgo_pd')));
-  const porGestor = agrupar(rows, (r) => s(field(r, 'gestor')));
+  const recPorPais = agrupar(rows, (r) => s(field(r, 'pais')), tasas);
+  const recPorPD = agrupar(rows, (r) => s(field(r, 'pd_actual', 'pd')), tasas);
+  const porZona = agrupar(rows, (r) => s(field(r, 'zona')), tasas);
+  const porSector = agrupar(rows, (r) => s(field(r, 'sector')), tasas);
+  const porRiesgo = agrupar(rows, (r) => s(field(r, 'riesgo', 'nivel_riesgo', 'riesgo_pd')), tasas);
+  const porGestor = agrupar(rows, (r) => s(field(r, 'gestor')), tasas);
 
   // ---- Meta global (configuración única en Supabase: % o monto, mutuamente excluyentes) ----
   // La meta % es un objetivo de NEGOCIO fijo, calculado siempre contra el total REAL de

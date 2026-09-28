@@ -23,7 +23,9 @@ import InboxOutlinedIcon from '@mui/icons-material/InboxOutlined';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import { useCartera } from '../../hooks/useCartera';
 import { useAuth } from '../../context/AuthContext';
+import { useTasasConversion } from '../../hooks/useTasasConversion';
 import { exportRowsToCsv } from '../../utils/tableExport';
+import { usdEquivalente } from '../../utils/monedaConversion';
 import type { CarteraRecord } from '../../types/cartera';
 
 /** Columnas mostradas (claves reales que devuelve /api/cartera). */
@@ -32,8 +34,15 @@ interface Column {
   label: string;
   numeric?: boolean;
   currency?: boolean;
+  /** Solo para columnas `currency`: deriva el valor SIEMPRE del saldo local
+   *  real (nunca de una columna _usd congelada). Ver utils/monedaConversion.ts. */
+  getValue?: (row: CarteraRecord, tasas: Record<string, number>) => number;
 }
 
+// CORRECCIÓN DE CONVERSIÓN MONETARIA: "Saldo asignado/actual USD" se derivan
+// SIEMPRE de saldo_inicial/saldo_actual (moneda local real de la fila)
+// divididos entre la tasa VIGENTE del país — nunca de las columnas
+// saldo_inicial_usd/saldo_actual_usd (congeladas al importar, obsoletas).
 const COLUMNS: Column[] = [
   { key: 'codigo', label: 'Código' },
   { key: 'nombre', label: 'Cliente' },
@@ -42,8 +51,14 @@ const COLUMNS: Column[] = [
   { key: 'gestor', label: 'Gestor' },
   { key: 'pd_actual', label: 'PD' },
   { key: 'campania_adeuda', label: 'Campaña' },
-  { key: 'saldo_inicial_usd', label: 'Saldo asignado USD', numeric: true, currency: true },
-  { key: 'saldo_actual_usd', label: 'Saldo actual USD', numeric: true, currency: true }
+  {
+    key: 'saldo_inicial_usd', label: 'Saldo asignado USD', numeric: true, currency: true,
+    getValue: (row, tasas) => usdEquivalente(Number(str(row.saldo_inicial)) || 0, row.pais, tasas)
+  },
+  {
+    key: 'saldo_actual_usd', label: 'Saldo actual USD', numeric: true, currency: true,
+    getValue: (row, tasas) => usdEquivalente(Number(str(row.saldo_actual)) || 0, row.pais, tasas)
+  }
 ];
 
 /** Dimensiones de filtro client-side (operan SOLO sobre datos ya autorizados por el backend). */
@@ -61,7 +76,7 @@ const str = (value: unknown): string => (value === null || value === undefined ?
 const money = (value: unknown): string => {
   const n = typeof value === 'number' ? value : Number(str(value));
   if (!Number.isFinite(n)) return '—';
-  return n.toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
 /** Color del chip por PD (PD0 sano → PD7 crítico). Solo presentación; el dato es el PD real. */
@@ -82,6 +97,7 @@ const CarteraPage = () => {
   const { data, loading, error } = useCartera();
   const { hasPermission } = useAuth();
   const canExport = hasPermission('reporte.exportar');
+  const { tasas } = useTasasConversion();
 
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Record<FilterKey, string>>(EMPTY_FILTERS);
@@ -122,7 +138,7 @@ const CarteraPage = () => {
     // Exporta EXACTAMENTE lo visible (scope backend + filtros + búsqueda). Nunca consulta Supabase.
     const headers = COLUMNS.map((c) => c.label);
     const rows = filtered.map((row) =>
-      COLUMNS.map((c) => (c.currency ? Number(str(row[c.key])) || 0 : str(row[c.key])))
+      COLUMNS.map((c) => (c.getValue ? c.getValue(row, tasas) : str(row[c.key])))
     );
     exportRowsToCsv('cartera.csv', headers, rows);
   };
@@ -152,7 +168,7 @@ const CarteraPage = () => {
         <Box>
           <Typography sx={{ fontSize: 20, fontWeight: 700 }}>Cartera</Typography>
           <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
-            Registros dentro de tu alcance. Mostrando {filtered.length.toLocaleString('es')} de {data.length.toLocaleString('es')} cuenta(s).
+            Registros dentro de tu alcance. Mostrando {filtered.length.toLocaleString('en-US')} de {data.length.toLocaleString('en-US')} cuenta(s).
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
@@ -248,8 +264,8 @@ const CarteraPage = () => {
                                 size="small"
                                 sx={{ bgcolor: pdColor(str(row[col.key])), color: '#fff', fontWeight: 700, height: 20 }}
                               />
-                            ) : col.currency ? (
-                              money(row[col.key])
+                            ) : col.getValue ? (
+                              money(col.getValue(row, tasas))
                             ) : (
                               str(row[col.key]) || '—'
                             )}

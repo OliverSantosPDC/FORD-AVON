@@ -2,7 +2,7 @@ import { getSupabaseClient } from '../config/supabaseClient';
 import { SUPABASE_CARTERA_TABLE } from '../config/env';
 import { applyScope } from './ScopeFilter';
 import { gestoresEnAlcance, gerentesZonaEnAlcance, type ScopeContext } from './ScopeService';
-import { gestorPorPaisZona, overlayIdentidadReal } from '../utils/carteraAggregations';
+import { gestorPorPaisZona, overlayIdentidadReal, usdEquivalente } from '../utils/carteraAggregations';
 
 /**
  * Operaciones de gestión de cobranza (tipificación, promesas, adjuntos, cartas).
@@ -222,25 +222,33 @@ const s = (v: unknown) => (v === null || v === undefined ? '' : String(v));
 
 interface Agg { cuentas: number; saldoLocal: number; saldoUsd: number; asignadoUsd: number; }
 const emptyAgg = (): Agg => ({ cuentas: 0, saldoLocal: 0, saldoUsd: 0, asignadoUsd: 0 });
-const addRow = (a: Agg, r: Row) => {
+/**
+ * CORRECCIÓN DE CONVERSIÓN MONETARIA: `saldoUsd`/`asignadoUsd` se derivan
+ * SIEMPRE de `saldo_actual`/`saldo_inicial` (moneda local real de la fila)
+ * divididos entre la tasa vigente de la moneda del país de esa fila — nunca
+ * de las columnas congeladas `saldo_actual_usd`/`saldo_inicial_usd` (ver
+ * usdEquivalente en utils/carteraAggregations.ts). `saldoLocal` sigue siendo
+ * el campo local crudo, sin tocar.
+ */
+const addRow = (a: Agg, r: Row, tasas: Record<string, number>) => {
   a.cuentas += 1;
   a.saldoLocal += num(r.saldo_actual);
-  a.saldoUsd += num(r.saldo_actual_usd);
-  a.asignadoUsd += num(r.saldo_inicial_usd);
+  a.saldoUsd += usdEquivalente(num(r.saldo_actual), r.pais, tasas);
+  a.asignadoUsd += usdEquivalente(num(r.saldo_inicial), r.pais, tasas);
 };
 const out = (key: string, a: Agg, extra: Record<string, unknown> = {}) => ({
   ...extra, cuentas: a.cuentas, saldoLocal: a.saldoLocal, saldoUsd: a.saldoUsd,
   asignadoUsd: a.asignadoUsd, recuperadoUsd: a.asignadoUsd - a.saldoUsd, pctRecuperacion: pct(a.asignadoUsd - a.saldoUsd, a.asignadoUsd), key
 });
 
-export const aggregarZonasPd = (rows: Row[]) => {
+export const aggregarZonasPd = (rows: Row[], tasas: Record<string, number>) => {
   const zonas = new Map<string, { pais: string; agg: Agg; pds: Map<string, Agg> }>();
   for (const r of rows) {
     const zona = s(r.zona) || 'Sin zona';
     const z = zonas.get(zona) ?? { pais: s(r.pais), agg: emptyAgg(), pds: new Map() };
-    addRow(z.agg, r);
+    addRow(z.agg, r, tasas);
     const pd = s(r.pd_actual) || 'Sin PD';
-    const pa = z.pds.get(pd) ?? emptyAgg(); addRow(pa, r); z.pds.set(pd, pa);
+    const pa = z.pds.get(pd) ?? emptyAgg(); addRow(pa, r, tasas); z.pds.set(pd, pa);
     zonas.set(zona, z);
   }
   return Array.from(zonas.entries()).map(([zona, z]) => ({
@@ -249,14 +257,14 @@ export const aggregarZonasPd = (rows: Row[]) => {
   })).sort((x, y) => y.saldoLocal - x.saldoLocal);
 };
 
-export const aggregarPdCampanas = (rows: Row[]) => {
+export const aggregarPdCampanas = (rows: Row[], tasas: Record<string, number>) => {
   const pds = new Map<string, { agg: Agg; camp: Map<string, Agg> }>();
   for (const r of rows) {
     const pd = s(r.pd_actual) || 'Sin PD';
     const p = pds.get(pd) ?? { agg: emptyAgg(), camp: new Map() };
-    addRow(p.agg, r);
+    addRow(p.agg, r, tasas);
     const c = s(r.campania_adeuda) || 'Sin campaña';
-    const ca = p.camp.get(c) ?? emptyAgg(); addRow(ca, r); p.camp.set(c, ca);
+    const ca = p.camp.get(c) ?? emptyAgg(); addRow(ca, r, tasas); p.camp.set(c, ca);
     pds.set(pd, p);
   }
   return Array.from(pds.entries()).map(([pd, p]) => ({

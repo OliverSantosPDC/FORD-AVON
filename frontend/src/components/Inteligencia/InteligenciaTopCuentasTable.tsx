@@ -123,7 +123,7 @@ const InteligenciaTopCuentasTable = ({ data }: InteligenciaTopCuentasTableProps)
                 <TableCell>{row.pais}</TableCell>
                 <TableCell>{row.gestor}</TableCell>
                 <TableCell>{row.pd}</TableCell>
-                <TableCell align="right">${row.saldoActual.toLocaleString(undefined, { maximumFractionDigits: 2 })}</TableCell>
+                <TableCell align="right">${row.saldoActual.toLocaleString('en-US', { maximumFractionDigits: 2 })}</TableCell>
               </TableRow>
             ))}
           </TableBody>

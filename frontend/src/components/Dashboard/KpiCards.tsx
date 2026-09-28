@@ -121,8 +121,8 @@ interface KpiCardsProps {
 
 const formatNumber = (value: number, moneda = 'USD') =>
   moneda === 'USD'
-    ? value.toLocaleString(undefined, { maximumFractionDigits: 0 })
-    : `${value.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${moneda}`;
+    ? value.toLocaleString('en-US', { maximumFractionDigits: 0 })
+    : `${value.toLocaleString('en-US', { maximumFractionDigits: 0 })} ${moneda}`;
 
 const KpiCards = ({ kpis, moneda = 'USD' }: KpiCardsProps) => (
   <Box
@@ -141,7 +141,7 @@ const KpiCards = ({ kpis, moneda = 'USD' }: KpiCardsProps) => (
     <KpiCard title="Saldo Actual" value={formatNumber(kpis.saldoActual, moneda)} icon={<TrendingUpIcon />} accent="#0EA5E9" />
     <KpiCard title="Recuperado" value={formatNumber(kpis.recuperado, moneda)} icon={<PointOfSaleIcon />} accent="#22C55E" />
     <KpiCard title="% Recuperación" value={`${kpis.porcentajeRecuperacion.toFixed(2)}%`} icon={<PercentIcon />} accent="#E6007E" />
-    <KpiCard title="Total Cuentas" value={kpis.totalCuentas.toLocaleString()} icon={<PersonIcon />} accent="#7C3AED" />
+    <KpiCard title="Total Cuentas" value={kpis.totalCuentas.toLocaleString('en-US')} icon={<PersonIcon />} accent="#7C3AED" />
   </Box>
 );
 

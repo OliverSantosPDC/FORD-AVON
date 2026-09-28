@@ -1,5 +1,6 @@
 import { getSupabaseClient } from '../config/supabaseClient';
-import { ConfigError } from './ConfigService';
+import { ConfigError, getTasasPorMoneda } from './ConfigService';
+import { usdEquivalente } from '../utils/carteraAggregations';
 
 const c = () => getSupabaseClient();
 
@@ -34,16 +35,29 @@ export interface MetaGlobalComputada {
   updatedBy: string | null;
 }
 
-/** Total real de negocio: SUM(cartera.saldo_inicial_usd) de TODA la cartera, sin
- *  scope ni filtros. La meta global es un objetivo de negocio único; su % debe
- *  calcularse siempre contra el universo completo, no contra lo que un usuario
- *  puntual esté autorizado a ver. Se recalcula en cada lectura (nunca se cachea
- *  un valor congelado) para que un reimport de cartera se refleje de inmediato. */
+/**
+ * Total real de negocio: SUM del equivalente en USD de `saldo_inicial` (moneda
+ * LOCAL real de cada fila) de TODA la cartera, sin scope ni filtros. La meta
+ * global es un objetivo de negocio único; su % debe calcularse siempre contra
+ * el universo completo, no contra lo que un usuario puntual esté autorizado a
+ * ver. Se recalcula en cada lectura (nunca se cachea un valor congelado) para
+ * que un reimport de cartera se refleje de inmediato.
+ *
+ * CORRECCIÓN DE CONVERSIÓN MONETARIA: antes sumaba directamente la columna
+ * `saldo_inicial_usd`, congelada con la tasa vigente en el momento de la
+ * importación — nunca actualizada cuando cambia `config_tasas_conversion`.
+ * Ahora se deriva SIEMPRE de `saldo_inicial` dividido entre la tasa VIGENTE
+ * de la moneda del país de cada fila (ver usdEquivalente en
+ * utils/carteraAggregations.ts), igual que el resto del sistema.
+ */
 export const getTotalSaldoInicialGlobalUsd = async (): Promise<number> => {
-  const { data, error } = await c().from('cartera').select('saldo_inicial_usd').limit(200000);
+  const [{ data, error }, tasas] = await Promise.all([
+    c().from('cartera').select('saldo_inicial, pais').limit(200000),
+    getTasasPorMoneda()
+  ]);
   if (error) throw new ConfigError(error.message);
-  return ((data ?? []) as Array<{ saldo_inicial_usd: number | string | null }>).reduce(
-    (sum, r) => sum + (Number(r.saldo_inicial_usd) || 0),
+  return ((data ?? []) as Array<{ saldo_inicial: number | string | null; pais: string | null }>).reduce(
+    (sum, r) => sum + usdEquivalente(Number(r.saldo_inicial) || 0, r.pais, tasas),
     0
   );
 };

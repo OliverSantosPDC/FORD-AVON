@@ -23,8 +23,8 @@ const InteligenciaRiesgosChart = ({ data }: InteligenciaRiesgosChartProps) => {
           <BarChart data={chartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="pd" interval={0} angle={-25} textAnchor="end" height={80} />
-            <YAxis tickFormatter={(value) => `$${value.toLocaleString()}`} />
-            <Tooltip formatter={(value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
+            <YAxis tickFormatter={(value) => `$${value.toLocaleString('en-US')}`} />
+            <Tooltip formatter={(value: number) => `$${value.toLocaleString('en-US', { maximumFractionDigits: 2 })}`} />
             <Bar dataKey="saldoActual" fill="#1976d2" />
           </BarChart>
         </ResponsiveContainer>

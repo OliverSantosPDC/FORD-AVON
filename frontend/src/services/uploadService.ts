@@ -120,7 +120,7 @@ interface BackendStatus {
 
 const formatProcessingMessage = (status: BackendStatus): string => {
   if (status.total > 0) {
-    return `Procesando ${status.processed.toLocaleString()} de ${status.total.toLocaleString()} registros...`;
+    return `Procesando ${status.processed.toLocaleString('en-US')} de ${status.total.toLocaleString('en-US')} registros...`;
   }
   return status.message || 'Archivo guardado. Procesando cartera...';
 };

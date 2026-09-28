@@ -89,6 +89,46 @@ export const actualizarTasaConversion = async (id: string, b: Record<string, unk
   if (!Number.isFinite(tasa) || tasa <= 0) throw new ConfigError('La tasa debe ser un número mayor que 0.');
   const { error } = await c().from('config_tasas_conversion').update({ tasa, updated_at: new Date().toISOString(), updated_by: actor }).eq('id', id);
   if (error) throw new ConfigError(error.message);
+  tasasPorMonedaCache = null; // invalida el caché corto: un cambio guardado se refleja de inmediato, no hasta que expire el TTL.
+};
+
+/**
+ * CORRECCIÓN DE CONVERSIÓN MONETARIA (auditoría FORD-AVON): fuente única de
+ * tasas VIGENTES para todo cálculo backend que convierta saldo local → USD
+ * (ver getUsdEquivalente en utils/carteraAggregations.ts). Nunca usar las
+ * columnas congeladas `saldo_actual_usd`/`saldo_inicial_usd` de `cartera`
+ * como fuente — solo esta función, que lee `config_tasas_conversion` en
+ * vivo. Caché corta (15 s, misma cadencia que el polling de
+ * useTasasConversion en el frontend) para no repetir la consulta en cada
+ * una de las varias agregaciones que corren dentro de un mismo request,
+ * manteniendo la frescura muy por encima de "congelado desde la
+ * importación". Fallback SEGURO ante fallo de Supabase: reutiliza el último
+ * valor cacheado si existe (aunque haya expirado) antes que reventar todo
+ * el dashboard; solo si nunca hubo un valor válido cae a `{ USD: 1 }`
+ * (deja los saldos ya-en-USD intactos y evita una división por una tasa
+ * inventada), y siempre registra el error en consola — nunca falla en
+ * silencio.
+ */
+const TASAS_CACHE_TTL_MS = 15_000;
+let tasasPorMonedaCache: { map: Record<string, number>; expires: number } | null = null;
+
+export const getTasasPorMoneda = async (): Promise<Record<string, number>> => {
+  const now = Date.now();
+  if (tasasPorMonedaCache && tasasPorMonedaCache.expires > now) return tasasPorMonedaCache.map;
+
+  try {
+    const rows = await listTasasConversion();
+    const map: Record<string, number> = {};
+    for (const row of rows as Array<{ codigo?: string; tasa?: number }>) {
+      if (row.codigo) map[row.codigo] = Number(row.tasa);
+    }
+    tasasPorMonedaCache = { map, expires: now + TASAS_CACHE_TTL_MS };
+    return map;
+  } catch (err) {
+    console.error('[TASAS] getTasasPorMoneda: fallo al leer config_tasas_conversion', err instanceof Error ? err.message : err);
+    if (tasasPorMonedaCache) return tasasPorMonedaCache.map;
+    return { USD: 1 };
+  }
 };
 
 /* ===== Roles y permisos (reutiliza tablas existentes) ===== */

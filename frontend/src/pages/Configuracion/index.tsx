@@ -599,7 +599,7 @@ const ConfiguracionPage = () => {
               <Grid container spacing={1.5}>
                 <Grid item xs={12} sm={4}>
                   <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase' }}>Total Saldo Inicial</Typography>
-                  <Typography sx={{ fontSize: 16, fontWeight: 800 }}>${metaCfg.totalSaldoInicialUsd.toLocaleString(undefined, { maximumFractionDigits: 0 })}</Typography>
+                  <Typography sx={{ fontSize: 16, fontWeight: 800 }}>${metaCfg.totalSaldoInicialUsd.toLocaleString('en-US', { maximumFractionDigits: 0 })}</Typography>
                 </Grid>
                 <Grid item xs={12} sm={4}>
                   <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase' }}>Meta %</Typography>
@@ -607,7 +607,7 @@ const ConfiguracionPage = () => {
                 </Grid>
                 <Grid item xs={12} sm={4}>
                   <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase' }}>Meta Monto</Typography>
-                  <Typography sx={{ fontSize: 16, fontWeight: 800 }}>${(metaCfg.montoUsdGlobal ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</Typography>
+                  <Typography sx={{ fontSize: 16, fontWeight: 800 }}>${(metaCfg.montoUsdGlobal ?? 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}</Typography>
                 </Grid>
               </Grid>
             )}

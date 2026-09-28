@@ -4,6 +4,7 @@ import { CarteraRepository } from '../repositories/CarteraRepository';
 import { getCarteraDataSource } from '../config/dataSource';
 import { simular, aplicar, reasignarManual, listarHistorial, AsignacionError, type ReglaAsignacion } from '../services/AsignacionService';
 import { gestoresParaCalidad } from '../services/ControlService';
+import { getTasasPorMoneda } from '../services/ConfigService';
 
 const carteraService = new CarteraService(new CarteraRepository(getCarteraDataSource()));
 
@@ -31,16 +32,22 @@ export class AsignacionController {
     try {
       const ctx = this.scope(req, res); if (!ctx) return;
       const b = (req.body ?? {}) as Record<string, unknown>;
-      const rows = await carteraService.listCartera(filtros((b.filtros as Record<string, unknown>) ?? {}), 1000000, ctx);
-      return res.json(simular(rows, reglaDeBody(b)));
+      const [rows, tasas] = await Promise.all([
+        carteraService.listCartera(filtros((b.filtros as Record<string, unknown>) ?? {}), 1000000, ctx),
+        getTasasPorMoneda()
+      ]);
+      return res.json(simular(rows, reglaDeBody(b), tasas));
     } catch (e) { return this.fail(res, e); }
   }
   async aplicar(req: Request, res: Response): Promise<Response | void> {
     try {
       const ctx = this.scope(req, res); if (!ctx) return;
       const b = (req.body ?? {}) as Record<string, unknown>;
-      const rows = await carteraService.listCartera(filtros((b.filtros as Record<string, unknown>) ?? {}), 1000000, ctx);
-      return res.json(await aplicar(ctx, rows, reglaDeBody(b)));
+      const [rows, tasas] = await Promise.all([
+        carteraService.listCartera(filtros((b.filtros as Record<string, unknown>) ?? {}), 1000000, ctx),
+        getTasasPorMoneda()
+      ]);
+      return res.json(await aplicar(ctx, rows, reglaDeBody(b), tasas));
     } catch (e) { return this.fail(res, e); }
   }
   async reasignar(req: Request, res: Response): Promise<Response | void> {

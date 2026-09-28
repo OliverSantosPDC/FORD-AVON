@@ -604,7 +604,7 @@ const UsuariosPage = () => {
         <>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1.5, mb: 2 }}>
             <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
-              {usuarios.length.toLocaleString('es')} usuario(s).
+              {usuarios.length.toLocaleString('en-US')} usuario(s).
             </Typography>
             {canAdminGlobal && (
               <Button variant="contained" startIcon={<PersonAddIcon />} onClick={openCreate} sx={{ textTransform: 'none', borderRadius: 2 }}>

@@ -1,6 +1,7 @@
 import { getSupabaseClient } from '../config/supabaseClient';
 import { registrarAuditoria } from './AuditoriaService';
 import { listarEventos } from './CalendarService';
+import { usdEquivalente } from '../utils/carteraAggregations';
 import type { ScopeContext } from './ScopeService';
 
 /**
@@ -18,43 +19,55 @@ const pct = (rec: number, asig: number) => (asig === 0 ? 0 : Number(((rec / asig
 
 interface Agg { cuentas: number; saldoLocal: number; saldoUsd: number; asignadoUsd: number; }
 const emptyAgg = (): Agg => ({ cuentas: 0, saldoLocal: 0, saldoUsd: 0, asignadoUsd: 0 });
-const add = (a: Agg, r: Row) => { a.cuentas += 1; a.saldoLocal += num(r.saldo_actual); a.saldoUsd += num(r.saldo_actual_usd); a.asignadoUsd += num(r.saldo_inicial_usd); };
+/**
+ * CORRECCIÓN DE CONVERSIÓN MONETARIA: `saldoUsd`/`asignadoUsd` se derivan
+ * SIEMPRE de `saldo_actual`/`saldo_inicial` (local, real) divididos entre la
+ * tasa vigente de la moneda del país de la fila — nunca de las columnas
+ * congeladas `saldo_actual_usd`/`saldo_inicial_usd` (ver usdEquivalente en
+ * utils/carteraAggregations.ts).
+ */
+const add = (a: Agg, r: Row, tasas: Record<string, number>) => {
+  a.cuentas += 1;
+  a.saldoLocal += num(r.saldo_actual);
+  a.saldoUsd += usdEquivalente(num(r.saldo_actual), r.pais, tasas);
+  a.asignadoUsd += usdEquivalente(num(r.saldo_inicial), r.pais, tasas);
+};
 const node = (key: string, a: Agg, extra: Record<string, unknown> = {}) => ({ ...extra, key, cuentas: a.cuentas, saldoLocal: a.saldoLocal, saldoUsd: a.saldoUsd, asignadoUsd: a.asignadoUsd, recuperadoUsd: a.asignadoUsd - a.saldoUsd, pctRecuperacion: pct(a.asignadoUsd - a.saldoUsd, a.asignadoUsd) });
 
 /** Gestor → PD (con métricas). Agrupa por `r.gestor`, que YA es la IDENTIDAD real (ver `CarteraService`/`overlayIdentidadReal`: `listCartera()` la resuelve antes de llegar aquí). */
-export const aggGestores = (rows: Row[]) => {
+export const aggGestores = (rows: Row[], tasas: Record<string, number>) => {
   const g = new Map<string, { agg: Agg; pds: Map<string, Agg> }>();
   for (const r of rows) {
     const gestor = s(r.gestor) || 'Sin gestor asignado';
     const it = g.get(gestor) ?? { agg: emptyAgg(), pds: new Map() };
-    add(it.agg, r);
-    const pd = s(r.pd_actual) || 'Sin PD'; const pa = it.pds.get(pd) ?? emptyAgg(); add(pa, r); it.pds.set(pd, pa);
+    add(it.agg, r, tasas);
+    const pd = s(r.pd_actual) || 'Sin PD'; const pa = it.pds.get(pd) ?? emptyAgg(); add(pa, r, tasas); it.pds.set(pd, pa);
     g.set(gestor, it);
   }
   return [...g.entries()].map(([gestor, it]) => ({ ...node(gestor, it.agg, { gestor }), pds: [...it.pds.entries()].map(([pd, a]) => node(pd, a, { pd })).sort((x, y) => y.saldoUsd - x.saldoUsd) })).sort((x, y) => y.saldoLocal - x.saldoLocal);
 };
 
 /** Zona → Gestores (con métricas). Agrupa por `r.gestor`, que YA es la IDENTIDAD real (ver `aggGestores`). */
-export const aggZonasGestores = (rows: Row[]) => {
+export const aggZonasGestores = (rows: Row[], tasas: Record<string, number>) => {
   const z = new Map<string, { pais: string; agg: Agg; ges: Map<string, Agg> }>();
   for (const r of rows) {
     const zona = s(r.zona) || 'Sin zona';
     const it = z.get(zona) ?? { pais: s(r.pais), agg: emptyAgg(), ges: new Map() };
-    add(it.agg, r);
-    const gestor = s(r.gestor) || 'Sin gestor asignado'; const ga = it.ges.get(gestor) ?? emptyAgg(); add(ga, r); it.ges.set(gestor, ga);
+    add(it.agg, r, tasas);
+    const gestor = s(r.gestor) || 'Sin gestor asignado'; const ga = it.ges.get(gestor) ?? emptyAgg(); add(ga, r, tasas); it.ges.set(gestor, ga);
     z.set(zona, it);
   }
   return [...z.entries()].map(([zona, it]) => ({ ...node(zona, it.agg, { zona, pais: it.pais }), gestores: [...it.ges.entries()].map(([g, a]) => node(g, a, { gestor: g })).sort((x, y) => y.saldoUsd - x.saldoUsd) })).sort((x, y) => y.saldoLocal - x.saldoLocal);
 };
 
 /** PD → Campañas. */
-export const aggPdCampanas = (rows: Row[]) => {
+export const aggPdCampanas = (rows: Row[], tasas: Record<string, number>) => {
   const p = new Map<string, { agg: Agg; camp: Map<string, Agg> }>();
   for (const r of rows) {
     const pd = s(r.pd_actual) || 'Sin PD';
     const it = p.get(pd) ?? { agg: emptyAgg(), camp: new Map() };
-    add(it.agg, r);
-    const cmp = s(r.campania_adeuda) || 'Sin campaña'; const ca = it.camp.get(cmp) ?? emptyAgg(); add(ca, r); it.camp.set(cmp, ca);
+    add(it.agg, r, tasas);
+    const cmp = s(r.campania_adeuda) || 'Sin campaña'; const ca = it.camp.get(cmp) ?? emptyAgg(); add(ca, r, tasas); it.camp.set(cmp, ca);
     p.set(pd, it);
   }
   return [...p.entries()].map(([pd, it]) => ({ ...node(pd, it.agg, { pd }), campanas: [...it.camp.entries()].map(([cmp, a]) => node(cmp, a, { campania: cmp })).sort((x, y) => y.saldoUsd - x.saldoUsd) })).sort((x, y) => y.saldoUsd - x.saldoUsd);
@@ -230,9 +243,9 @@ export const gestoresParaCalidad = async (ctx: ScopeContext): Promise<Array<{ us
 
 // ===================== RESUMEN OPERATIVO =====================
 const field = (r: Row, ...keys: string[]): unknown => { for (const k of keys) { const v = r[k]; if (v !== null && v !== undefined && String(v).trim() !== '') return v; } return undefined; };
-const distribucion = (rows: Row[], keyFn: (r: Row) => string) => {
+const distribucion = (rows: Row[], keyFn: (r: Row) => string, tasas: Record<string, number>) => {
   const m = new Map<string, { cuentas: number; saldoUsd: number }>();
-  for (const r of rows) { const k = keyFn(r) || 'Sin dato'; const it = m.get(k) ?? { cuentas: 0, saldoUsd: 0 }; it.cuentas += 1; it.saldoUsd += num(field(r, 'saldo_actual_usd', 'saldo_actual')); m.set(k, it); }
+  for (const r of rows) { const k = keyFn(r) || 'Sin dato'; const it = m.get(k) ?? { cuentas: 0, saldoUsd: 0 }; it.cuentas += 1; it.saldoUsd += usdEquivalente(num(field(r, 'saldo_actual')), r.pais, tasas); m.set(k, it); }
   return [...m.entries()].map(([clave, v]) => ({ clave, cuentas: v.cuentas, saldoUsd: Number(v.saldoUsd.toFixed(2)) })).sort((a, b) => b.saldoUsd - a.saldoUsd);
 };
 
@@ -240,7 +253,7 @@ const distribucion = (rows: Row[], keyFn: (r: Row) => string) => {
  * Resumen operativo con datos REALES: cartera (scoped+filtrada) + gestion_log (por codigo del alcance)
  * + calendario (asuetos/incapacidades del mes). Respeta alcance porque las filas llegan ya scoped.
  */
-export const resumenOperativo = async (ctx: ScopeContext, rows: Row[]) => {
+export const resumenOperativo = async (ctx: ScopeContext, rows: Row[], tasas: Record<string, number>) => {
   // Mapas por cuenta.
   const codigoGestor = new Map<string, string>();
   const codigos = new Set<string>();
@@ -301,11 +314,11 @@ export const resumenOperativo = async (ctx: ScopeContext, rows: Row[]) => {
     gestoresMasGestiones,
     gestoresMenosGestiones,
     distribucion: {
-      pais: distribucion(rows, (r) => s(field(r, 'pais'))),
-      zona: distribucion(rows, (r) => s(field(r, 'zona'))),
-      sector: distribucion(rows, (r) => s(field(r, 'sector'))),
-      pd: distribucion(rows, (r) => s(field(r, 'pd_actual', 'pd'))),
-      riesgo: distribucion(rows, (r) => s(field(r, 'riesgo', 'nivel_riesgo', 'riesgo_pd')))
+      pais: distribucion(rows, (r) => s(field(r, 'pais')), tasas),
+      zona: distribucion(rows, (r) => s(field(r, 'zona')), tasas),
+      sector: distribucion(rows, (r) => s(field(r, 'sector')), tasas),
+      pd: distribucion(rows, (r) => s(field(r, 'pd_actual', 'pd')), tasas),
+      riesgo: distribucion(rows, (r) => s(field(r, 'riesgo', 'nivel_riesgo', 'riesgo_pd')), tasas)
     },
     paisesMasAsuetos: [...asuetosPaisMap.entries()].map(([clave, total]) => ({ clave, total })).sort((a, b) => b.total - a.total),
     gestoresMasIncapacidades: [...incapGestorMap.entries()].map(([clave, total]) => ({ clave, total })).sort((a, b) => b.total - a.total)

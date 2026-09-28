@@ -13,6 +13,7 @@ import KpiCards from '../../components/Dashboard/KpiCards';
 import { exportRowsToCsv, exportRowsToExcel } from '../../utils/tableExport';
 import { useAuth } from '../../context/AuthContext';
 import { useTasasConversion } from '../../hooks/useTasasConversion';
+import { usdEquivalente } from '../../utils/monedaConversion';
 import { MONEDA_OPTIONS, simboloMoneda } from '../../utils/monedaOptions';
 import type { DashboardResponse, DashboardFilterOptions, DashboardMultiFilterParams } from '../../types/cartera';
 import {
@@ -25,7 +26,7 @@ import {
 const EMPTY_OPTS: DashboardFilterOptions = { pais: [], gestor: [], gerente: [], zona: [], pd: [], campania: [] };
 const EMPTY_FILTERS: DashboardMultiFilterParams = { pais: [], gestor: [], gerente: [], zona: [], pd: [], campania: [] };
 const str = (v: unknown) => (v === null || v === undefined ? '' : String(v));
-const money = (n: number) => n.toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const money = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 type Metric = 'saldoLocal' | 'saldoUsd' | 'cuentas';
 
 const edad = (fecha: string): string => {
@@ -245,9 +246,17 @@ const GestionPage = () => {
     });
     return out;
   };
-  const CUENTAS_COLS = ['codigo', 'nombre', 'pais', 'zona', 'gestor', 'pd_actual', 'campania_adeuda', 'saldo_inicial_usd', 'saldo_actual_usd', 'saldo_actual'];
+  // "Saldo Inicial/Actual USD" SIEMPRE se derivan de saldo_inicial/saldo_actual
+  // (moneda local real) / tasa vigente del país — nunca de las columnas
+  // saldo_inicial_usd/saldo_actual_usd (congeladas al importar). Ver utils/monedaConversion.ts.
+  const usdInicialDeFila = (r: Record<string, unknown>) => usdEquivalente(Number(str(r.saldo_inicial)) || 0, str(r.pais), tasasConversion);
+  const usdActualDeFila = (r: Record<string, unknown>) => usdEquivalente(Number(str(r.saldo_actual)) || 0, str(r.pais), tasasConversion);
+  const CUENTAS_COLS = ['codigo', 'nombre', 'pais', 'zona', 'gestor', 'pd_actual', 'campania_adeuda', 'saldo_actual'];
   const CUENTAS_HEAD = ['Cuenta', 'Representante', 'País', 'Zona', 'Gestor', 'PD', 'Campaña', 'Saldo Inicial USD', 'Saldo Actual USD', 'Saldo Local'];
-  const rowsCuentas = () => cuentasFiltradas.map((r) => CUENTAS_COLS.map((c) => str(r[c])));
+  const rowsCuentas = () => cuentasFiltradas.map((r) => {
+    const base = CUENTAS_COLS.filter((c) => c !== 'saldo_actual').map((c) => str(r[c]));
+    return [...base, money(usdInicialDeFila(r)), money(usdActualDeFila(r)), str(r.saldo_actual)];
+  });
 
   const abrirPanel = async (row: Record<string, unknown>) => {
     setPanel(row); setDetalle(null); setInfo(null);
@@ -372,7 +381,7 @@ const GestionPage = () => {
         <Paper sx={{ mt: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
           <Box sx={{ p: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-              <Typography sx={{ fontWeight: 700, mr: 1 }}>Cuentas ({cuentasFiltradas.length.toLocaleString('es')})</Typography>
+              <Typography sx={{ fontWeight: 700, mr: 1 }}>Cuentas ({cuentasFiltradas.length.toLocaleString('en-US')})</Typography>
               <TextField select size="small" label="PD" value={fPd} onChange={(e) => { setFPd(e.target.value); setPage(0); }} sx={{ minWidth: 100 }}><MenuItem value="">Todos</MenuItem>{optsTabla.pd.map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}</TextField>
               <TextField select size="small" label="Zona" value={fZona} onChange={(e) => { setFZona(e.target.value); setPage(0); }} sx={{ minWidth: 120 }}><MenuItem value="">Todas</MenuItem>{optsTabla.zona.map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}</TextField>
               <TextField select size="small" label="Campaña" value={fCamp} onChange={(e) => { setFCamp(e.target.value); setPage(0); }} sx={{ minWidth: 120 }}><MenuItem value="">Todas</MenuItem>{optsTabla.campania.map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}</TextField>
@@ -399,7 +408,7 @@ const GestionPage = () => {
                     <TableCell><Chip size="small" label={str(r.pd_actual)} /></TableCell>
                     <TableCell>{str(r.campania_adeuda)}</TableCell>
                     <TableCell align="right">{money(Number(str(r.saldo_actual)))}</TableCell>
-                    <TableCell align="right">{money(Number(str(r.saldo_actual_usd)))}</TableCell>
+                    <TableCell align="right">{money(usdActualDeFila(r))}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -498,7 +507,7 @@ const GestionPage = () => {
                   <Grid item xs={3}><Field l="País" v={str(panel?.pais) || 'No disponible'} /></Grid>
                   <Grid item xs={3}><Field l="Zona" v={str(panel?.zona) || 'No disponible'} /></Grid>
                   <Grid item xs={3}><Field l="Saldo local" v={money(Number(str(panel?.saldo_actual)))} /></Grid>
-                  <Grid item xs={3}><Field l="Saldo USD" v={money(Number(str(panel?.saldo_actual_usd)))} /></Grid>
+                  <Grid item xs={3}><Field l="Saldo USD" v={panel ? money(usdActualDeFila(panel)) : '—'} /></Grid>
                   <Grid item xs={3}><Field l="Campaña" v={str(panel?.campania_adeuda) || 'No disponible'} /></Grid>
                   <Grid item xs={3}><Field l="Moneda" v={monedaCuenta} /></Grid>
                   <Grid item xs={3}><Field l="Última tipificación" v={estado[cod]?.ultimaTipificacion || 'No disponible'} /></Grid>

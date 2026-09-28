@@ -1,5 +1,6 @@
 import { getSupabaseClient } from '../config/supabaseClient';
 import { registrarAuditoria } from './AuditoriaService';
+import { usdEquivalente } from '../utils/carteraAggregations';
 import type { ScopeContext } from './ScopeService';
 
 /**
@@ -51,14 +52,20 @@ export interface SimGestor {
   distPD: DistNode[]; distRiesgo: DistNode[]; distPais: DistNode[];
 }
 
-const distrib = (rows: Row[], keyFn: (r: Row) => string): DistNode[] => {
+/**
+ * CORRECCIÓN DE CONVERSIÓN MONETARIA: el "USD" se deriva SIEMPRE de
+ * `saldo_actual` (local, real) dividido entre la tasa VIGENTE de la moneda
+ * del país de la fila — nunca de la columna congelada `saldo_actual_usd`
+ * (ver usdEquivalente en utils/carteraAggregations.ts).
+ */
+const distrib = (rows: Row[], keyFn: (r: Row) => string, tasas: Record<string, number>): DistNode[] => {
   const m = new Map<string, { cuentas: number; saldo: number }>();
-  rows.forEach((r) => { const k = keyFn(r) || 'Sin dato'; const it = m.get(k) ?? { cuentas: 0, saldo: 0 }; it.cuentas += 1; it.saldo += num(field(r, 'saldo_actual_usd', 'saldo_actual')); m.set(k, it); });
+  rows.forEach((r) => { const k = keyFn(r) || 'Sin dato'; const it = m.get(k) ?? { cuentas: 0, saldo: 0 }; it.cuentas += 1; it.saldo += usdEquivalente(num(field(r, 'saldo_actual')), r.pais, tasas); m.set(k, it); });
   return [...m.entries()].map(([clave, v]) => ({ clave, cuentas: v.cuentas, saldoUsd: r2(v.saldo) })).sort((a, b) => b.saldoUsd - a.saldoUsd);
 };
 
 /** Calcula gestor propuesto por código según la regla (determinístico). */
-const calcularPropuesta = (rows: Row[], regla: ReglaAsignacion): Map<string, string> => {
+const calcularPropuesta = (rows: Row[], regla: ReglaAsignacion, tasas: Record<string, number>): Map<string, string> => {
   const pct = Math.min(100, Math.max(0, num(regla.grupoPrioritarioPct)));
   const prioritario = (regla.gestoresPrioritario ?? []).filter(Boolean);
   const resto = (regla.gestoresResto ?? []).filter(Boolean);
@@ -67,8 +74,8 @@ const calcularPropuesta = (rows: Row[], regla: ReglaAsignacion): Map<string, str
 
   // Orden determinístico: por criterio desc y, a igualdad, por código asc.
   const ordenadas = [...rows].sort((a, b) => {
-    const va = regla.criterio === 'cuentas' ? 0 : num(field(a, 'saldo_actual_usd', 'saldo_actual'));
-    const vb = regla.criterio === 'cuentas' ? 0 : num(field(b, 'saldo_actual_usd', 'saldo_actual'));
+    const va = regla.criterio === 'cuentas' ? 0 : usdEquivalente(num(field(a, 'saldo_actual')), a.pais, tasas);
+    const vb = regla.criterio === 'cuentas' ? 0 : usdEquivalente(num(field(b, 'saldo_actual')), b.pais, tasas);
     if (vb !== va) return vb - va;
     return s(field(a, 'codigo', 'code')).localeCompare(s(field(b, 'codigo', 'code')));
   });
@@ -86,8 +93,8 @@ const calcularPropuesta = (rows: Row[], regla: ReglaAsignacion): Map<string, str
 };
 
 /** Simulación: distribución propuesta por gestor (no persiste nada). */
-export const simular = (rows: Row[], regla: ReglaAsignacion): { gestores: SimGestor[]; totalCuentas: number } => {
-  const propuesta = calcularPropuesta(rows, regla);
+export const simular = (rows: Row[], regla: ReglaAsignacion, tasas: Record<string, number>): { gestores: SimGestor[]; totalCuentas: number } => {
+  const propuesta = calcularPropuesta(rows, regla, tasas);
   const gestores = new Set<string>([...(regla.gestoresPrioritario ?? []), ...(regla.gestoresResto ?? [])].filter(Boolean));
   rows.forEach((r) => { const g = s(field(r, 'gestor')); if (g) gestores.add(g); });
   const porGestorActual = new Map<string, Row[]>();
@@ -105,11 +112,11 @@ export const simular = (rows: Row[], regla: ReglaAsignacion): { gestores: SimGes
     return {
       gestor: g,
       cuentasActuales: act.length, cuentasPropuestas: prop.length,
-      saldoActualUsd: r2(act.reduce((a, r) => a + num(field(r, 'saldo_actual_usd', 'saldo_actual')), 0)),
-      saldoPropuestoUsd: r2(prop.reduce((a, r) => a + num(field(r, 'saldo_actual_usd', 'saldo_actual')), 0)),
-      distPD: distrib(prop, (r) => s(field(r, 'pd_actual', 'pd'))),
-      distRiesgo: distrib(prop, (r) => s(field(r, 'riesgo', 'nivel_riesgo', 'riesgo_pd'))),
-      distPais: distrib(prop, (r) => s(field(r, 'pais')))
+      saldoActualUsd: r2(act.reduce((a, r) => a + usdEquivalente(num(field(r, 'saldo_actual')), r.pais, tasas), 0)),
+      saldoPropuestoUsd: r2(prop.reduce((a, r) => a + usdEquivalente(num(field(r, 'saldo_actual')), r.pais, tasas), 0)),
+      distPD: distrib(prop, (r) => s(field(r, 'pd_actual', 'pd')), tasas),
+      distRiesgo: distrib(prop, (r) => s(field(r, 'riesgo', 'nivel_riesgo', 'riesgo_pd')), tasas),
+      distPais: distrib(prop, (r) => s(field(r, 'pais')), tasas)
     };
   }).sort((a, b) => b.cuentasPropuestas - a.cuentasPropuestas);
   return { gestores: salida, totalCuentas: rows.length };
@@ -123,8 +130,8 @@ export const simular = (rows: Row[], regla: ReglaAsignacion): { gestores: SimGes
  * NUNCA se inserta (no se inventa una identidad): esa cuenta se omite de este
  * lote, sin bloquear el resto.
  */
-export const aplicar = async (ctx: ScopeContext, rows: Row[], regla: ReglaAsignacion): Promise<{ afectadas: number }> => {
-  const propuesta = calcularPropuesta(rows, regla);
+export const aplicar = async (ctx: ScopeContext, rows: Row[], regla: ReglaAsignacion, tasas: Record<string, number>): Promise<{ afectadas: number }> => {
+  const propuesta = calcularPropuesta(rows, regla, tasas);
   const candidatos: Array<{ codigo: string; actual: string; nuevo: string; pais: string | null }> = [];
   rows.forEach((r) => {
     const cod = s(field(r, 'codigo', 'code'));

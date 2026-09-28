@@ -46,6 +46,64 @@ export const resolveCountry = (rawValue: unknown): CountryInfo | null => {
   return result;
 };
 
+/**
+ * Moneda LOCAL real de cada país — misma tabla que `MONEDA_POR_PAIS` en
+ * frontend/src/services/gestionService.ts (fuente única replicada, no
+ * importable entre paquetes back/front). El Salvador y Panamá operan en USD
+ * (economía dolarizada / Balboa 1:1), así que su "conversión" es siempre un
+ * no-op (tasa = 1).
+ */
+export const MONEDA_POR_PAIS: Record<string, string> = {
+  'El Salvador': 'USD',
+  'Guatemala': 'GTQ',
+  'Honduras': 'HNL',
+  'Nicaragua': 'NIO',
+  'Panamá': 'USD',
+  'República Dominicana': 'DOP'
+};
+
+/**
+ * CORRECCIÓN DE CONVERSIÓN MONETARIA (auditoría FORD-AVON): `saldo_actual`/
+ * `saldo_inicial` en `cartera` son SIEMPRE la fuente de verdad, en la moneda
+ * LOCAL real del país de esa fila. Las columnas `saldo_actual_usd`/
+ * `saldo_inicial_usd` quedaron OBSOLETAS como fuente de cálculo — se
+ * congelaron con la tasa vigente en el momento de la importación del Excel y
+ * NUNCA se actualizan cuando cambia `config_tasas_conversion`, así que un
+ * ajuste de tasa posterior (cambia con cierta frecuencia) las deja
+ * desincronizadas del saldo local real. Verificado contra Supabase real
+ * (project vuazzailuqgbjnnbdtrg): `config_tasas_conversion.tasa` = unidades
+ * de moneda local por 1 USD (ej. GTQ tasa=7.644720 ⇒ 1 USD = 7.644720 GTQ),
+ * así que el equivalente en USD de un saldo local es `local / tasa` — nunca
+ * `local * tasa` ni al revés.
+ *
+ * `usdEquivalente` deriva el valor en USD SIEMPRE a partir del campo local
+ * (`saldo_actual`/`saldo_inicial`) dividido entre la tasa VIGENTE (leída en
+ * vivo de `config_tasas_conversion` en cada request, ver
+ * ConfigService.getTasasPorMoneda) de la moneda del PAÍS PROPIO de esa fila
+ * — nunca la tasa de la moneda que el usuario eligió para mostrar en
+ * pantalla, que se aplica después, una sola vez, al convertir de USD a la
+ * moneda de visualización (ver useTasasConversion + `usd * tasa` en el
+ * frontend, arquitectura ya correcta y sin cambios). Sin tasa válida para esa
+ * moneda (ausente, cero o negativa) se conserva el valor local sin dividir
+ * (nunca se corrompe el dato con una división inválida ni se asume 1 en
+ * silencio de forma que oculte el problema — se deja el valor local intacto,
+ * detectable por comparación con otras filas de la misma moneda).
+ */
+export const usdEquivalente = (local: number, paisRaw: unknown, tasas: Record<string, number>): number => {
+  const country = resolveCountry(paisRaw);
+  const moneda = country ? MONEDA_POR_PAIS[country.name] ?? 'USD' : 'USD';
+  if (moneda === 'USD') return local;
+  const tasa = tasas[moneda];
+  if (!tasa || !Number.isFinite(tasa) || tasa <= 0) return local;
+  return local / tasa;
+};
+
+/** Igual que `usdEquivalente`, pero resolviendo el saldo local y el país
+ *  directamente de la fila cruda de cartera — reemplaza la lectura directa
+ *  de `saldo_actual_usd`/`saldo_inicial_usd` en TODAS las agregaciones. */
+export const getUsdEquivalente = (row: CarteraRow, localKeys: string[], tasas: Record<string, number>): number =>
+  usdEquivalente(parseNumber(getField(row, localKeys)), getField(row, FIELD_KEYS.pais), tasas);
+
 // Índice de claves en minúsculas cacheado POR FILA (se construye a lo sumo una
 // vez por fila, y sólo si el acceso directo falla). Todas las lecturas de esa
 // misma fila reutilizan el índice, evitando reconstruir un Map y hacer
@@ -103,8 +161,12 @@ export const FIELD_KEYS = {
   codigo: ['codigo', 'code', 'id'],
   sector: ['sector'],
   cliente: ['nombre', 'cliente', 'deudor'],
-  saldoAsignadoUsd: ['saldo_inicial_usd', 'saldo_inicial'],
-  saldoActualUsd: ['saldo_actual_usd', 'saldo_actual'],
+  // saldoAsignadoUsd/saldoActualUsd (leídas de saldo_inicial_usd/saldo_actual_usd)
+  // se ELIMINARON deliberadamente: esas columnas quedan obsoletas/congeladas al
+  // importar y NUNCA reflejan cambios posteriores de config_tasas_conversion.
+  // Todo cálculo en USD debe pasar por `getUsdEquivalente(row, FIELD_KEYS.
+  // saldoAsignadoLocal/saldoActualLocal, tasas)`, que deriva SIEMPRE desde el
+  // campo local dividido entre la tasa VIGENTE de la moneda del país de la fila.
   saldoAsignadoLocal: ['saldo_inicial'],
   saldoActualLocal: ['saldo_actual'],
   promesas: ['promesas', 'promesa', 'no_promesas', 'cantidad_promesas'],
@@ -132,64 +194,6 @@ export interface GroupSummary {
   porcentajeRecuperacion: number;
 }
 
-const buildGroupSummary = (key: string, rows: CarteraRow[]): GroupSummary => {
-  let saldoAsignadoUsd = 0;
-  let saldoActualUsd = 0;
-  let saldoAsignadoLocal = 0;
-  let saldoActualLocal = 0;
-  const countryCounts = new Map<string, number>();
-
-  rows.forEach((row) => {
-    saldoAsignadoUsd += getNumber(row, FIELD_KEYS.saldoAsignadoUsd);
-    saldoActualUsd += getNumber(row, FIELD_KEYS.saldoActualUsd);
-    saldoAsignadoLocal += getNumber(row, FIELD_KEYS.saldoAsignadoLocal);
-    saldoActualLocal += getNumber(row, FIELD_KEYS.saldoActualLocal);
-
-    const country = resolveCountry(getString(row, FIELD_KEYS.pais));
-    if (country) {
-      countryCounts.set(country.name, (countryCounts.get(country.name) ?? 0) + 1);
-    }
-  });
-
-  let dominantCountry: CountryInfo | null = null;
-  let bestCount = -1;
-  countryCounts.forEach((count, name) => {
-    if (count > bestCount) {
-      bestCount = count;
-      dominantCountry = ALLOWED_COUNTRIES.find((country) => country.name === name) ?? null;
-    }
-  });
-
-  const recuperadoUsd = saldoAsignadoUsd - saldoActualUsd;
-  const recuperadoLocal = saldoAsignadoLocal - saldoActualLocal;
-  const porcentajeRecuperacion = saldoAsignadoUsd === 0 ? 0 : Number(((recuperadoUsd / saldoAsignadoUsd) * 100).toFixed(2));
-
-  return {
-    key,
-    pais: dominantCountry ? (dominantCountry as CountryInfo).name : 'Sin país',
-    paisAbbr: dominantCountry ? (dominantCountry as CountryInfo).abbr : '—',
-    cuentas: rows.length,
-    saldoAsignadoUsd,
-    saldoActualUsd,
-    saldoAsignadoLocal,
-    saldoActualLocal,
-    recuperadoUsd,
-    recuperadoLocal,
-    porcentajeRecuperacion
-  };
-};
-
-const groupBy = (records: CarteraRow[], keys: string[], fallback: string): Map<string, CarteraRow[]> => {
-  const groups = new Map<string, CarteraRow[]>();
-  records.forEach((row) => {
-    const value = getString(row, keys) || fallback;
-    const list = groups.get(value) ?? [];
-    list.push(row);
-    groups.set(value, list);
-  });
-  return groups;
-};
-
 interface GroupAccumulator {
   key: string;
   cuentas: number;
@@ -205,7 +209,11 @@ interface GroupAccumulator {
  * arrays de filas + una segunda pasada en buildGroupSummary). Resultados
  * idénticos a groupBy + buildGroupSummary, sin almacenar los arrays de filas.
  */
-const aggregateGroupSummaries = (records: CarteraRow[], keyResolver: (row: CarteraRow) => string): GroupSummary[] => {
+const aggregateGroupSummaries = (
+  records: CarteraRow[],
+  keyResolver: (row: CarteraRow) => string,
+  tasas: Record<string, number>
+): GroupSummary[] => {
   const groups = new Map<string, GroupAccumulator>();
 
   for (const row of records) {
@@ -225,8 +233,8 @@ const aggregateGroupSummaries = (records: CarteraRow[], keyResolver: (row: Carte
     }
 
     group.cuentas += 1;
-    group.saldoAsignadoUsd += getNumber(row, FIELD_KEYS.saldoAsignadoUsd);
-    group.saldoActualUsd += getNumber(row, FIELD_KEYS.saldoActualUsd);
+    group.saldoAsignadoUsd += getUsdEquivalente(row, FIELD_KEYS.saldoAsignadoLocal, tasas);
+    group.saldoActualUsd += getUsdEquivalente(row, FIELD_KEYS.saldoActualLocal, tasas);
     group.saldoAsignadoLocal += getNumber(row, FIELD_KEYS.saldoAsignadoLocal);
     group.saldoActualLocal += getNumber(row, FIELD_KEYS.saldoActualLocal);
 
@@ -275,13 +283,13 @@ const aggregateGroupSummaries = (records: CarteraRow[], keyResolver: (row: Carte
  * real (sobrescrita por `overlayIdentidadReal` antes de llegar aquí) —
  * nunca el texto crudo `cartera.gestor` original.
  */
-export const aggregateTopGestores = (records: CarteraRow[], limit = 20): GroupSummary[] =>
-  aggregateGroupSummaries(records, (row) => getString(row, FIELD_KEYS.gestor) || 'Sin gestor asignado')
+export const aggregateTopGestores = (records: CarteraRow[], tasas: Record<string, number>, limit = 20): GroupSummary[] =>
+  aggregateGroupSummaries(records, (row) => getString(row, FIELD_KEYS.gestor) || 'Sin gestor asignado', tasas)
     .sort((a, b) => b.recuperadoUsd - a.recuperadoUsd)
     .slice(0, limit);
 
-export const aggregateTopZonas = (records: CarteraRow[], limit = 20): GroupSummary[] =>
-  aggregateGroupSummaries(records, (row) => getString(row, FIELD_KEYS.zona) || 'Sin zona')
+export const aggregateTopZonas = (records: CarteraRow[], tasas: Record<string, number>, limit = 20): GroupSummary[] =>
+  aggregateGroupSummaries(records, (row) => getString(row, FIELD_KEYS.zona) || 'Sin zona', tasas)
     .sort((a, b) => b.saldoActualUsd - a.saldoActualUsd)
     .slice(0, limit);
 
@@ -296,7 +304,7 @@ export interface CountrySummary {
   porcentajeRecuperacion: number;
 }
 
-export const aggregateCountrySummary = (records: CarteraRow[]): CountrySummary[] => {
+export const aggregateCountrySummary = (records: CarteraRow[], tasas: Record<string, number>): CountrySummary[] => {
   const totals = new Map<string, { cuentas: number; saldoAsignadoUsd: number; saldoActualUsd: number }>();
 
   records.forEach((row) => {
@@ -305,8 +313,8 @@ export const aggregateCountrySummary = (records: CarteraRow[]): CountrySummary[]
     const existing = totals.get(country.name) ?? { cuentas: 0, saldoAsignadoUsd: 0, saldoActualUsd: 0 };
     totals.set(country.name, {
       cuentas: existing.cuentas + 1,
-      saldoAsignadoUsd: existing.saldoAsignadoUsd + getNumber(row, FIELD_KEYS.saldoAsignadoUsd),
-      saldoActualUsd: existing.saldoActualUsd + getNumber(row, FIELD_KEYS.saldoActualUsd)
+      saldoAsignadoUsd: existing.saldoAsignadoUsd + getUsdEquivalente(row, FIELD_KEYS.saldoAsignadoLocal, tasas),
+      saldoActualUsd: existing.saldoActualUsd + getUsdEquivalente(row, FIELD_KEYS.saldoActualLocal, tasas)
     });
   });
 
@@ -357,7 +365,7 @@ interface CampaniaAccumulator {
  * pasadas). No se resuelve el país porque CampaniaSummary NO lo expone, así que
  * ese cálculo era descartado. Resultados idénticos a la versión anterior.
  */
-export const aggregateResumenCampania = (records: CarteraRow[]): CampaniaSummary[] => {
+export const aggregateResumenCampania = (records: CarteraRow[], tasas: Record<string, number>): CampaniaSummary[] => {
   const groups = new Map<string, CampaniaAccumulator>();
 
   for (const row of records) {
@@ -378,8 +386,8 @@ export const aggregateResumenCampania = (records: CarteraRow[]): CampaniaSummary
     }
 
     group.cuentas += 1;
-    group.saldoAsignadoUsd += getNumber(row, FIELD_KEYS.saldoAsignadoUsd);
-    group.saldoActualUsd += getNumber(row, FIELD_KEYS.saldoActualUsd);
+    group.saldoAsignadoUsd += getUsdEquivalente(row, FIELD_KEYS.saldoAsignadoLocal, tasas);
+    group.saldoActualUsd += getUsdEquivalente(row, FIELD_KEYS.saldoActualLocal, tasas);
     group.saldoAsignadoLocal += getNumber(row, FIELD_KEYS.saldoAsignadoLocal);
     group.saldoActualLocal += getNumber(row, FIELD_KEYS.saldoActualLocal);
     group.promesas += getNumber(row, FIELD_KEYS.promesas);
@@ -422,7 +430,7 @@ export interface ZonaSectorPorPaisItem { paisKey: string; paisNombre: string; zo
  * por la tasa vigente para LOCAL, así que un cambio de moneda no repite
  * esta agregación ni pide datos de nuevo.
  */
-export const calculateZonaSectorPorPais = (records: CarteraRow[]): ZonaSectorPorPaisItem[] => {
+export const calculateZonaSectorPorPais = (records: CarteraRow[], tasas: Record<string, number>): ZonaSectorPorPaisItem[] => {
   const zonas = new Map<string, { paisKey: string; paisNombre: string; zona: string; usd: number; cuentas: number; sectores: Map<string, { usd: number; cuentas: number }> }>();
   for (const row of records) {
     const country = resolveCountry(getField(row, FIELD_KEYS.pais));
@@ -431,7 +439,7 @@ export const calculateZonaSectorPorPais = (records: CarteraRow[]): ZonaSectorPor
     const paisNombre = country?.name ?? String(paisRaw ?? 'Sin país');
     const zona = getString(row, FIELD_KEYS.zona) || 'Sin zona';
     const sector = getString(row, FIELD_KEYS.sector) || 'Sin sector';
-    const usd = getNumber(row, FIELD_KEYS.saldoActualUsd);
+    const usd = getUsdEquivalente(row, FIELD_KEYS.saldoActualLocal, tasas);
     const key = `${paisKey}|||${zona}`;
     const z = zonas.get(key) ?? { paisKey, paisNombre, zona, usd: 0, cuentas: 0, sectores: new Map<string, { usd: number; cuentas: number }>() };
     z.usd += usd;
@@ -491,14 +499,14 @@ export interface ResumenPdInicialItem {
  * sigue multiplicando por la tasa en el cliente (igual que el resto del
  * dashboard), así que un cambio de moneda no repite esta agregación.
  */
-export const calculateResumenPdInicial = (records: CarteraRow[]): ResumenPdInicialItem[] => {
+export const calculateResumenPdInicial = (records: CarteraRow[], tasas: Record<string, number>): ResumenPdInicialItem[] => {
   const totals = new Map<string, { asignadoUsd: number; actualUsd: number; cuentas: number }>();
   for (const row of records) {
     const pd = normalizePdBucket(getField(row, FIELD_KEYS.pdInicial));
     if (!pd) continue;
     const existing = totals.get(pd) ?? { asignadoUsd: 0, actualUsd: 0, cuentas: 0 };
-    existing.asignadoUsd += getNumber(row, FIELD_KEYS.saldoAsignadoUsd);
-    existing.actualUsd += getNumber(row, FIELD_KEYS.saldoActualUsd);
+    existing.asignadoUsd += getUsdEquivalente(row, FIELD_KEYS.saldoAsignadoLocal, tasas);
+    existing.actualUsd += getUsdEquivalente(row, FIELD_KEYS.saldoActualLocal, tasas);
     existing.cuentas += 1;
     totals.set(pd, existing);
   }
@@ -525,13 +533,13 @@ export interface PdMigrationItem {
  * decidiendo USD/LOCAL multiplicando por la tasa vigente, así que la matriz
  * se calcula UNA vez sin importar la moneda seleccionada.
  */
-export const calculatePdMigration = (records: CarteraRow[]): PdMigrationItem[] => {
+export const calculatePdMigration = (records: CarteraRow[], tasas: Record<string, number>): PdMigrationItem[] => {
   const totals = new Map<string, { saldo: number; cuentas: number }>();
   for (const row of records) {
     const pdInicial = normalizePdBucket(getField(row, FIELD_KEYS.pdInicial));
     const pdActual = normalizePdBucket(getField(row, FIELD_KEYS.pdActual));
     if (!pdInicial || !pdActual) continue;
-    const saldoUsd = getNumber(row, FIELD_KEYS.saldoAsignadoUsd);
+    const saldoUsd = getUsdEquivalente(row, FIELD_KEYS.saldoAsignadoLocal, tasas);
     if (saldoUsd <= 0) continue;
     const key = `${pdInicial}|${pdActual}`;
     const existing = totals.get(key) ?? { saldo: 0, cuentas: 0 };

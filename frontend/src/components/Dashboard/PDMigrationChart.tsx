@@ -33,7 +33,7 @@ interface PivotRow { pdActual: string; [key: string]: string | number; }
 interface PdActualDetalle { pdActual: string; saldo: number; cuentas: number; }
 interface SeriesSummary { pdInicial: string; totalSaldo: number; totalCuentas: number; detalle: PdActualDetalle[]; }
 
-const formatUsd = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 0 });
+const formatUsd = (value: number) => value.toLocaleString('en-US', { maximumFractionDigits: 0 });
 const formatCompact = (value: number) => {
   if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
   if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(0)}K`;
@@ -59,11 +59,11 @@ const PDMigrationTooltip = ({
     <Box sx={{ borderRadius: 1.5, border: '1px solid #E2E8F0', boxShadow: '0 16px 40px rgba(15, 23, 42, 0.14)', backgroundColor: '#FFFFFF', px: 1.5, py: 1, minWidth: 200 }}>
       <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#0F172A', mb: 0.25 }}>PD Inicial: {summary.pdInicial}</Typography>
       <Typography sx={{ fontSize: 12, color: '#475569' }}>Saldo Inicial Total: {formatUsd(summary.totalSaldo)} {monedaLabel}</Typography>
-      <Typography sx={{ fontSize: 12, color: '#475569', mb: 0.5 }}>Total Cuentas: {summary.totalCuentas.toLocaleString()}</Typography>
+      <Typography sx={{ fontSize: 12, color: '#475569', mb: 0.5 }}>Total Cuentas: {summary.totalCuentas.toLocaleString('en-US')}</Typography>
       <Typography sx={{ fontSize: 11, fontWeight: 700, color: '#0F172A', mb: 0.25 }}>PD Actual y Saldo Inicial:</Typography>
       {summary.detalle.map((d) => (
         <Typography key={d.pdActual} sx={{ fontSize: 11, color: '#475569' }}>
-          {d.pdActual}: {formatUsd(d.saldo)} {monedaLabel} · Cuentas: {d.cuentas.toLocaleString()}
+          {d.pdActual}: {formatUsd(d.saldo)} {monedaLabel} · Cuentas: {d.cuentas.toLocaleString('en-US')}
         </Typography>
       ))}
     </Box>

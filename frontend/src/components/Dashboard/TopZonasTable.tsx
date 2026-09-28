@@ -36,7 +36,7 @@ const columns: { id: ColumnId; label: string; align: 'center'; width: number; wr
   { id: 'porcentajeRecuperacion', label: '%', align: 'center', width: 54 }
 ];
 
-const formatCurrency = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+const formatCurrency = (value: number) => value.toLocaleString('en-US', { maximumFractionDigits: 2 });
 
 const TopZonasTable = ({ data, moneda, monedaCode }: TopZonasTableProps) => {
   const [expanded, setExpanded] = useState(false);

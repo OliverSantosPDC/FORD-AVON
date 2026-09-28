@@ -10,6 +10,7 @@ import {
   filtrarCodigosEnAlcance, codigoDePromesa, codigoDeAdjunto, gestorDeCarta, gestorEnAlcance
 } from '../services/GestionService';
 import { registrarAuditoria } from '../services/AuditoriaService';
+import { getTasasPorMoneda } from '../services/ConfigService';
 
 const carteraService = new CarteraService(new CarteraRepository(getCarteraDataSource()));
 
@@ -48,16 +49,22 @@ export class GestionController {
   async zonasPd(req: Request, res: Response): Promise<Response | void> {
     try {
       const ctx = this.scope(req, res); if (!ctx) return;
-      const rows = await carteraService.listCartera(extractFilters(req.query), 1000000, ctx);
-      return res.json(aggregarZonasPd(rows));
+      const [rows, tasas] = await Promise.all([
+        carteraService.listCartera(extractFilters(req.query), 1000000, ctx),
+        getTasasPorMoneda()
+      ]);
+      return res.json(aggregarZonasPd(rows, tasas));
     } catch (e) { return this.fail(res, e, 'No se pudieron cargar las zonas.'); }
   }
 
   async pdCampanas(req: Request, res: Response): Promise<Response | void> {
     try {
       const ctx = this.scope(req, res); if (!ctx) return;
-      const rows = await carteraService.listCartera(extractFilters(req.query), 1000000, ctx);
-      return res.json(aggregarPdCampanas(rows));
+      const [rows, tasas] = await Promise.all([
+        carteraService.listCartera(extractFilters(req.query), 1000000, ctx),
+        getTasasPorMoneda()
+      ]);
+      return res.json(aggregarPdCampanas(rows, tasas));
     } catch (e) { return this.fail(res, e, 'No se pudieron cargar los PD/campañas.'); }
   }
 

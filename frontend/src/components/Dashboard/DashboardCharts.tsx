@@ -60,7 +60,7 @@ const tooltipLabelStyle = { color: '#0F172A', fontWeight: 700, marginBottom: 2, 
 const legendStyle = { paddingTop: 4, fontSize: 11, fontWeight: 600 };
 const axisTick = { fill: '#475569', fontSize: 10.5 };
 
-const formatUsd = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 0 });
+const formatUsd = (value: number) => value.toLocaleString('en-US', { maximumFractionDigits: 0 });
 const formatCompact = (value: number) => {
   if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
   if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(0)}K`;

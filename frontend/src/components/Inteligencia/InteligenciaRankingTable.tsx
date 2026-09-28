@@ -48,17 +48,17 @@ const InteligenciaRankingTable = <T extends RankingGestorItem | RankingPaisItem>
                   <>
                     <TableCell>{(row as RankingGestorItem).nombre}</TableCell>
                     <TableCell>{(row as RankingGestorItem).cuentas}</TableCell>
-                    <TableCell>${(row as RankingGestorItem).saldoAsignado.toLocaleString(undefined, { maximumFractionDigits: 2 })}</TableCell>
-                    <TableCell>${(row as RankingGestorItem).saldoActual.toLocaleString(undefined, { maximumFractionDigits: 2 })}</TableCell>
-                    <TableCell>${(row as RankingGestorItem).recuperado.toLocaleString(undefined, { maximumFractionDigits: 2 })}</TableCell>
+                    <TableCell>${(row as RankingGestorItem).saldoAsignado.toLocaleString('en-US', { maximumFractionDigits: 2 })}</TableCell>
+                    <TableCell>${(row as RankingGestorItem).saldoActual.toLocaleString('en-US', { maximumFractionDigits: 2 })}</TableCell>
+                    <TableCell>${(row as RankingGestorItem).recuperado.toLocaleString('en-US', { maximumFractionDigits: 2 })}</TableCell>
                     <TableCell>{(row as RankingGestorItem).porcentajeRecuperacion.toFixed(2)}%</TableCell>
                   </>
                 ) : (
                   <>
                     <TableCell>{(row as RankingPaisItem).pais}</TableCell>
                     <TableCell>{(row as RankingPaisItem).cuentas}</TableCell>
-                    <TableCell>${(row as RankingPaisItem).saldoActual.toLocaleString(undefined, { maximumFractionDigits: 2 })}</TableCell>
-                    <TableCell>${(row as RankingPaisItem).recuperado.toLocaleString(undefined, { maximumFractionDigits: 2 })}</TableCell>
+                    <TableCell>${(row as RankingPaisItem).saldoActual.toLocaleString('en-US', { maximumFractionDigits: 2 })}</TableCell>
+                    <TableCell>${(row as RankingPaisItem).recuperado.toLocaleString('en-US', { maximumFractionDigits: 2 })}</TableCell>
                     <TableCell>{(row as RankingPaisItem).porcentajeRecuperacion.toFixed(2)}%</TableCell>
                   </>
                 )}

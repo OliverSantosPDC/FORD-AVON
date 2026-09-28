@@ -12,6 +12,8 @@ import DashboardFilters from '../../components/Dashboard/DashboardFilters';
 import KpiCards from '../../components/Dashboard/KpiCards';
 import { exportRowsToCsv, exportRowsToExcel } from '../../utils/tableExport';
 import { useAuth } from '../../context/AuthContext';
+import { useTasasConversion } from '../../hooks/useTasasConversion';
+import { usdEquivalente } from '../../utils/monedaConversion';
 import type { DashboardFilterOptions, DashboardMultiFilterParams } from '../../types/cartera';
 import {
   getControlDashboard, getControlGestores, getControlZonas, getControlPdCampanas, getControlCuentas,
@@ -29,7 +31,7 @@ import {
 const EMPTY_OPTS: DashboardFilterOptions = { pais: [], gestor: [], gerente: [], zona: [], pd: [], campania: [] };
 const EMPTY_FILTERS: DashboardMultiFilterParams = { pais: [], gestor: [], gerente: [], zona: [], pd: [], campania: [] };
 const str = (v: unknown) => (v === null || v === undefined ? '' : String(v));
-const money = (n: number) => n.toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const money = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 type Metric = 'saldoLocal' | 'saldoUsd' | 'cuentas';
 
 const exportBarsPng = (title: string, items: Array<{ label: string; value: number }>) => {
@@ -89,6 +91,7 @@ const ControlOperativoPage = () => {
   const canAprobar = hasPermission('gestion.carta.aprobar');
   const canCalidadVer = hasPermission('control_operativo.calidad.ver');
   const canCalidadEdit = hasPermission('control_operativo.calidad.editar');
+  const { tasas } = useTasasConversion();
 
   const [filters, setFilters] = useState<DashboardMultiFilterParams>(EMPTY_FILTERS);
   const [dash, setDash] = useState<ControlDashboard | null>(null);
@@ -196,9 +199,13 @@ const ControlOperativoPage = () => {
     arr.forEach((x) => { out.push(['G', str(x.gestor ?? x.zona ?? x.pd ?? x.key), '', x.cuentas, x.saldoLocal, x.saldoUsd, x.recuperadoUsd, x.pctRecuperacion]); (x[childKey] as ControlNode[] | undefined ?? []).forEach((ch) => out.push(['S', str(x.gestor ?? x.zona ?? x.pd ?? x.key), str(ch[childLabel]), ch.cuentas, ch.saldoLocal, ch.saldoUsd, ch.recuperadoUsd, ch.pctRecuperacion])); });
     return out;
   };
-  const CUENTAS_COLS = ['codigo', 'pais', 'zona', 'gestor', 'pd_actual', 'campania_adeuda', 'saldo_actual', 'saldo_actual_usd'];
+  // "Saldo USD" SIEMPRE se deriva de saldo_actual (moneda local real) / tasa
+  // vigente del país — nunca de la columna saldo_actual_usd (congelada al
+  // importar, queda obsoleta cuando cambian las tasas). Ver utils/monedaConversion.ts.
+  const usdDeFila = (r: Record<string, unknown>) => usdEquivalente(Number(str(r.saldo_actual)) || 0, str(r.pais), tasas);
+  const CUENTAS_COLS = ['codigo', 'pais', 'zona', 'gestor', 'pd_actual', 'campania_adeuda', 'saldo_actual'];
   const CUENTAS_HEAD = ['Cuenta', 'País', 'Zona', 'Gestor', 'PD', 'Campaña', 'Saldo Local', 'Saldo USD'];
-  const rowsCuentas = () => filtradas.map((r) => CUENTAS_COLS.map((c) => str(r[c])));
+  const rowsCuentas = () => filtradas.map((r) => [...CUENTAS_COLS.map((c) => str(r[c])), money(usdDeFila(r))]);
 
   const abrir = async (row: Record<string, unknown>) => {
     setPanel(row); setPtab(0); setDetalle(null); setInfo(null);
@@ -263,10 +270,10 @@ const ControlOperativoPage = () => {
             <Paper sx={{ p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
               <Typography sx={{ fontWeight: 700, mb: 1 }}>Resumen Operativo</Typography>
               <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>
-                <KpiMini l="Cuentas" v={resumenOp.totales.cuentas.toLocaleString('es')} />
-                <KpiMini l="Gestiones" v={resumenOp.totales.gestiones.toLocaleString('es')} />
-                <KpiMini l="Sin gestión" v={`${resumenOp.totales.cuentasSinGestion.toLocaleString('es')} (${resumenOp.totales.pctSinGestion}%)`} />
-                <KpiMini l="Con gestión" v={resumenOp.totales.cuentasConGestion.toLocaleString('es')} />
+                <KpiMini l="Cuentas" v={resumenOp.totales.cuentas.toLocaleString('en-US')} />
+                <KpiMini l="Gestiones" v={resumenOp.totales.gestiones.toLocaleString('en-US')} />
+                <KpiMini l="Sin gestión" v={`${resumenOp.totales.cuentasSinGestion.toLocaleString('en-US')} (${resumenOp.totales.pctSinGestion}%)`} />
+                <KpiMini l="Con gestión" v={resumenOp.totales.cuentasConGestion.toLocaleString('en-US')} />
                 <KpiMini l="Gestores" v={resumenOp.totales.gestores} />
               </Stack>
               <Grid container spacing={2}>
@@ -468,7 +475,7 @@ const ControlOperativoPage = () => {
           <Paper sx={{ borderRadius: 2.5, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
             <Box sx={{ p: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
               <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-                <Typography sx={{ fontWeight: 700, mr: 1 }}>Cuentas ({filtradas.length.toLocaleString('es')})</Typography>
+                <Typography sx={{ fontWeight: 700, mr: 1 }}>Cuentas ({filtradas.length.toLocaleString('en-US')})</Typography>
                 <TextField select size="small" label="PD" value={fPd} onChange={(e) => { setFPd(e.target.value); setPage(0); }} sx={{ minWidth: 100 }}><MenuItem value="">Todos</MenuItem>{optsTabla.pd.map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}</TextField>
                 <TextField select size="small" label="Zona" value={fZona} onChange={(e) => { setFZona(e.target.value); setPage(0); }} sx={{ minWidth: 120 }}><MenuItem value="">Todas</MenuItem>{optsTabla.zona.map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}</TextField>
                 <TextField select size="small" label="Campaña" value={fCamp} onChange={(e) => { setFCamp(e.target.value); setPage(0); }} sx={{ minWidth: 120 }}><MenuItem value="">Todas</MenuItem>{optsTabla.campania.map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}</TextField>
@@ -489,7 +496,7 @@ const ControlOperativoPage = () => {
                       <TableCell>{str(r.codigo)}</TableCell>
                       <TableCell><Chip size="small" label={siglaPais(str(r.pais))} /></TableCell><TableCell>{str(r.zona)}</TableCell><TableCell>{str(r.gestor)}</TableCell>
                       <TableCell><Chip size="small" label={str(r.pd_actual)} /></TableCell><TableCell>{str(r.campania_adeuda)}</TableCell>
-                      <TableCell align="right">{money(Number(str(r.saldo_actual)))}</TableCell><TableCell align="right">{money(Number(str(r.saldo_actual_usd)))}</TableCell>
+                      <TableCell align="right">{money(Number(str(r.saldo_actual)))}</TableCell><TableCell align="right">{money(usdDeFila(r))}</TableCell>
                       <TableCell sx={{ fontSize: 12 }}>{e?.ultimaTipificacion ?? '—'}</TableCell>
                       <TableCell sx={{ fontSize: 12 }}>{e?.promesaVigente ? <Chip size="small" color="info" variant="outlined" label={e.promesaVigente} /> : '—'}</TableCell>
                     </TableRow>

@@ -9,16 +9,19 @@ import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import { useAuth } from '../../context/AuthContext';
 import { getControlCuentas } from '../../services/controlService';
 import { exportRowsToCsv, exportRowsToExcel } from '../../utils/tableExport';
+import { useTasasConversion } from '../../hooks/useTasasConversion';
+import { usdEquivalente } from '../../utils/monedaConversion';
 import {
   getAsignacionGestores, simularAsignacion, aplicarAsignacion, reasignarCuenta, getAsignacionHistorial,
   type ReglaAsignacion, type SimGestor, type AsignacionGestor, type AsignacionHistorial
 } from '../../services/asignacionService';
 
 const str = (v: unknown) => (v === null || v === undefined ? '' : String(v));
-const money = (n: number) => n.toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const money = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const AsignacionPage = () => {
   const { hasPermission } = useAuth();
+  const { tasas } = useTasasConversion();
   const canSimular = hasPermission('control_operativo.asignacion.simular');
   const canAplicar = hasPermission('control_operativo.asignacion.aplicar');
   const canReasignar = hasPermission('control_operativo.reasignacion');
@@ -83,20 +86,24 @@ const AsignacionPage = () => {
   const baseFiltradas = useMemo(() => cuentas.filter((r) =>
     (!bPais || str(r.pais) === bPais) && (!bZona || str(r.zona) === bZona) && (!bPd || str(r.pd_actual) === bPd) && (!bGestor || str(r.gestor) === bGestor)
   ), [cuentas, bPais, bZona, bPd, bGestor]);
-  const baseSaldo = useMemo(() => baseFiltradas.reduce((a, r) => a + Number(str(r.saldo_actual_usd) || 0), 0), [baseFiltradas]);
+  // CORRECCIÓN DE CONVERSIÓN MONETARIA: "Saldo USD" se deriva SIEMPRE de
+  // saldo_actual (local, real) dividido entre la tasa VIGENTE del país de
+  // cada cuenta — nunca de la columna congelada saldo_actual_usd.
+  const usdDeFila = (r: Record<string, unknown>) => usdEquivalente(Number(str(r.saldo_actual)) || 0, r.pais, tasas);
+  const baseSaldo = useMemo(() => baseFiltradas.reduce((a, r) => a + usdDeFila(r), 0), [baseFiltradas, tasas]);
   const basePaged = baseFiltradas.slice(bPage * 25, bPage * 25 + 25);
   const baseHeadSel = () => cols.map((c) => BASE_HEAD[BASE_COLS.indexOf(c)]);
-  const baseRows = () => baseFiltradas.map((r) => cols.map((cc) => str(r[cc])));
+  const baseRows = () => baseFiltradas.map((r) => cols.map((cc) => (cc === 'saldo_actual_usd' ? money(usdDeFila(r)) : str(r[cc]))));
 
   const doSimular = async () => {
     setBusy(true);
-    try { const r = await simularAsignacion(regla); setSim(r.gestores); setToast(`Simulación: ${r.totalCuentas.toLocaleString('es')} cuentas.`); }
+    try { const r = await simularAsignacion(regla); setSim(r.gestores); setToast(`Simulación: ${r.totalCuentas.toLocaleString('en-US')} cuentas.`); }
     catch (e) { setToast(e instanceof Error ? e.message : 'Error al simular.'); }
     finally { setBusy(false); }
   };
   const doAplicar = async () => {
     setBusy(true); setConfirmAplicar(false);
-    try { const r = await aplicarAsignacion(regla); setToast(`Asignación aplicada: ${r.afectadas.toLocaleString('es')} cuentas afectadas.`); }
+    try { const r = await aplicarAsignacion(regla); setToast(`Asignación aplicada: ${r.afectadas.toLocaleString('en-US')} cuentas afectadas.`); }
     catch (e) { setToast(e instanceof Error ? e.message : 'Error al aplicar.'); }
     finally { setBusy(false); }
   };
@@ -196,7 +203,7 @@ const AsignacionPage = () => {
           <Stack spacing={2}>
             <TextField label="Cuenta (código)" size="small" value={reCodigo} onChange={(e) => setReCodigo(e.target.value)} />
             <Alert severity={cuentaSel ? 'info' : 'warning'} sx={{ py: 0.5 }}>
-              {cuentaSel ? <>Gestor actual: <strong>{str(cuentaSel.gestor) || 'Sin gestor'}</strong> · País: {str(cuentaSel.pais) || '—'} · Saldo: {money(Number(str(cuentaSel.saldo_actual_usd) || 0))} USD</> : 'Ingresa un código de cuenta dentro de tu alcance.'}
+              {cuentaSel ? <>Gestor actual: <strong>{str(cuentaSel.gestor) || 'Sin gestor'}</strong> · País: {str(cuentaSel.pais) || '—'} · Saldo: {money(usdDeFila(cuentaSel))} USD</> : 'Ingresa un código de cuenta dentro de tu alcance.'}
             </Alert>
             <TextField select label="Gestor destino" size="small" value={reGestor} onChange={(e) => setReGestor(e.target.value)} disabled={!cuentaSel}>
               {nombresGestores.map((n) => <MenuItem key={n} value={n}>{n}</MenuItem>)}
@@ -255,7 +262,7 @@ const AsignacionPage = () => {
               <Button size="small" onClick={() => { setBPais(''); setBZona(''); setBPd(''); setBGestor(''); setBPage(0); }} sx={{ textTransform: 'none' }}>Limpiar</Button>
             </Stack>
             <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap alignItems="center">
-              <Chip color="primary" label={`${baseFiltradas.length.toLocaleString('es')} cuentas`} />
+              <Chip color="primary" label={`${baseFiltradas.length.toLocaleString('en-US')} cuentas`} />
               <Chip variant="outlined" label={`Saldo USD ${money(baseSaldo)}`} />
               <Box sx={{ flex: 1 }} />
               <Button size="small" startIcon={<FileDownloadOutlinedIcon />} disabled={!canExportBase || baseFiltradas.length === 0} onClick={() => exportRowsToCsv('base_marcacion.csv', baseHeadSel(), baseRows())} sx={{ textTransform: 'none' }}>CSV</Button>
@@ -275,7 +282,7 @@ const AsignacionPage = () => {
               <Table stickyHeader size="small">
                 <TableHead><TableRow>{cols.map((cc) => <TableCell key={cc} sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{BASE_HEAD[BASE_COLS.indexOf(cc)]}</TableCell>)}</TableRow></TableHead>
                 <TableBody>
-                  {basePaged.map((r, i) => <TableRow key={str(r.codigo) || i} hover>{cols.map((cc) => <TableCell key={cc}>{str(r[cc])}</TableCell>)}</TableRow>)}
+                  {basePaged.map((r, i) => <TableRow key={str(r.codigo) || i} hover>{cols.map((cc) => <TableCell key={cc}>{cc === 'saldo_actual_usd' ? money(usdDeFila(r)) : str(r[cc])}</TableCell>)}</TableRow>)}
                 </TableBody>
               </Table>
             </TableContainer>

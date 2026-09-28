@@ -22,6 +22,7 @@ import {
   filterCarteraRows,
   filterCarteraRowsAndBuildFilterOptions,
   overlayIdentidadReal,
+  usdEquivalente,
   DashboardMultiFilterParams,
   CarteraRow,
   PersonasEnAlcance,
@@ -30,6 +31,7 @@ import {
 import { applyScope } from './ScopeFilter';
 import { gestoresEnAlcance, gerentesZonaEnAlcance, type ScopeContext } from './ScopeService';
 import { getSupabaseClient } from '../config/supabaseClient';
+import { getTasasPorMoneda } from './ConfigService';
 
 /** Catálogo de personas (Gestor/Gerente de zona) para las opciones y la
  *  aplicación del filtro: SIEMPRE desde usuarios/roles/relaciones
@@ -247,7 +249,11 @@ export class CarteraService {
     const { filtered: rawFiltered, filterOptions } = step('filterCarteraRows + buildFilterOptions (1 pasada)', () =>
       filterCarteraRowsAndBuildFilterOptions(rows, multi, personas)
     );
-    const filtered = step('map (rawFiltered.map(mapToCartera))', () => rawFiltered.map(mapToCartera));
+    // Tasas VIGENTES (config_tasas_conversion), leídas UNA vez por request y
+    // reutilizadas en todas las agregaciones de abajo — nunca las columnas
+    // congeladas saldo_*_usd (ver ConfigService.getTasasPorMoneda).
+    const tasas = await stepAsync('getTasasPorMoneda', () => getTasasPorMoneda());
+    const filtered = step('map (rawFiltered.map(mapToCartera))', () => rawFiltered.map((row) => mapToCartera(row, tasas)));
 
     const kpis = step('calculateKpis', () => calculateKpis(filtered));
     const paises = step("aggregateBy('pais')", () => aggregateBy(filtered, 'pais'));
@@ -255,18 +261,18 @@ export class CarteraService {
     const topGestores = step('calculateTopGestores', () => calculateTopGestores(filtered));
     const topZonas = step('calculateTopZonas', () => calculateTopZonas(filtered));
     const resumenPD = step('calculateResumenPD', () => calculateResumenPD(filtered));
-    const topGestoresDetalle = step('aggregateTopGestores (detalle, sin filtros)', () => aggregateTopGestores(rows, 20));
-    const topZonasDetalle = step('aggregateTopZonas (detalle, sin filtros)', () => aggregateTopZonas(rows, 20));
-    const resumenCampania = step('aggregateResumenCampania', () => aggregateResumenCampania(rawFiltered));
-    const countrySummary = step('aggregateCountrySummary', () => aggregateCountrySummary(rawFiltered));
+    const topGestoresDetalle = step('aggregateTopGestores (detalle, sin filtros)', () => aggregateTopGestores(rows, tasas, 20));
+    const topZonasDetalle = step('aggregateTopZonas (detalle, sin filtros)', () => aggregateTopZonas(rows, tasas, 20));
+    const resumenCampania = step('aggregateResumenCampania', () => aggregateResumenCampania(rawFiltered, tasas));
+    const countrySummary = step('aggregateCountrySummary', () => aggregateCountrySummary(rawFiltered, tasas));
     // Calculadas sobre `rawFiltered` (ya en memoria, cero consultas extra a
     // Supabase): antes las calculaba el navegador (DashboardZonaSector.tsx/
     // ResumenPdTable.tsx/PDMigrationChart.tsx) a partir de un fetch aparte a
     // /api/cartera con la cartera filtrada COMPLETA (miles de filas) — ver
     // Fase 2 de la optimización de tiempos de carga.
-    const zonaSectorPorPais = step('calculateZonaSectorPorPais', () => calculateZonaSectorPorPais(rawFiltered));
-    const resumenPdInicial = step('calculateResumenPdInicial', () => calculateResumenPdInicial(rawFiltered));
-    const pdMigration = step('calculatePdMigration', () => calculatePdMigration(rawFiltered));
+    const zonaSectorPorPais = step('calculateZonaSectorPorPais', () => calculateZonaSectorPorPais(rawFiltered, tasas));
+    const resumenPdInicial = step('calculateResumenPdInicial', () => calculateResumenPdInicial(rawFiltered, tasas));
+    const pdMigration = step('calculatePdMigration', () => calculatePdMigration(rawFiltered, tasas));
     const cuentas = step('cuentas (rawFiltered.slice 100)', () => rawFiltered.slice(0, 100));
 
     const response: DashboardResponse = {
@@ -306,7 +312,8 @@ export class CarteraService {
     // nunca `cartera.gestor` — e IDENTIDAD REAL para exhibición.
     const personas = await personasEnAlcance(scopeContext);
     const rows = overlayIdentidadReal(overlaid, gestorPorPaisZona(personas.gestores), gestorPorPaisZona(personas.gerentes));
-    const cartera = rows.map(mapToCartera);
+    const tasas = await getTasasPorMoneda();
+    const cartera = rows.map((row) => mapToCartera(row, tasas));
 
     return {
       topCuentas: calculateTopCuentas(cartera),
@@ -388,7 +395,17 @@ const getField = (row: Record<string, unknown>, ...keys: string[]) => {
   return undefined;
 };
 
-const mapToCartera = (row: Record<string, unknown>): Cartera => {
+/**
+ * `tasas`: mapa VIGENTE de config_tasas_conversion (ver
+ * ConfigService.getTasasPorMoneda) — CORRECCIÓN DE CONVERSIÓN MONETARIA:
+ * `saldoAsignado`/`saldoActual` (el "USD" que consume todo el Dashboard) se
+ * derivan SIEMPRE de `saldo_inicial`/`saldo_actual` (moneda local real)
+ * divididos entre la tasa actual de la moneda del PAÍS de esa fila —
+ * NUNCA de las columnas `saldo_inicial_usd`/`saldo_actual_usd`, congeladas
+ * en el momento de la importación y potencialmente desactualizadas frente a
+ * la tasa vigente (ver usdEquivalente en utils/carteraAggregations.ts).
+ */
+const mapToCartera = (row: Record<string, unknown>, tasas: Record<string, number>): Cartera => {
   const castString = (value: unknown, fallback: string) =>
     value === null || value === undefined ? fallback : String(value);
 
@@ -403,15 +420,17 @@ const mapToCartera = (row: Record<string, unknown>): Cartera => {
   const clienteNombreRaw = getField(row, 'nombre', 'cliente', 'deudor');
   const campaniaRaw = getField(row, 'campania_adeuda', 'campania', 'campaña', 'campaign');
   const codigoRaw = getField(row, 'codigo', 'code', 'id');
+  const saldoInicialLocal = parseNumber(getField(row, 'saldo_inicial') ?? 0);
+  const saldoActualLocal = parseNumber(getField(row, 'saldo_actual') ?? 0);
 
   return {
     pais: castString(paisRaw, 'Sin país'),
     pd: castString(pdRaw, 'Sin PD'),
     fecha: fechaRaw ? String(fechaRaw) : undefined,
-    saldoInicialLocal: parseNumber(getField(row, 'saldo_inicial') ?? 0),
-    saldoActualLocal: parseNumber(getField(row, 'saldo_actual') ?? 0),
-    saldoAsignado: parseNumber(getField(row, 'saldo_inicial_usd', 'saldo_inicial') ?? 0),
-    saldoActual: parseNumber(getField(row, 'saldo_actual_usd', 'saldo_actual') ?? 0),
+    saldoInicialLocal,
+    saldoActualLocal,
+    saldoAsignado: usdEquivalente(saldoInicialLocal, paisRaw, tasas),
+    saldoActual: usdEquivalente(saldoActualLocal, paisRaw, tasas),
     gestor: gestorRaw ? String(gestorRaw) : undefined,
     gerente: gerenteRaw ? String(gerenteRaw) : undefined,
     zona: zonaRaw ? String(zonaRaw) : undefined,

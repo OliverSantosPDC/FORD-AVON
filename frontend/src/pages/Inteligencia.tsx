@@ -26,8 +26,8 @@ const toCentroFiltros = (f: DashboardMultiFilterParams): CentroFiltros => ({
 
 const money = (v: number | null, code = 'USD') =>
   v === null || v === undefined ? '—'
-    : code === 'USD' ? `$${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-    : `${v.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${code}`;
+    : code === 'USD' ? `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+    : `${v.toLocaleString('en-US', { maximumFractionDigits: 0 })} ${code}`;
 const pctTxt = (v: number | null) => (v === null || v === undefined ? '—' : `${v}%`);
 
 const NIVEL_COLOR: Record<string, 'error' | 'warning' | 'info' | 'success'> = {

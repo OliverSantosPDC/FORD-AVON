@@ -163,7 +163,7 @@ const DashboardPage = () => {
       <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><ResumenCampaniaTable data={resumenCampaniaConTasa} moneda="LOCAL" monedaCode={monedaCode} /></Box>
       <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><TopGestoresTable data={topGestoresConTasa} moneda="LOCAL" monedaCode={monedaCode} /></Box>
       <Box sx={{ gridColumn: { xs: '1 / -1', md: 'span 6' }, height: TABLE_TILE }}><TopZonasTable data={topZonasConTasa} moneda="LOCAL" monedaCode={monedaCode} /></Box>
-      <Box sx={{ gridColumn: '1 / -1', height: DETAIL_TILE }}><DashboardTable data={dashboard.cuentas} moneda="LOCAL" monedaCode={monedaCode} tasa={tasaActual} /></Box>
+      <Box sx={{ gridColumn: '1 / -1', height: DETAIL_TILE }}><DashboardTable data={dashboard.cuentas} moneda="LOCAL" monedaCode={monedaCode} tasas={tasas} /></Box>
     </Box>
     <OnePagePreviewDialog open={onePagePreviewOpen} onClose={handleCloseOnePagePreview} getRoot={() => dashboardRootRef.current} />
     </>
