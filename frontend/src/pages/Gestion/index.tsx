@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle,
   Divider, Grid, IconButton, Menu, MenuItem, Paper, Snackbar, Stack, Tab, Table, TableBody, TableCell, TableContainer,
-  TableHead, TablePagination, TableRow, Tabs, TextField, Typography
+  TableHead, TablePagination, TableRow, TableSortLabel, Tabs, TextField, Typography
 } from '@mui/material';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
@@ -147,6 +147,12 @@ const GestionPage = () => {
   const [zMetric, setZMetric] = useState<Metric>('saldoLocal'); const [zDir, setZDir] = useState<'asc' | 'desc'>('desc');
   const [pMetric, setPMetric] = useState<Metric>('saldoUsd'); const [pDir, setPDir] = useState<'asc' | 'desc'>('desc');
   const [fPd, setFPd] = useState(''); const [fZona, setFZona] = useState(''); const [fCamp, setFCamp] = useState(''); const [fCodigo, setFCodigo] = useState('');
+  // Ordenamiento de la tabla Cuentas: mismo patrón de las demás tablas del
+  // sistema (p.ej. components/Dashboard/DashboardTable.tsx) — TableSortLabel
+  // con orderBy/order de 2 estados (asc/desc), sin un tercer estado "sin
+  // orden" porque ninguna tabla del sistema lo usa.
+  const [cOrderBy, setCOrderBy] = useState<'codigo' | 'pais' | 'zona' | 'pd' | 'campania' | 'saldoLocal' | 'saldoUsd'>('codigo');
+  const [cOrder, setCOrder] = useState<'asc' | 'desc'>('asc');
 
   // Panel único por cuenta
   const [panel, setPanel] = useState<Record<string, unknown> | null>(null);
@@ -229,12 +235,45 @@ const GestionPage = () => {
       (!codigoTerm || str(r.codigo).toLowerCase().includes(codigoTerm))
     );
   }, [cuentas, fPd, fZona, fCamp, fCodigo]);
-  const paged = cuentasFiltradas.slice(page * rpp, page * rpp + rpp);
+  // "Saldo Inicial/Actual USD" SIEMPRE se derivan de saldo_inicial/saldo_actual
+  // (moneda local real) / tasa vigente del país — nunca de las columnas
+  // saldo_inicial_usd/saldo_actual_usd (congeladas al importar). Ver utils/monedaConversion.ts.
+  const usdInicialDeFila = (r: Record<string, unknown>) => usdEquivalente(Number(str(r.saldo_inicial)) || 0, str(r.pais), tasasConversion);
+  const usdActualDeFila = (r: Record<string, unknown>) => usdEquivalente(Number(str(r.saldo_actual)) || 0, str(r.pais), tasasConversion);
+  const getValorOrdenCuenta = (r: Record<string, unknown>, columnId: typeof cOrderBy): string | number => {
+    switch (columnId) {
+      case 'pais': return str(r.pais);
+      case 'zona': return str(r.zona);
+      case 'pd': return str(r.pd_actual);
+      case 'campania': return str(r.campania_adeuda);
+      case 'saldoLocal': return Number(str(r.saldo_actual)) || 0;
+      case 'saldoUsd': return usdActualDeFila(r);
+      default: return str(r.codigo);
+    }
+  };
+  // Primero se filtra (cuentasFiltradas), luego se ordena el resultado —
+  // mismo orden de operaciones que DashboardTable (filteredData -> sortedData).
+  const cuentasOrdenadas = useMemo(() => [...cuentasFiltradas].sort((a, b) => {
+    const av = getValorOrdenCuenta(a, cOrderBy);
+    const bv = getValorOrdenCuenta(b, cOrderBy);
+    const result = typeof av === 'number' && typeof bv === 'number' ? av - bv : String(av).localeCompare(String(bv), 'es', { sensitivity: 'base' });
+    return cOrder === 'asc' ? result : -result;
+    // eslint-disable-next-line
+  }), [cuentasFiltradas, cOrderBy, cOrder, tasasConversion]);
+  const handleSortCuentas = (columnId: typeof cOrderBy) => {
+    const isAsc = cOrderBy === columnId && cOrder === 'asc';
+    setCOrder(isAsc ? 'desc' : 'asc');
+    setCOrderBy(columnId);
+  };
+  const paged = cuentasOrdenadas.slice(page * rpp, page * rpp + rpp);
   useEffect(() => {
     const codigos = paged.map((r) => str(r.codigo)).filter(Boolean);
     if (codigos.length) getEstadoCuentas(codigos).then((m) => setEstado((prev) => ({ ...prev, ...m }))).catch(() => undefined);
     // eslint-disable-next-line
-  }, [page, rpp, cuentasFiltradas]);
+  }, [page, rpp, cuentasOrdenadas]);
+  // Limpiar filtros no reinicia el orden: ninguna otra tabla del sistema ata
+  // el estado de orden al de los filtros, así que se conserva (comportamiento
+  // estándar: orden y filtros son independientes entre sí).
   const limpiarFiltrosTabla = () => { setFPd(''); setFZona(''); setFCamp(''); setFCodigo(''); setPage(0); };
 
   const toggle = (set: Set<string>, key: string, setter: (s: Set<string>) => void) => { const n = new Set(set); n.has(key) ? n.delete(key) : n.add(key); setter(n); };
@@ -255,14 +294,9 @@ const GestionPage = () => {
     });
     return out;
   };
-  // "Saldo Inicial/Actual USD" SIEMPRE se derivan de saldo_inicial/saldo_actual
-  // (moneda local real) / tasa vigente del país — nunca de las columnas
-  // saldo_inicial_usd/saldo_actual_usd (congeladas al importar). Ver utils/monedaConversion.ts.
-  const usdInicialDeFila = (r: Record<string, unknown>) => usdEquivalente(Number(str(r.saldo_inicial)) || 0, str(r.pais), tasasConversion);
-  const usdActualDeFila = (r: Record<string, unknown>) => usdEquivalente(Number(str(r.saldo_actual)) || 0, str(r.pais), tasasConversion);
   const CUENTAS_COLS = ['codigo', 'nombre', 'pais', 'zona', 'gestor', 'pd_actual', 'campania_adeuda', 'saldo_actual'];
   const CUENTAS_HEAD = ['Cuenta', 'Representante', 'País', 'Zona', 'Gestor', 'PD', 'Campaña', 'Saldo Inicial USD', 'Saldo Actual USD', 'Saldo Local'];
-  const rowsCuentas = () => cuentasFiltradas.map((r) => {
+  const rowsCuentas = () => cuentasOrdenadas.map((r) => {
     const base = CUENTAS_COLS.filter((c) => c !== 'saldo_actual').map((c) => str(r[c]));
     return [...base, money(usdInicialDeFila(r)), money(usdActualDeFila(r)), str(r.saldo_actual)];
   });
@@ -408,7 +442,22 @@ const GestionPage = () => {
                   solo con gestion.gestionar, la misma clave que ya gatea el botón
                   "Registrar gestión" dentro de ese panel — sin ella, el panel no
                   tiene ninguna acción disponible, así que la columna se omite. */}
-              <TableHead><TableRow>{[...(canGestionar ? ['Acciones'] : []), 'Cuenta', 'País', 'Zona', 'PD', 'Campaña', 'Saldo Local', 'Saldo USD'].map((h) => <TableCell key={h} sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</TableCell>)}</TableRow></TableHead>
+              <TableHead>
+                <TableRow>
+                  {canGestionar && <TableCell sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Acciones</TableCell>}
+                  {([
+                    { id: 'codigo', label: 'Cuenta' }, { id: 'pais', label: 'País' }, { id: 'zona', label: 'Zona' },
+                    { id: 'pd', label: 'PD' }, { id: 'campania', label: 'Campaña' },
+                    { id: 'saldoLocal', label: 'Saldo Local' }, { id: 'saldoUsd', label: 'Saldo USD' }
+                  ] as const).map((col) => (
+                    <TableCell key={col.id} sx={{ fontWeight: 700, whiteSpace: 'nowrap' }} sortDirection={cOrderBy === col.id ? cOrder : false}>
+                      <TableSortLabel active={cOrderBy === col.id} direction={cOrderBy === col.id ? cOrder : 'asc'} onClick={() => handleSortCuentas(col.id)}>
+                        {col.label}
+                      </TableSortLabel>
+                    </TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
               <TableBody>
                 {paged.map((r, i) => (
                   <TableRow key={str(r.codigo) || i} hover>
