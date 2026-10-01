@@ -18,10 +18,6 @@ router.post('/configuracion/catalogos', requireAuth, requirePermission(EDIT), (r
 router.patch('/configuracion/catalogos/:id', requireAuth, requirePermission(EDIT), (req, res) => c.actualizarCatalogo(req, res));
 router.delete('/configuracion/catalogos/:id', requireAuth, requirePermission(EDIT), (req, res) => c.eliminarCatalogo(req, res));
 
-router.get('/configuracion/variables', requireAuth, requirePermission(VER), (req, res) => c.variables(req, res));
-router.post('/configuracion/variables', requireAuth, requirePermission(EDIT), (req, res) => c.crearVariable(req, res));
-router.patch('/configuracion/variables/:id', requireAuth, requirePermission(EDIT), (req, res) => c.actualizarVariable(req, res));
-
 router.get('/configuracion/tasas-conversion', requireAuth, requirePermission(VER), (req, res) => c.tasasConversion(req, res));
 router.patch('/configuracion/tasas-conversion/:id', requireAuth, requirePermission(EDIT), (req, res) => c.actualizarTasaConversion(req, res));
 
@@ -35,7 +31,6 @@ router.get('/configuracion/plantillas', requireAuth, requirePermission(VER), (re
 router.get('/configuracion/plantillas/:clave/descargar', requireAuth, requirePermission(VER), (req, res) => c.descargarPlantilla(req, res));
 router.post('/configuracion/plantillas/:clave', requireAuth, requirePermission(EDIT), upload.single('file'), (req, res) => c.subirPlantilla(req, res));
 
-router.get('/configuracion/auditoria', requireAuth, requirePermission(VER), (req, res) => c.auditoria(req, res));
 // Sin requirePermission(VER) a propósito: logo_principal se resuelve desde el
 // Sidebar/Header para CUALQUIER usuario autenticado (no solo quienes tienen
 // acceso al módulo Configuración) — mostrar un logo ya configurado no es una

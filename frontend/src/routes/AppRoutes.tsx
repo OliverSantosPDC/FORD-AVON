@@ -38,7 +38,7 @@ const IndexRedirect = () => {
 };
 
 /**
- * Rutas de la aplicación — arquitectura de 9 módulos (fuente: config/modules.tsx).
+ * Rutas de la aplicación — arquitectura de 9 módulos (fuente: config/navigation.tsx).
  * - /login es pública.
  * - Todo lo demás vive bajo ProtectedRoute (exige sesión) + RootLayout.
  * - Cada módulo se envuelve en PermissionRoute con su permiso `modulo.*`.

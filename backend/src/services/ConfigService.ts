@@ -57,25 +57,6 @@ export const eliminarCatalogo = async (id: string) => {
   if (error) throw new ConfigError(error.message);
 };
 
-/* ===== Variables ===== */
-export const listVariables = async () => {
-  const { data, error } = await c().from('config_variables').select('*').order('nombre');
-  if (error) throw new ConfigError(error.message);
-  return data ?? [];
-};
-export const crearVariable = async (b: Record<string, unknown>) => {
-  if (!b.nombre) throw new ConfigError('El nombre es obligatorio.');
-  const { data, error } = await c().from('config_variables').insert({ nombre: b.nombre, valor: b.valor ?? '', tipo: b.tipo ?? 'texto', descripcion: b.descripcion ?? null, activo: b.activo ?? true }).select('id').single();
-  if (error) throw new ConfigError(error.message);
-  return { id: String((data as { id: string }).id) };
-};
-export const actualizarVariable = async (id: string, b: Record<string, unknown>) => {
-  const patch: Record<string, unknown> = {};
-  ['valor', 'descripcion', 'activo', 'nombre', 'tipo'].forEach((k) => { if (b[k] !== undefined) patch[k] = b[k]; });
-  const { error } = await c().from('config_variables').update(patch).eq('id', id);
-  if (error) throw new ConfigError(error.message);
-};
-
 /* ===== Tasas de conversión ===== */
 export const listTasasConversion = async () => {
   const { data, error } = await c().from('config_tasas_conversion').select('*').order('codigo');
@@ -177,23 +158,6 @@ export const urlPlantilla = async (clave: string): Promise<string> => {
   const { data, error } = await c().storage.from('config-assets').createSignedUrl(path, 300);
   if (error || !data?.signedUrl) throw new ConfigError('No se pudo generar el enlace de descarga.');
   return data.signedUrl;
-};
-
-/* ===== Auditoría (solo consulta) ===== */
-export interface AuditoriaFiltros { usuario?: string; entidad?: string; accion?: string; desde?: string; hasta?: string; search?: string; limit?: number; offset?: number; }
-export const listAuditoria = async (f: AuditoriaFiltros) => {
-  let q = c().from('auditoria').select('*', { count: 'exact' }).order('created_at', { ascending: false });
-  if (f.usuario) q = q.eq('actor_id', f.usuario);
-  if (f.entidad) q = q.eq('entidad', f.entidad);
-  if (f.accion) q = q.eq('accion', f.accion);
-  if (f.desde) q = q.gte('created_at', f.desde);
-  if (f.hasta) q = q.lte('created_at', `${f.hasta}T23:59:59`);
-  if (f.search) q = q.ilike('accion', `%${f.search}%`);
-  const from = f.offset ?? 0;
-  q = q.range(from, from + (f.limit ?? 50) - 1);
-  const { data, error, count } = await q;
-  if (error) throw new ConfigError(error.message);
-  return { items: data ?? [], total: count ?? 0 };
 };
 
 /* ===== Assets (logos/fondos) =====

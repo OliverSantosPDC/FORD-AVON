@@ -1,8 +1,8 @@
 import { Request, Response } from 'express';
 import {
   getGeneral, setGeneral, listCatalogos, crearCatalogo, actualizarCatalogo, eliminarCatalogo,
-  listVariables, crearVariable, actualizarVariable, getRolesPermisos, setRolPermisos,
-  listPlantillas, subirPlantilla, subirAsset, urlAsset, urlPlantilla, listAuditoria,
+  getRolesPermisos, setRolPermisos,
+  listPlantillas, subirPlantilla, subirAsset, urlAsset, urlPlantilla,
   listTasasConversion, actualizarTasaConversion, ConfigError
 } from '../services/ConfigService';
 import { getMetaGlobalComputada, guardarMetaGlobal } from '../services/MetasService';
@@ -23,10 +23,6 @@ export class ConfigController {
   async crearCatalogo(req: Request, res: Response) { try { const r = await crearCatalogo(req.body ?? {}); await this.audit(req, 'CONFIG_CATALOGO_CREAR', r.id); return res.status(201).json(r); } catch (e) { return this.fail(res, e); } }
   async actualizarCatalogo(req: Request, res: Response) { try { await actualizarCatalogo(req.params.id, req.body ?? {}); await this.audit(req, 'CONFIG_CATALOGO_EDITAR', req.params.id); return res.json({ ok: true }); } catch (e) { return this.fail(res, e); } }
   async eliminarCatalogo(req: Request, res: Response) { try { await eliminarCatalogo(req.params.id); await this.audit(req, 'CONFIG_CATALOGO_ELIMINAR', req.params.id); return res.json({ ok: true }); } catch (e) { return this.fail(res, e); } }
-
-  async variables(_req: Request, res: Response) { try { return res.json(await listVariables()); } catch (e) { return this.fail(res, e); } }
-  async crearVariable(req: Request, res: Response) { try { const r = await crearVariable(req.body ?? {}); await this.audit(req, 'CONFIG_VARIABLE_CREAR', r.id); return res.status(201).json(r); } catch (e) { return this.fail(res, e); } }
-  async actualizarVariable(req: Request, res: Response) { try { await actualizarVariable(req.params.id, req.body ?? {}); await this.audit(req, 'CONFIG_VARIABLE_EDITAR', req.params.id); return res.json({ ok: true }); } catch (e) { return this.fail(res, e); } }
 
   async tasasConversion(_req: Request, res: Response) {
     try {
@@ -92,17 +88,6 @@ export class ConfigController {
 
   async descargarPlantilla(req: Request, res: Response) {
     try { return res.json({ url: await urlPlantilla(req.params.clave) }); } catch (e) { return this.fail(res, e); }
-  }
-
-  async auditoria(req: Request, res: Response) {
-    try {
-      const q = req.query;
-      return res.json(await listAuditoria({
-        usuario: q.usuario as string, entidad: q.entidad as string, accion: q.accion as string,
-        desde: q.desde as string, hasta: q.hasta as string, search: q.search as string,
-        limit: Number(q.limit) || 50, offset: Number(q.offset) || 0
-      }));
-    } catch (e) { return this.fail(res, e); }
   }
 
   private async audit(req: Request, accion: string, id: string | null) {

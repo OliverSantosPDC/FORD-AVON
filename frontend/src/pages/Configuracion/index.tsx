@@ -1,24 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  Alert, Box, Button, Chip, CircularProgress, Divider, FormControlLabel, Grid, IconButton,
+  Alert, Box, Button, Chip, CircularProgress, Divider, FormControlLabel, Grid,
   MenuItem, Paper, Snackbar, Stack, Switch, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Tabs, TextField, Typography
 } from '@mui/material';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
-import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
-import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
-import { TablePagination } from '@mui/material';
 import { useAuth } from '../../context/AuthContext';
 import { useBranding } from '../../context/BrandingContext';
 import { exportRowsToCsv, exportRowsToExcel } from '../../utils/tableExport';
-import { MODULES } from '../../config/modules';
 import UsuariosPage from '../Usuarios';
 import {
   getGeneral, putGeneral, getCatalogos, crearCatalogo, actualizarCatalogo,
-  getVariables, crearVariable, actualizarVariable, getPlantillas, subirPlantilla, descargarPlantilla, subirAsset, obtenerUrlAsset,
-  getAuditoria, getTasasConversion, actualizarTasaConversion, getMetaGlobal, guardarMetaGlobal,
-  type Catalogo, type Variable, type Plantilla, type AuditoriaRow, type TasaConversion, type MetaGlobal
+  getPlantillas, subirPlantilla, descargarPlantilla, subirAsset, obtenerUrlAsset,
+  getTasasConversion, actualizarTasaConversion, getMetaGlobal, guardarMetaGlobal,
+  type Catalogo, type Plantilla, type TasaConversion, type MetaGlobal
 } from '../../services/configuracionService';
 import { simboloMoneda } from '../../utils/monedaOptions';
 
@@ -31,7 +27,6 @@ const CAT_LABEL: Record<string, string> = {
   estados_promesa: 'Estados de promesa', estados_carta: 'Estados de cartas', tipos_evento: 'Tipos de eventos',
   tipos_adjunto: 'Tipos de adjuntos', motivos_aprobacion: 'Motivos de aprobación', motivos_rechazo: 'Motivos de rechazo'
 };
-const VAR_TIPOS = ['texto', 'numero', 'booleano', 'fecha', 'json'];
 /** Claves resueltas por BrandingContext (Sidebar/Header/Login/favicon/fondos): ver uploadAsset(). */
 const BRANDING_CLAVES = new Set(['logo_principal', 'logo_login', 'favicon', 'fondo_login', 'fondo_principal', 'fondo_dashboard']);
 
@@ -124,9 +119,6 @@ const ConfiguracionPage = () => {
   const [catSel, setCatSel] = useState('tipificaciones');
   const [catSearch, setCatSearch] = useState('');
   const [nuevoCat, setNuevoCat] = useState('');
-  // Variables
-  const [variables, setVariables] = useState<Variable[]>([]);
-  const [nuevaVar, setNuevaVar] = useState({ nombre: '', valor: '', tipo: 'texto', descripcion: '' });
   // Plantillas
   const [plantillas, setPlantillas] = useState<Plantilla[]>([]);
   // Tasas de conversión
@@ -137,30 +129,17 @@ const ConfiguracionPage = () => {
   const [metaTipo, setMetaTipo] = useState<'PORCENTAJE' | 'MONTO'>('MONTO');
   const [metaDraft, setMetaDraft] = useState('');
   const [metaGuardando, setMetaGuardando] = useState(false);
-  // Variables
-  const [varSearch, setVarSearch] = useState('');
-  // Menú (orden)
-  const [orden, setOrden] = useState<string[]>([]);
-  // Auditoría
-  const [audItems, setAudItems] = useState<AuditoriaRow[]>([]);
-  const [audTotal, setAudTotal] = useState(0);
-  const [audF, setAudF] = useState({ usuario: '', entidad: '', accion: '', desde: '', hasta: '', search: '' });
-  const [audPage, setAudPage] = useState(0);
-  const [audRpp, setAudRpp] = useState(50);
 
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       try {
-        const [g, c, v, p, tc, mc] = await Promise.all([getGeneral(), getCatalogos(), getVariables(), getPlantillas(), getTasasConversion(), getMetaGlobal()]);
-        setGeneral2(g); setCatalogos(c); setVariables(v); setPlantillas(p); setTasas(tc);
+        const [g, c, p, tc, mc] = await Promise.all([getGeneral(), getCatalogos(), getPlantillas(), getTasasConversion(), getMetaGlobal()]);
+        setGeneral2(g); setCatalogos(c); setPlantillas(p); setTasas(tc);
         setMetaCfg(mc);
         setMetaTipo(mc.tipo ?? 'MONTO');
         setMetaDraft(mc.tipo === 'PORCENTAJE' ? String(Math.round((mc.porcentaje ?? 0) * 1e6) / 1e4) : mc.tipo === 'MONTO' ? String(Math.round((mc.montoUsdGlobal ?? 0) * 100) / 100) : '');
-        const guardado = (g.orden_modulos ?? '').split(',').map((x) => x.trim()).filter(Boolean);
-        const keys = MODULES.map((m) => m.key);
-        setOrden([...guardado.filter((k) => keys.includes(k)), ...keys.filter((k) => !guardado.includes(k))]);
       } catch (e) { setToast(e instanceof Error ? e.message : 'Error al cargar.'); }
       finally { setLoading(false); }
     })();
@@ -192,29 +171,6 @@ const ConfiguracionPage = () => {
   const catList = useMemo(() => catalogos.filter((c) => c.catalogo === catSel && c.nombre.toLowerCase().includes(catSearch.toLowerCase())), [catalogos, catSel, catSearch]);
   const catalogosDistintos = useMemo(() => [...new Set([...CATALOGOS_FIJOS, ...catalogos.map((c) => c.catalogo)])], [catalogos]);
 
-  const varList = useMemo(() => variables.filter((v) => v.nombre.toLowerCase().includes(varSearch.toLowerCase()) || (v.descripcion ?? '').toLowerCase().includes(varSearch.toLowerCase())), [variables, varSearch]);
-  const exportVars = (excel: boolean) => {
-    const head = ['Nombre', 'Valor', 'Tipo', 'Descripción', 'Activo'];
-    const rows = varList.map((v) => [v.nombre, v.valor ?? '', v.tipo ?? 'texto', v.descripcion ?? '', v.activo ? 'Sí' : 'No']);
-    excel ? exportRowsToExcel('variables.xlsx', 'Variables', head, rows) : exportRowsToCsv('variables.csv', head, rows);
-  };
-
-  const moverModulo = (i: number, d: -1 | 1) => setOrden((o) => { const n = [...o]; const j = i + d; if (j < 0 || j >= n.length) return o; [n[i], n[j]] = [n[j], n[i]]; return n; });
-  const guardarOrden = async () => { try { await putGeneral({ ...general, orden_modulos: orden.join(',') }); setToast('Orden guardado. Se aplicará al recargar el menú.'); } catch (e) { setToast(e instanceof Error ? e.message : 'Error.'); } };
-
-  const cargarAuditoria = async () => {
-    try {
-      const params: Record<string, string> = { limit: String(audRpp), offset: String(audPage * audRpp) };
-      Object.entries(audF).forEach(([k, v]) => { if (v) params[k] = v; });
-      const r = await getAuditoria(params); setAudItems(r.items); setAudTotal(r.total);
-    } catch (e) { setToast(e instanceof Error ? e.message : 'Error.'); }
-  };
-  useEffect(() => { if (tab === 6) void cargarAuditoria(); /* eslint-disable-next-line */ }, [tab, audPage, audRpp]);
-  const exportAud = (excel: boolean) => {
-    const head = ['Fecha', 'Usuario', 'Módulo', 'Acción', 'Entidad ID', 'Detalle'];
-    const rows = audItems.map((a) => [String(a.created_at).slice(0, 19).replace('T', ' '), a.actor_id ?? '', a.entidad, a.accion, a.entidad_id ?? '', JSON.stringify(a.detalle ?? '')]);
-    excel ? exportRowsToExcel('auditoria.xlsx', 'Auditoria', head, rows) : exportRowsToCsv('auditoria.csv', head, rows);
-  };
   const descargarP = async (clave: string) => { try { const u = await descargarPlantilla(clave); window.open(u, '_blank'); } catch (e) { setToast(e instanceof Error ? e.message : 'Sin archivo.'); } };
 
   const metaDraftNum = Number(metaDraft);
@@ -240,12 +196,13 @@ const ConfiguracionPage = () => {
   return (
     <Box sx={{ p: { xs: 1, md: 2 } }}>
       <Tabs value={tab} onChange={(_e, v) => setTab(v)} variant="scrollable" sx={{ mb: 2 }}>
-        {([[0, 'General'], [1, 'Catálogos'], [3, 'Apariencia'], [4, 'Plantillas'], [5, 'Variables'], [6, 'Auditoría'], [7, 'Tasas de Conversión']] as Array<[number, string]>).map(([v, t]) => <Tab key={t} value={v} label={t} sx={{ textTransform: 'none' }} />)}
+        {([[0, 'General'], [1, 'Catálogos'], [4, 'Plantillas'], [7, 'Tasas de Conversión']] as Array<[number, string]>).map(([v, t]) => <Tab key={t} value={v} label={t} sx={{ textTransform: 'none' }} />)}
         {canUsuarios && <Tab key="Usuarios" value={TAB_USUARIOS} label="Usuarios" sx={{ textTransform: 'none' }} />}
         <Tab key="Metas" value={TAB_METAS} label="Metas" sx={{ textTransform: 'none' }} />
       </Tabs>
 
-      {/* GENERAL */}
+      {/* GENERAL (incluye las opciones que antes vivían en la pestaña Apariencia,
+          salvo "Orden de módulos del menú lateral", eliminada por completo) */}
       {tab === 0 && (
         <Paper sx={{ p: 3, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
           <Stack spacing={2}>
@@ -271,6 +228,30 @@ const ConfiguracionPage = () => {
               ))}
             </Grid>
             {canEdit && <Box><Button variant="contained" onClick={guardarGeneral} sx={{ textTransform: 'none' }}>Guardar</Button></Box>}
+            <Divider /><Typography sx={{ fontWeight: 700 }}>Tema y densidad</Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={4}><TextField select label="Tema" value={gv('tema') || 'claro'} onChange={(e) => sgv('tema', e.target.value)} size="small" fullWidth disabled={!canEdit}><MenuItem value="claro">Claro</MenuItem><MenuItem value="oscuro">Oscuro</MenuItem><MenuItem value="auto">Automático</MenuItem></TextField></Grid>
+              <Grid item xs={12} sm={4}><TextField select label="Densidad de tabla" value={gv('densidad_tabla') || 'normal'} onChange={(e) => sgv('densidad_tabla', e.target.value)} size="small" fullWidth disabled={!canEdit}><MenuItem value="compacta">Compacta</MenuItem><MenuItem value="normal">Normal</MenuItem><MenuItem value="amplia">Amplia</MenuItem></TextField></Grid>
+            </Grid>
+            <Divider /><Typography sx={{ fontWeight: 700 }}>Colores</Typography>
+            <Grid container spacing={2}>
+              {[['color_sidebar', 'Sidebar'], ['color_encabezado', 'Encabezados'], ['color_boton', 'Botones'], ['color_kpi', 'Tarjetas KPI'], ['color_tabla', 'Tablas']].map(([k, l]) => (
+                <Grid item xs={6} sm={2.4} key={k}><TextField label={l} type="color" value={gv(k) || '#1E3A8A'} onChange={(e) => sgv(k, e.target.value)} size="small" fullWidth disabled={!canEdit} InputLabelProps={{ shrink: true }} /></Grid>
+              ))}
+            </Grid>
+            <Divider />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1.5, borderRadius: 2, border: '1px dashed', borderColor: 'divider' }}>
+              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Vista previa:</Typography>
+              <Chip label="Sidebar" sx={{ bgcolor: gv('color_sidebar') || '#0F172A', color: '#fff' }} size="small" />
+              <Chip label="Botón" sx={{ bgcolor: gv('color_boton') || '#1E3A8A', color: '#fff' }} size="small" />
+              <Chip label="KPI" sx={{ bgcolor: gv('color_kpi') || '#E6007E', color: '#fff' }} size="small" />
+              <Chip label={`Tema: ${gv('tema') || 'claro'} · ${gv('densidad_tabla') || 'normal'}`} size="small" variant="outlined" />
+            </Box>
+            <Divider /><Typography sx={{ fontWeight: 700 }}>Fondos</Typography>
+            <AssetUpload label="Fondo Login" clave="fondo_login" value={gv('fondo_login')} canEdit={canEdit} onUpload={uploadAsset} />
+            <AssetUpload label="Fondo principal" clave="fondo_principal" value={gv('fondo_principal')} canEdit={canEdit} onUpload={uploadAsset} />
+            <AssetUpload label="Fondo Dashboard" clave="fondo_dashboard" value={gv('fondo_dashboard')} canEdit={canEdit} onUpload={uploadAsset} />
+            {canEdit && <Box><Button variant="contained" onClick={guardarGeneral} sx={{ textTransform: 'none' }}>Guardar apariencia</Button></Box>}
           </Stack>
         </Paper>
       )}
@@ -324,52 +305,6 @@ const ConfiguracionPage = () => {
         </Grid>
       )}
 
-      {/* APARIENCIA */}
-      {tab === 3 && (
-        <Paper sx={{ p: 3, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
-          <Stack spacing={2}>
-            <Typography sx={{ fontWeight: 700 }}>Tema y densidad</Typography>
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={4}><TextField select label="Tema" value={gv('tema') || 'claro'} onChange={(e) => sgv('tema', e.target.value)} size="small" fullWidth disabled={!canEdit}><MenuItem value="claro">Claro</MenuItem><MenuItem value="oscuro">Oscuro</MenuItem><MenuItem value="auto">Automático</MenuItem></TextField></Grid>
-              <Grid item xs={12} sm={4}><TextField select label="Densidad de tabla" value={gv('densidad_tabla') || 'normal'} onChange={(e) => sgv('densidad_tabla', e.target.value)} size="small" fullWidth disabled={!canEdit}><MenuItem value="compacta">Compacta</MenuItem><MenuItem value="normal">Normal</MenuItem><MenuItem value="amplia">Amplia</MenuItem></TextField></Grid>
-            </Grid>
-            <Divider /><Typography sx={{ fontWeight: 700 }}>Colores</Typography>
-            <Grid container spacing={2}>
-              {[['color_sidebar', 'Sidebar'], ['color_encabezado', 'Encabezados'], ['color_boton', 'Botones'], ['color_kpi', 'Tarjetas KPI'], ['color_tabla', 'Tablas']].map(([k, l]) => (
-                <Grid item xs={6} sm={2.4} key={k}><TextField label={l} type="color" value={gv(k) || '#1E3A8A'} onChange={(e) => sgv(k, e.target.value)} size="small" fullWidth disabled={!canEdit} InputLabelProps={{ shrink: true }} /></Grid>
-              ))}
-            </Grid>
-            <Divider />
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1.5, borderRadius: 2, border: '1px dashed', borderColor: 'divider' }}>
-              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Vista previa:</Typography>
-              <Chip label="Sidebar" sx={{ bgcolor: gv('color_sidebar') || '#0F172A', color: '#fff' }} size="small" />
-              <Chip label="Botón" sx={{ bgcolor: gv('color_boton') || '#1E3A8A', color: '#fff' }} size="small" />
-              <Chip label="KPI" sx={{ bgcolor: gv('color_kpi') || '#E6007E', color: '#fff' }} size="small" />
-              <Chip label={`Tema: ${gv('tema') || 'claro'} · ${gv('densidad_tabla') || 'normal'}`} size="small" variant="outlined" />
-            </Box>
-            <Divider /><Typography sx={{ fontWeight: 700 }}>Orden de módulos del menú lateral</Typography>
-            <Stack spacing={0.5}>
-              {orden.map((k, i) => {
-                const m = MODULES.find((x) => x.key === k);
-                return (
-                  <Box key={k} sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.5, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
-                    <Typography sx={{ flex: 1, fontSize: 13 }}>{m?.label ?? k}</Typography>
-                    <IconButton size="small" disabled={!canEdit || i === 0} onClick={() => moverModulo(i, -1)}><ArrowUpwardIcon fontSize="small" /></IconButton>
-                    <IconButton size="small" disabled={!canEdit || i === orden.length - 1} onClick={() => moverModulo(i, 1)}><ArrowDownwardIcon fontSize="small" /></IconButton>
-                  </Box>
-                );
-              })}
-            </Stack>
-            {canEdit && <Box><Button variant="outlined" onClick={guardarOrden} sx={{ textTransform: 'none' }}>Guardar orden</Button></Box>}
-            <Divider /><Typography sx={{ fontWeight: 700 }}>Fondos</Typography>
-            <AssetUpload label="Fondo Login" clave="fondo_login" value={gv('fondo_login')} canEdit={canEdit} onUpload={uploadAsset} />
-            <AssetUpload label="Fondo principal" clave="fondo_principal" value={gv('fondo_principal')} canEdit={canEdit} onUpload={uploadAsset} />
-            <AssetUpload label="Fondo Dashboard" clave="fondo_dashboard" value={gv('fondo_dashboard')} canEdit={canEdit} onUpload={uploadAsset} />
-            {canEdit && <Box><Button variant="contained" onClick={guardarGeneral} sx={{ textTransform: 'none' }}>Guardar apariencia</Button></Box>}
-          </Stack>
-        </Paper>
-      )}
-
       {/* PLANTILLAS */}
       {tab === 4 && (
         <Paper sx={{ p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
@@ -395,84 +330,6 @@ const ConfiguracionPage = () => {
               </TableBody>
             </Table>
           </TableContainer>
-        </Paper>
-      )}
-
-      {/* VARIABLES */}
-      {tab === 5 && (
-        <Paper sx={{ p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
-          <Stack spacing={2}>
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-              <TextField size="small" label="Buscar" value={varSearch} onChange={(e) => setVarSearch(e.target.value)} />
-              <Box sx={{ flex: 1 }} />
-              <Button size="small" startIcon={<FileDownloadOutlinedIcon />} onClick={() => exportVars(false)} sx={{ textTransform: 'none' }}>CSV</Button>
-              <Button size="small" startIcon={<FileDownloadOutlinedIcon />} onClick={() => exportVars(true)} sx={{ textTransform: 'none' }}>Excel</Button>
-            </Box>
-            {canEdit && (
-              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                <TextField size="small" label="Nombre" value={nuevaVar.nombre} onChange={(e) => setNuevaVar({ ...nuevaVar, nombre: e.target.value })} />
-                <TextField size="small" label="Valor" value={nuevaVar.valor} onChange={(e) => setNuevaVar({ ...nuevaVar, valor: e.target.value })} />
-                <TextField select size="small" label="Tipo" value={nuevaVar.tipo} onChange={(e) => setNuevaVar({ ...nuevaVar, tipo: e.target.value })} sx={{ minWidth: 120 }}>{VAR_TIPOS.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}</TextField>
-                <TextField size="small" label="Descripción" value={nuevaVar.descripcion} onChange={(e) => setNuevaVar({ ...nuevaVar, descripcion: e.target.value })} sx={{ flex: 1, minWidth: 180 }} />
-                <Button variant="contained" disabled={!nuevaVar.nombre.trim()} onClick={async () => { await crearVariable(nuevaVar); setNuevaVar({ nombre: '', valor: '', tipo: 'texto', descripcion: '' }); setVariables(await getVariables()); setToast('Variable creada.'); }} sx={{ textTransform: 'none' }}>Agregar</Button>
-              </Box>
-            )}
-            <TableContainer sx={{ maxHeight: '60vh' }}>
-              <Table stickyHeader size="small">
-                <TableHead><TableRow>{['Nombre', 'Valor', 'Tipo', 'Descripción', 'Activo'].map((h) => <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>)}</TableRow></TableHead>
-                <TableBody>
-                  {varList.map((v) => (
-                    <TableRow key={v.id} hover>
-                      <TableCell sx={{ fontWeight: 600 }}>{v.nombre}</TableCell>
-                      <TableCell>{canEdit ? <TextField variant="standard" defaultValue={v.valor ?? ''} onBlur={async (e) => { if (e.target.value !== (v.valor ?? '')) { await actualizarVariable(v.id, { valor: e.target.value }); setVariables(await getVariables()); } }} /> : v.valor}</TableCell>
-                      <TableCell>{canEdit ? <TextField select variant="standard" value={v.tipo ?? 'texto'} onChange={async (e) => { await actualizarVariable(v.id, { tipo: e.target.value }); setVariables(await getVariables()); }} sx={{ minWidth: 90 }}>{VAR_TIPOS.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}</TextField> : (v.tipo ?? 'texto')}</TableCell>
-                      <TableCell sx={{ fontSize: 12 }}>{v.descripcion}</TableCell>
-                      <TableCell><Switch size="small" checked={v.activo} disabled={!canEdit} onChange={async () => { await actualizarVariable(v.id, { activo: !v.activo }); setVariables(await getVariables()); }} /></TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Stack>
-        </Paper>
-      )}
-
-      {/* AUDITORÍA */}
-      {tab === 6 && (
-        <Paper sx={{ p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
-          <Stack spacing={2}>
-            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
-              <TextField size="small" label="Usuario (id)" value={audF.usuario} onChange={(e) => setAudF({ ...audF, usuario: e.target.value })} />
-              <TextField size="small" label="Módulo" value={audF.entidad} onChange={(e) => setAudF({ ...audF, entidad: e.target.value })} />
-              <TextField size="small" label="Acción" value={audF.accion} onChange={(e) => setAudF({ ...audF, accion: e.target.value })} />
-              <TextField size="small" label="Desde" type="date" value={audF.desde} onChange={(e) => setAudF({ ...audF, desde: e.target.value })} InputLabelProps={{ shrink: true }} />
-              <TextField size="small" label="Hasta" type="date" value={audF.hasta} onChange={(e) => setAudF({ ...audF, hasta: e.target.value })} InputLabelProps={{ shrink: true }} />
-              <TextField size="small" label="Buscar acción" value={audF.search} onChange={(e) => setAudF({ ...audF, search: e.target.value })} />
-              <Button variant="contained" size="small" onClick={() => { setAudPage(0); void cargarAuditoria(); }} sx={{ textTransform: 'none' }}>Buscar</Button>
-              <Box sx={{ flex: 1 }} />
-              <Button size="small" startIcon={<FileDownloadOutlinedIcon />} onClick={() => exportAud(false)} sx={{ textTransform: 'none' }}>CSV</Button>
-              <Button size="small" startIcon={<FileDownloadOutlinedIcon />} onClick={() => exportAud(true)} sx={{ textTransform: 'none' }}>Excel</Button>
-            </Box>
-            <TableContainer sx={{ maxHeight: '58vh' }}>
-              <Table stickyHeader size="small">
-                <TableHead><TableRow>{['Fecha', 'Usuario', 'Módulo', 'Acción', 'Entidad', 'Detalle'].map((h) => <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>)}</TableRow></TableHead>
-                <TableBody>
-                  {audItems.map((a) => (
-                    <TableRow key={a.id} hover>
-                      <TableCell sx={{ whiteSpace: 'nowrap', fontSize: 12 }}>{String(a.created_at).slice(0, 19).replace('T', ' ')}</TableCell>
-                      <TableCell sx={{ fontSize: 12 }}>{a.actor_id ?? '—'}</TableCell>
-                      <TableCell sx={{ fontSize: 12 }}>{a.entidad}</TableCell>
-                      <TableCell sx={{ fontSize: 12 }}>{a.accion}</TableCell>
-                      <TableCell sx={{ fontSize: 12 }}>{a.entidad_id ?? '—'}</TableCell>
-                      <TableCell sx={{ fontSize: 11, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.detalle ? JSON.stringify(a.detalle) : '—'}</TableCell>
-                    </TableRow>
-                  ))}
-                  {audItems.length === 0 && <TableRow><TableCell colSpan={6} align="center" sx={{ py: 3, color: 'text.secondary' }}>Sin registros.</TableCell></TableRow>}
-                </TableBody>
-              </Table>
-            </TableContainer>
-            <TablePagination component="div" count={audTotal} page={audPage} onPageChange={(_e, p) => setAudPage(p)} rowsPerPage={audRpp} onRowsPerPageChange={(e) => { setAudRpp(parseInt(e.target.value, 10)); setAudPage(0); }} rowsPerPageOptions={[25, 50, 100]} labelRowsPerPage="Filas" />
-          </Stack>
         </Paper>
       )}
 

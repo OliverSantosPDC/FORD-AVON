@@ -18,9 +18,7 @@ export interface MetaGlobal {
   updatedAt: string | null;
   updatedBy: string | null;
 }
-export interface Variable { id: string; nombre: string; valor: string | null; tipo: string | null; descripcion: string | null; activo: boolean; }
 export interface Plantilla { id: string; clave: string; nombre: string; url: string | null; version: number | null; updated_at: string | null; updated_by: string | null; }
-export interface AuditoriaRow { id: string; actor_id: string | null; accion: string; entidad: string; entidad_id: string | null; detalle: unknown; created_at: string; }
 export interface RolesData {
   roles: Array<{ id: string; clave: string; nombre: string }>;
   permisos: Array<{ id: string; clave: string; descripcion: string | null }>;
@@ -48,10 +46,6 @@ export const getTasasConversionActivas = async (): Promise<Array<{ codigo: strin
   return r.json();
 };
 
-export const getVariables = async (): Promise<Variable[]> => { const r = await apiFetch('/api/configuracion/variables', { cache: 'no-store' }); if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.')); return r.json(); };
-export const crearVariable = async (b: Partial<Variable>) => { const r = await apiFetch('/api/configuracion/variables', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) }); if (!r.ok) throw new Error(await err(r, 'No se pudo crear.')); };
-export const actualizarVariable = async (id: string, b: Partial<Variable>) => { const r = await apiFetch(`/api/configuracion/variables/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) }); if (!r.ok) throw new Error(await err(r, 'No se pudo actualizar.')); };
-
 export const getRoles = async (): Promise<RolesData> => { const r = await apiFetch('/api/configuracion/roles', { cache: 'no-store' }); if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.')); return r.json(); };
 export const putRolPermisos = async (roleId: string, permissionIds: string[]) => { const r = await apiFetch(`/api/configuracion/roles/${roleId}/permisos`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ permissionIds }) }); if (!r.ok) throw new Error(await err(r, 'No se pudo guardar.')); };
 
@@ -61,10 +55,3 @@ export const descargarPlantilla = async (clave: string): Promise<string> => { co
 export const subirAsset = async (clave: string, file: File) => { const f = new FormData(); f.append('file', file); const r = await apiFetch(`/api/configuracion/assets/${clave}`, { method: 'POST', body: f }); if (!r.ok) throw new Error(await err(r, 'No se pudo subir.')); };
 /** URL firmada temporal para previsualizar un asset (logo/fondo). `null` si la clave no tiene archivo configurado. */
 export const obtenerUrlAsset = async (clave: string): Promise<string | null> => { const r = await apiFetch(`/api/configuracion/assets/${clave}/url`, { cache: 'no-store' }); if (!r.ok) return null; return (await r.json()).url as string | null; };
-
-export const getAuditoria = async (params: Record<string, string>): Promise<{ items: AuditoriaRow[]; total: number }> => {
-  const qs = new URLSearchParams(params).toString();
-  const r = await apiFetch(`/api/configuracion/auditoria${qs ? `?${qs}` : ''}`, { cache: 'no-store' });
-  if (!r.ok) throw new Error(await err(r, 'No se pudo cargar la auditoría.'));
-  return r.json();
-};
