@@ -146,7 +146,7 @@ const GestionPage = () => {
 
   const [zMetric, setZMetric] = useState<Metric>('saldoLocal'); const [zDir, setZDir] = useState<'asc' | 'desc'>('desc');
   const [pMetric, setPMetric] = useState<Metric>('saldoUsd'); const [pDir, setPDir] = useState<'asc' | 'desc'>('desc');
-  const [fPd, setFPd] = useState(''); const [fZona, setFZona] = useState(''); const [fCamp, setFCamp] = useState('');
+  const [fPd, setFPd] = useState(''); const [fZona, setFZona] = useState(''); const [fCamp, setFCamp] = useState(''); const [fCodigo, setFCodigo] = useState('');
 
   // Panel único por cuenta
   const [panel, setPanel] = useState<Record<string, unknown> | null>(null);
@@ -217,16 +217,25 @@ const GestionPage = () => {
     const uniq = (k: string) => [...new Set(cuentas.map((r) => str(r[k])).filter(Boolean))].sort();
     return { pd: uniq('pd_actual'), zona: uniq('zona'), campania: uniq('campania_adeuda') };
   }, [cuentas]);
-  const cuentasFiltradas = useMemo(() => cuentas.filter((r) =>
-    (!fPd || str(r.pd_actual) === fPd) && (!fZona || str(r.zona) === fZona) && (!fCamp || str(r.campania_adeuda) === fCamp)
-  ), [cuentas, fPd, fZona, fCamp]);
+  const cuentasFiltradas = useMemo(() => {
+    // Búsqueda por coincidencia (parcial, sin distinguir mayúsculas/minúsculas):
+    // la tabla no tenía antes ningún filtro de texto por código, así que se
+    // sigue la misma convención de búsqueda por coincidencia ya usada en
+    // Cartera (pages/Cartera/index.tsx). Se combina con los filtros
+    // existentes (PD/Zona/Campaña) con AND, igual que entre ellos.
+    const codigoTerm = fCodigo.trim().toLowerCase();
+    return cuentas.filter((r) =>
+      (!fPd || str(r.pd_actual) === fPd) && (!fZona || str(r.zona) === fZona) && (!fCamp || str(r.campania_adeuda) === fCamp) &&
+      (!codigoTerm || str(r.codigo).toLowerCase().includes(codigoTerm))
+    );
+  }, [cuentas, fPd, fZona, fCamp, fCodigo]);
   const paged = cuentasFiltradas.slice(page * rpp, page * rpp + rpp);
   useEffect(() => {
     const codigos = paged.map((r) => str(r.codigo)).filter(Boolean);
     if (codigos.length) getEstadoCuentas(codigos).then((m) => setEstado((prev) => ({ ...prev, ...m }))).catch(() => undefined);
     // eslint-disable-next-line
   }, [page, rpp, cuentasFiltradas]);
-  const limpiarFiltrosTabla = () => { setFPd(''); setFZona(''); setFCamp(''); setPage(0); };
+  const limpiarFiltrosTabla = () => { setFPd(''); setFZona(''); setFCamp(''); setFCodigo(''); setPage(0); };
 
   const toggle = (set: Set<string>, key: string, setter: (s: Set<string>) => void) => { const n = new Set(set); n.has(key) ? n.delete(key) : n.add(key); setter(n); };
 
@@ -382,6 +391,7 @@ const GestionPage = () => {
           <Box sx={{ p: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
               <Typography sx={{ fontWeight: 700, mr: 1 }}>Cuentas ({cuentasFiltradas.length.toLocaleString('en-US')})</Typography>
+              <TextField size="small" label="Código" placeholder="Buscar por código" value={fCodigo} onChange={(e) => { setFCodigo(e.target.value); setPage(0); }} sx={{ minWidth: 150 }} />
               <TextField select size="small" label="PD" value={fPd} onChange={(e) => { setFPd(e.target.value); setPage(0); }} sx={{ minWidth: 100 }}><MenuItem value="">Todos</MenuItem>{optsTabla.pd.map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}</TextField>
               <TextField select size="small" label="Zona" value={fZona} onChange={(e) => { setFZona(e.target.value); setPage(0); }} sx={{ minWidth: 120 }}><MenuItem value="">Todas</MenuItem>{optsTabla.zona.map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}</TextField>
               <TextField select size="small" label="Campaña" value={fCamp} onChange={(e) => { setFCamp(e.target.value); setPage(0); }} sx={{ minWidth: 120 }}><MenuItem value="">Todas</MenuItem>{optsTabla.campania.map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}</TextField>
