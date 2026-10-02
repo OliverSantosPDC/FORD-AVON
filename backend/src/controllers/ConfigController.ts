@@ -9,7 +9,8 @@ import {
 import { getMetaGlobalComputada, guardarMetaGlobal } from '../services/MetasService';
 import { registrarAuditoria } from '../services/AuditoriaService';
 import {
-  PLANTILLAS_CARTA_INFO, VARIABLES_CARTA, normalizarPd, fixtureParaBanda, buscarCuentaParaPreview, renderizarCarta
+  PLANTILLAS_CARTA_INFO, VARIABLES_CARTA, normalizarPd, fixtureParaBanda, buscarCuentaParaPreview, renderizarCarta,
+  previsualizarContenidoCarta
 } from '../services/CartaPdService';
 
 export class ConfigController {
@@ -152,6 +153,30 @@ export class ConfigController {
       }
       const tasas = await getTasasPorMoneda();
       return res.json(await renderizarCarta(datos, tasas));
+    } catch (e) { return this.fail(res, e); }
+  }
+
+  /** Previsualiza un BORRADOR (contenido/asunto aún sin guardar, tal como
+   *  está en el textarea del editor) — usa el MISMO motor de sustitución
+   *  que el resto de las previsualizaciones, pero nunca lee ni modifica lo
+   *  que hay guardado en config_plantillas. Con `?codigo=` usa una cuenta
+   *  real; si no, una cuenta de prueba representativa de la banda de PD. */
+  async previsualizarBorradorPlantillaCarta(req: Request, res: Response) {
+    try {
+      const info = PLANTILLAS_CARTA_INFO.find((p) => p.clave === req.params.clave);
+      if (!info) return res.status(404).json({ error: 'Plantilla no encontrada.' });
+      const contenido = String(req.body?.contenido ?? '');
+      const asunto = String(req.body?.asunto ?? '');
+      if (!contenido.trim()) return res.status(400).json({ error: 'El contenido no puede estar vacío.' });
+      const codigo = typeof req.body?.codigo === 'string' ? req.body.codigo.trim() : '';
+      let datos = codigo ? await buscarCuentaParaPreview(codigo) : null;
+      if (codigo && !datos) return res.status(404).json({ error: 'Cuenta no encontrada.' });
+      if (!datos) {
+        const pdQuery = normalizarPd(req.body?.pd);
+        datos = fixtureParaBanda(pdQuery && info.bandas.includes(pdQuery) ? pdQuery : info.bandas[0]);
+      }
+      const [general, tasas] = await Promise.all([getGeneral(), getTasasPorMoneda()]);
+      return res.json(previsualizarContenidoCarta(datos.pdActual, contenido, asunto, datos, general, tasas));
     } catch (e) { return this.fail(res, e); }
   }
 

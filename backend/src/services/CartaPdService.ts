@@ -90,36 +90,26 @@ export interface CartaRenderizada {
 }
 
 /**
- * Renderiza la carta de cobro para una cuenta, según su PD ACTUAL. Única
- * fuente de verdad del saldo: `saldo_actual` en moneda LOCAL (NUNCA
+ * Núcleo de sustitución de variables, compartido por `renderizarCarta`
+ * (plantilla YA GUARDADA en config_plantillas) y `previsualizarContenidoCarta`
+ * (texto BORRADOR aún sin guardar, usado por el botón "Vista previa" del
+ * editor de Configuración) — un único motor, nunca dos implementaciones.
+ * Única fuente de verdad del saldo: `saldo_actual` en moneda LOCAL (NUNCA
  * `saldo_actual_usd`) — si se necesitara otra moneda, se usaría
  * `usdEquivalente` (mismo motor que el resto del sistema), nunca una fórmula
  * paralela. `tasas` solo se usa si en el futuro se habilita mostrar el saldo
  * en una moneda distinta a la local; por ahora el texto siempre usa la local.
  */
-export const renderizarCarta = async (
+const sustituirVariables = (
+  pd: PdValido,
+  plantilla: string,
+  asunto: string,
   datos: DatosCuentaCarta,
+  general: Record<string, string>,
   tasas: Record<string, number>,
-  fechaEmision: Date = new Date()
-): Promise<CartaRenderizada> => {
-  const pd = normalizarPd(datos.pdActual);
-  const clave = claveParaPd(datos.pdActual);
-  if (!pd || !clave) {
-    return { pd, disponible: false, plantillaClave: null, contenido: null, variablesFaltantes: [] };
-  }
-
-  const [general, plantillaRow] = await Promise.all([getGeneral(), leerPlantillaCarta(clave)]);
+  fechaEmision: Date
+): { contenido: string; variablesFaltantes: string[] } => {
   const faltantes: string[] = [];
-  if (!plantillaRow || !plantillaRow.contenido) {
-    return { pd, disponible: false, plantillaClave: clave, contenido: null, variablesFaltantes: ['plantilla'] };
-  }
-  // Una plantilla desactivada en Configuración no se genera/previsualiza en
-  // ningún lado (Gestión ni la vista previa de Configuración) — motivo
-  // distinto de "sin contenido" para que el mensaje al usuario sea claro.
-  if (!plantillaRow.activo) {
-    return { pd, disponible: false, plantillaClave: clave, contenido: null, variablesFaltantes: ['plantilla_inactiva'] };
-  }
-  const plantilla = plantillaRow.contenido;
 
   const country = resolveCountry(datos.pais);
   const direccionClave = direccionClaveParaPais(country);
@@ -141,7 +131,6 @@ export const renderizarCarta = async (
   if (!razonSocial) faltantes.push('nombre_empresa');
   const plazoDias = general.plazo_pd7_dias || '';
   if (pd === 'PD7' && !plazoDias) faltantes.push('plazo_pd7_dias');
-  const asunto = plantillaRow.asunto || '';
   if (!asunto) faltantes.push('asunto');
   // Sin fuente confiable de contacto directo del Gestor (ninguna tabla lo
   // registra hoy — ver auditoría): se marca explícitamente como pendiente,
@@ -173,7 +162,67 @@ export const renderizarCarta = async (
     return key in valores ? valores[key] : match;
   });
 
-  return { pd, disponible: true, plantillaClave: clave, contenido, variablesFaltantes: faltantes };
+  return { contenido, variablesFaltantes: faltantes };
+};
+
+/**
+ * Renderiza la carta de cobro para una cuenta, según su PD ACTUAL, usando
+ * la plantilla YA GUARDADA en config_plantillas (snapshot real usado por
+ * Gestión/Control Operativo y por la Vista Previa "de tarjeta" de
+ * Configuración).
+ */
+export const renderizarCarta = async (
+  datos: DatosCuentaCarta,
+  tasas: Record<string, number>,
+  fechaEmision: Date = new Date()
+): Promise<CartaRenderizada> => {
+  const pd = normalizarPd(datos.pdActual);
+  const clave = claveParaPd(datos.pdActual);
+  if (!pd || !clave) {
+    return { pd, disponible: false, plantillaClave: null, contenido: null, variablesFaltantes: [] };
+  }
+
+  const [general, plantillaRow] = await Promise.all([getGeneral(), leerPlantillaCarta(clave)]);
+  if (!plantillaRow || !plantillaRow.contenido) {
+    return { pd, disponible: false, plantillaClave: clave, contenido: null, variablesFaltantes: ['plantilla'] };
+  }
+  // Una plantilla desactivada en Configuración no se genera/previsualiza en
+  // ningún lado (Gestión ni la vista previa "de tarjeta" de Configuración)
+  // — motivo distinto de "sin contenido" para que el mensaje sea claro. El
+  // editor SÍ puede seguir previsualizando su borrador vía
+  // previsualizarContenidoCarta, para poder revisarla antes de reactivarla.
+  if (!plantillaRow.activo) {
+    return { pd, disponible: false, plantillaClave: clave, contenido: null, variablesFaltantes: ['plantilla_inactiva'] };
+  }
+
+  const { contenido, variablesFaltantes } = sustituirVariables(pd, plantillaRow.contenido, plantillaRow.asunto || '', datos, general, tasas, fechaEmision);
+  return { pd, disponible: true, plantillaClave: clave, contenido, variablesFaltantes };
+};
+
+/**
+ * Previsualiza un BORRADOR (contenido/asunto aún sin guardar) para el botón
+ * "Vista previa" del editor de Configuración > Plantillas — el mismo motor
+ * de sustitución que `renderizarCarta`, pero sin leer ni depender de lo que
+ * haya guardado en config_plantillas, y sin el gate de `activo` (el admin
+ * puede previsualizar mientras decide si reactivarla). Nunca crea ni
+ * modifica ninguna carta real.
+ */
+export const previsualizarContenidoCarta = (
+  pdRaw: unknown,
+  contenidoBorrador: string,
+  asuntoBorrador: string,
+  datos: DatosCuentaCarta,
+  general: Record<string, string>,
+  tasas: Record<string, number>,
+  fechaEmision: Date = new Date()
+): CartaRenderizada => {
+  const pd = normalizarPd(pdRaw);
+  if (!pd) {
+    return { pd: null, disponible: false, plantillaClave: null, contenido: null, variablesFaltantes: [] };
+  }
+  const clave = claveParaPd(pd);
+  const { contenido, variablesFaltantes } = sustituirVariables(pd, contenidoBorrador, asuntoBorrador, datos, general, tasas, fechaEmision);
+  return { pd, disponible: true, plantillaClave: clave, contenido, variablesFaltantes };
 };
 
 export { ALLOWED_COUNTRIES };

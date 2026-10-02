@@ -35,6 +35,7 @@ router.post('/configuracion/plantillas/:clave', requireAuth, requirePermission(E
 router.get('/configuracion/plantillas-carta', requireAuth, requirePermission(VER), (req, res) => c.plantillasCarta(req, res));
 router.put('/configuracion/plantillas-carta/:clave', requireAuth, requirePermission(EDIT), (req, res) => c.actualizarPlantillaCarta(req, res));
 router.get('/configuracion/plantillas-carta/:clave/preview', requireAuth, requirePermission(VER), (req, res) => c.previsualizarPlantillaCarta(req, res));
+router.post('/configuracion/plantillas-carta/:clave/preview-borrador', requireAuth, requirePermission(EDIT), (req, res) => c.previsualizarBorradorPlantillaCarta(req, res));
 
 // Sin requirePermission(VER) a propósito: logo_principal se resuelve desde el
 // Sidebar/Header para CUALQUIER usuario autenticado (no solo quienes tienen

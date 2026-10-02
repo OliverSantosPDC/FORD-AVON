@@ -14,7 +14,7 @@ import {
   getGeneral, putGeneral, getCatalogos, crearCatalogo, actualizarCatalogo,
   getPlantillas, subirPlantilla, descargarPlantilla, subirAsset, obtenerUrlAsset,
   getTasasConversion, actualizarTasaConversion, getMetaGlobal, guardarMetaGlobal,
-  getPlantillasCarta, actualizarPlantillaCarta, previsualizarPlantillaCarta,
+  getPlantillasCarta, actualizarPlantillaCarta, previsualizarPlantillaCarta, previsualizarBorradorPlantillaCarta,
   type Catalogo, type Plantilla, type TasaConversion, type MetaGlobal,
   type PlantillaCarta, type VariableCarta, type CartaPreviewAdmin
 } from '../../services/configuracionService';
@@ -145,6 +145,13 @@ const ConfiguracionPage = () => {
   // plantilla en un solo "Guardar" para que se sienta una sola edición.
   const [cartaEditPlazo, setCartaEditPlazo] = useState('');
   const [cartaEditBusy, setCartaEditBusy] = useState(false);
+  // Pestañas Editor/Vista previa DENTRO del editor: el botón "Vista previa"
+  // renderiza el BORRADOR (texto aún sin guardar) con el mismo CartaRenderer
+  // de siempre, sin tocar lo guardado — volver a "Editor" nunca pierde lo
+  // escrito, porque es el mismo estado local, solo cambia qué pestaña se ve.
+  const [cartaEditTab, setCartaEditTab] = useState(0);
+  const [cartaEditPreview, setCartaEditPreview] = useState<CartaPreviewAdmin | null>(null);
+  const [cartaEditPreviewBusy, setCartaEditPreviewBusy] = useState(false);
   const [cartaPrevClave, setCartaPrevClave] = useState<string | null>(null);
   const [cartaPrevCodigo, setCartaPrevCodigo] = useState('');
   const [cartaPrevResult, setCartaPrevResult] = useState<CartaPreviewAdmin | null>(null);
@@ -214,6 +221,25 @@ const ConfiguracionPage = () => {
     setCartaEditAsunto(p.asunto ?? '');
     setCartaEditActivo(p.activo);
     setCartaEditPlazo(gv('plazo_pd7_dias'));
+    setCartaEditTab(0);
+    setCartaEditPreview(null);
+    obtenerUrlAsset('logo_principal').then(setCartaPrevLogoUrl);
+    obtenerUrlAsset('firma').then(setCartaPrevFirmaUrl);
+  };
+  /** Previsualiza el BORRADOR actual del editor (contenido/asunto tal como
+   *  están en el textarea, aún sin guardar) — nunca toca lo persistido. */
+  const previsualizarBorradorActual = async () => {
+    if (!cartaEditClave || !cartaEditContenido.trim()) return;
+    setCartaEditPreviewBusy(true);
+    try {
+      const r = await previsualizarBorradorPlantillaCarta(cartaEditClave, { contenido: cartaEditContenido, asunto: cartaEditAsunto });
+      setCartaEditPreview(r);
+    } catch (e) { setToast(e instanceof Error ? e.message : 'No se pudo previsualizar.'); }
+    finally { setCartaEditPreviewBusy(false); }
+  };
+  const cambiarTabEditor = (tab: number) => {
+    setCartaEditTab(tab);
+    if (tab === 1) void previsualizarBorradorActual();
   };
   const guardarPlantillaCarta = async () => {
     if (!cartaEditClave) return;
@@ -453,8 +479,8 @@ const ConfiguracionPage = () => {
                       </Typography>
                       <Box sx={{ flex: 1 }} />
                       <Stack direction="row" spacing={1}>
-                        <Button size="small" variant="outlined" onClick={() => abrirPreviewCarta(p.clave)} sx={{ textTransform: 'none' }}>Vista Previa</Button>
-                        {canEdit && <Button size="small" variant="contained" onClick={() => abrirEdicionCarta(p)} sx={{ textTransform: 'none' }}>Editar</Button>}
+                        <Button size="small" variant="outlined" onClick={() => abrirPreviewCarta(p.clave)} sx={{ textTransform: 'none' }}>Visualizar carta</Button>
+                        {canEdit && <Button size="small" variant="contained" onClick={() => abrirEdicionCarta(p)} sx={{ textTransform: 'none' }}>Editar carta</Button>}
                       </Stack>
                     </Stack>
                   </Paper>
@@ -484,52 +510,101 @@ const ConfiguracionPage = () => {
         </Paper>
       )}
 
-      {/* Editar plantilla de carta: Asunto (campo propio), activo/inactiva,
-          plazo SOLO si es carta_pd7, cuerpo multilínea + variables disponibles. */}
-      <Dialog open={Boolean(cartaEditClave)} onClose={() => setCartaEditClave(null)} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ fontWeight: 700 }}>Editar plantilla · {plantillasCarta.find((p) => p.clave === cartaEditClave)?.nombre}</DialogTitle>
-        <DialogContent dividers>
-          <Stack spacing={2}>
-            <Stack direction="row" spacing={2} alignItems="center">
-              <TextField label="Asunto" value={cartaEditAsunto} onChange={(e) => setCartaEditAsunto(e.target.value)} size="small" fullWidth disabled={!canEdit} />
-              <FormControlLabel
-                sx={{ whiteSpace: 'nowrap', mr: 0 }}
-                control={<Switch checked={cartaEditActivo} onChange={(e) => setCartaEditActivo(e.target.checked)} disabled={!canEdit} />}
-                label={cartaEditActivo ? 'Activa' : 'Inactiva'}
-              />
-            </Stack>
-            {!cartaEditActivo && (
-              <Alert severity="warning" sx={{ py: 0.5 }}>
-                Mientras esté inactiva, el Gestor NO podrá generar ni previsualizar esta carta.
-              </Alert>
-            )}
-            {cartaEditClave === cartaPd7Clave && (
+      {/* Editar carta: Asunto (campo propio), activo/inactiva, plazo SOLO si
+          es carta_pd7, cuerpo multilínea + variables — con pestañas Editor /
+          Vista previa (la vista previa renderiza el BORRADOR sin guardar). */}
+      <Dialog open={Boolean(cartaEditClave)} onClose={() => setCartaEditClave(null)} maxWidth="lg" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Editar carta · {plantillasCarta.find((p) => p.clave === cartaEditClave)?.nombre}</DialogTitle>
+        <Tabs value={cartaEditTab} onChange={(_e, v) => cambiarTabEditor(v)} sx={{ px: 3, borderBottom: '1px solid', borderColor: 'divider' }}>
+          <Tab label="Editor" sx={{ textTransform: 'none' }} />
+          <Tab label="Vista previa" sx={{ textTransform: 'none' }} />
+        </Tabs>
+        <DialogContent dividers sx={{ bgcolor: cartaEditTab === 1 ? 'action.hover' : 'background.paper' }}>
+          {cartaEditTab === 0 && (
+            <Stack spacing={2}>
+              <Stack direction="row" spacing={2} alignItems="center">
+                <TextField label="Asunto" value={cartaEditAsunto} onChange={(e) => setCartaEditAsunto(e.target.value)} size="small" fullWidth disabled={!canEdit} />
+                <FormControlLabel
+                  sx={{ whiteSpace: 'nowrap', mr: 0 }}
+                  control={<Switch checked={cartaEditActivo} onChange={(e) => setCartaEditActivo(e.target.checked)} disabled={!canEdit} />}
+                  label={cartaEditActivo ? 'Activa' : 'Inactiva'}
+                />
+              </Stack>
+              {!cartaEditActivo && (
+                <Alert severity="warning" sx={{ py: 0.5 }}>
+                  Mientras esté inactiva, el Gestor NO podrá generar ni previsualizar esta carta.
+                </Alert>
+              )}
+              {cartaEditClave === cartaPd7Clave && (
+                <TextField
+                  label="Plazo de días (solo PD7)"
+                  type="number"
+                  value={cartaEditPlazo}
+                  onChange={(e) => setCartaEditPlazo(e.target.value)}
+                  size="small"
+                  sx={{ maxWidth: 260 }}
+                  disabled={!canEdit}
+                  inputProps={{ min: 0, step: 1 }}
+                />
+              )}
+              <Box>
+                <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 0.5 }}>
+                  Variables disponibles — haz clic en una para copiarla, y pégala donde la necesites dentro del texto.
+                  «Logo» y «Firma» se reemplazan por las imágenes configuradas, solo una vez autorizada la carta.
+                </Typography>
+                <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                  {variablesCarta.map((v) => (
+                    <Chip
+                      key={v.variable}
+                      size="small"
+                      variant="outlined"
+                      label={`«${v.variable}»${v.soloPd7 ? ' (solo PD7)' : ''}`}
+                      title={`${v.descripcion} — clic para copiar`}
+                      onClick={() => { navigator.clipboard?.writeText(`«${v.variable}»`).then(() => setToast(`«${v.variable}» copiada.`)).catch(() => undefined); }}
+                      sx={{ cursor: 'pointer' }}
+                    />
+                  ))}
+                </Stack>
+              </Box>
               <TextField
-                label="Plazo de días (solo PD7)"
-                type="number"
-                value={cartaEditPlazo}
-                onChange={(e) => setCartaEditPlazo(e.target.value)}
-                size="small"
-                sx={{ maxWidth: 260 }}
-                disabled={!canEdit}
-                inputProps={{ min: 0, step: 1 }}
+                value={cartaEditContenido}
+                onChange={(e) => setCartaEditContenido(e.target.value)}
+                multiline minRows={22} maxRows={22} fullWidth disabled={!canEdit}
+                placeholder="Cuerpo completo de la carta..."
+                sx={{ '& textarea': { fontFamily: 'monospace', fontSize: 13 } }}
               />
-            )}
-            <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-              Usa variables con el formato «Variable» — se sustituyen automáticamente al generar la carta.
-              «Logo» y «Firma» se reemplazan por las imágenes configuradas arriba, solo una vez autorizada.
-            </Typography>
-            <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-              {variablesCarta.map((v) => (
-                <Chip key={v.variable} size="small" variant="outlined" label={`«${v.variable}»${v.soloPd7 ? ' (solo PD7)' : ''}`} title={v.descripcion} />
-              ))}
             </Stack>
-            <TextField value={cartaEditContenido} onChange={(e) => setCartaEditContenido(e.target.value)} multiline minRows={16} fullWidth disabled={!canEdit}
-              sx={{ '& textarea': { fontFamily: 'monospace', fontSize: 12.5 } }} />
-          </Stack>
+          )}
+          {cartaEditTab === 1 && (
+            <Stack spacing={2} alignItems="center">
+              <Typography sx={{ fontSize: 12, color: 'text.secondary', alignSelf: 'flex-start' }}>
+                Vista previa del borrador actual (sin guardar) — con una cuenta de prueba representativa del PD.
+                Esto NO crea ni modifica ninguna carta real.
+              </Typography>
+              {cartaEditPreviewBusy && <CircularProgress size={22} />}
+              {cartaEditPreview?.variablesFaltantes && cartaEditPreview.variablesFaltantes.length > 0 && (
+                <Alert severity="warning" sx={{ py: 0.5, alignSelf: 'stretch' }}>
+                  Pendiente de configurar: {cartaEditPreview.variablesFaltantes.join(', ')}
+                </Alert>
+              )}
+              {cartaEditPreview?.contenido && (
+                <Box sx={{ boxShadow: 3, borderRadius: 1, bgcolor: '#fff' }}>
+                  <CartaRenderer contenido={cartaEditPreview.contenido} logoUrl={cartaPrevLogoUrl} firmaUrl={cartaPrevFirmaUrl} />
+                </Box>
+              )}
+              <Button size="small" variant="outlined" disabled={cartaEditPreviewBusy} onClick={previsualizarBorradorActual} sx={{ textTransform: 'none' }}>
+                Actualizar vista previa
+              </Button>
+            </Stack>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setCartaEditClave(null)} sx={{ textTransform: 'none' }}>Cancelar</Button>
+          {cartaEditTab === 0 && (
+            <Button variant="outlined" disabled={!cartaEditContenido.trim()} onClick={() => cambiarTabEditor(1)} sx={{ textTransform: 'none' }}>
+              Vista previa
+            </Button>
+          )}
           {canEdit && (
             <Button
               variant="contained"
@@ -543,31 +618,35 @@ const ConfiguracionPage = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Previsualizar plantilla de carta con datos reales o de prueba */}
-      <Dialog open={Boolean(cartaPrevClave)} onClose={() => setCartaPrevClave(null)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ fontWeight: 700 }}>Previsualizar · {plantillasCarta.find((p) => p.clave === cartaPrevClave)?.nombre}</DialogTitle>
-        <DialogContent dividers>
-          <Stack spacing={2}>
-            <Stack direction="row" spacing={1}>
+      {/* Visualizar carta: la carta COMPLETA ya guardada, renderizada con el
+          mismo CartaRenderer de Gestión/Control Operativo — solo una
+          PREVISUALIZACIÓN (nunca crea/aprueba una carta real ni descarga). */}
+      <Dialog open={Boolean(cartaPrevClave)} onClose={() => setCartaPrevClave(null)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Visualizar carta · {plantillasCarta.find((p) => p.clave === cartaPrevClave)?.nombre}</DialogTitle>
+        <DialogContent dividers sx={{ bgcolor: 'action.hover' }}>
+          <Stack spacing={2} alignItems="center">
+            <Stack direction="row" spacing={1} sx={{ alignSelf: 'stretch' }}>
               <TextField label="Código de cuenta real (opcional)" value={cartaPrevCodigo} onChange={(e) => setCartaPrevCodigo(e.target.value)} size="small" fullWidth />
               <Button variant="outlined" disabled={cartaPrevBusy} onClick={ejecutarPreviewCarta} sx={{ textTransform: 'none', whiteSpace: 'nowrap' }}>Cargar</Button>
             </Stack>
-            <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>Sin código, se usa una cuenta de prueba representativa de este PD.</Typography>
+            <Typography sx={{ fontSize: 11, color: 'text.secondary', alignSelf: 'flex-start' }}>Sin código, se usa una cuenta de prueba representativa de este PD.</Typography>
             {cartaPrevBusy && <CircularProgress size={22} />}
             {cartaPrevResult && !cartaPrevResult.disponible && (
-              <Alert severity="info" sx={{ py: 0.5 }}>
+              <Alert severity="info" sx={{ py: 0.5, alignSelf: 'stretch' }}>
                 {cartaPrevResult.variablesFaltantes.includes('plantilla_inactiva')
-                  ? 'Esta plantilla está desactivada. Actívala en "Editar" para poder previsualizarla.'
+                  ? 'Esta plantilla está desactivada. Actívala en "Editar carta" para poder previsualizarla.'
                   : 'No hay plantilla disponible para este PD.'}
               </Alert>
             )}
             {cartaPrevResult?.disponible && cartaPrevResult.variablesFaltantes.length > 0 && (
-              <Alert severity="warning" sx={{ py: 0.5 }}>
+              <Alert severity="warning" sx={{ py: 0.5, alignSelf: 'stretch' }}>
                 Pendiente de configurar: {cartaPrevResult.variablesFaltantes.join(', ')}
               </Alert>
             )}
             {cartaPrevResult?.contenido && (
-              <CartaRenderer contenido={cartaPrevResult.contenido} logoUrl={cartaPrevLogoUrl} firmaUrl={cartaPrevFirmaUrl} />
+              <Box sx={{ boxShadow: 3, borderRadius: 1, bgcolor: '#fff' }}>
+                <CartaRenderer contenido={cartaPrevResult.contenido} logoUrl={cartaPrevLogoUrl} firmaUrl={cartaPrevFirmaUrl} />
+              </Box>
             )}
           </Stack>
         </DialogContent>

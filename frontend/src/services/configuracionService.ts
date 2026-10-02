@@ -85,3 +85,15 @@ export const previsualizarPlantillaCarta = async (clave: string, params: { codig
   if (!r.ok) throw new Error(await err(r, 'No se pudo previsualizar.'));
   return r.json();
 };
+/** Previsualiza un BORRADOR (texto aún sin guardar, tal como está en el
+ *  editor) — nunca lee ni modifica lo guardado en config_plantillas. */
+export const previsualizarBorradorPlantillaCarta = async (
+  clave: string,
+  borrador: { contenido: string; asunto: string; codigo?: string }
+): Promise<CartaPreviewAdmin> => {
+  const r = await apiFetch(`/api/configuracion/plantillas-carta/${clave}/preview-borrador`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(borrador)
+  });
+  if (!r.ok) throw new Error(await err(r, 'No se pudo previsualizar.'));
+  return r.json();
+};

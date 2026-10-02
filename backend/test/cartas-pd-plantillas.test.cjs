@@ -111,8 +111,10 @@ require.cache[supabaseJsPath] = fakeModule;
 
 const distDir = path.join(__dirname, '..', 'dist');
 const {
-  normalizarPd, claveParaPd, formatearFechaEspanol, anioDeCampania, renderizarCarta, fixtureParaBanda
+  normalizarPd, claveParaPd, formatearFechaEspanol, anioDeCampania, renderizarCarta, fixtureParaBanda,
+  previsualizarContenidoCarta
 } = require(path.join(distDir, 'services', 'CartaPdService.js'));
+const { getGeneral } = require(path.join(distDir, 'services', 'ConfigService.js'));
 const { crearCarta, obtenerCarta } = require(path.join(distDir, 'services', 'GestionService.js'));
 
 test.beforeEach(() => { gestionCartasRows = []; nextCartaId = 1; });
@@ -321,4 +323,57 @@ test('obtenerCarta: carta APROBADA expone logo/firma (vía el mismo urlAsset ya 
 test('obtenerCarta: una carta inexistente devuelve null (sin lanzar) para que el controller responda 404, nunca filtra nada', async () => {
   const r = await obtenerCarta('no-existe');
   assert.equal(r, null);
+});
+
+/* ============================================================================
+ * 6) previsualizarContenidoCarta: Vista previa de un BORRADOR (texto del
+ *    editor, aún sin guardar) — botón "Vista previa" dentro de Editar carta.
+ *    Mismo motor de sustitución que renderizarCarta, pero nunca lee ni
+ *    depende de lo guardado en config_plantillas, y nunca persiste nada.
+ * ========================================================================== */
+
+test('previsualizarContenidoCarta: sustituye variables del BORRADOR (no de lo guardado en config_plantillas)', async () => {
+  const general = await getGeneral();
+  const datos = fixtureParaBanda('PD4');
+  const borrador = 'Asunto: «Asunto». Hola «Nombre_Mayusculas», su saldo es «Saldo». Esto es un borrador NUEVO que no existe en la BD.';
+  const r = previsualizarContenidoCarta('PD4', borrador, 'Asunto de prueba del editor', datos, general, {});
+  assert.equal(r.disponible, true);
+  assert.equal(r.pd, 'PD4');
+  assert.equal(r.plantillaClave, 'carta_pd4');
+  assert.match(r.contenido, /Asunto: Asunto de prueba del editor/);
+  assert.match(r.contenido, /MARÍA EJEMPLO LÓPEZ/);
+  assert.match(r.contenido, /borrador NUEVO que no existe en la BD/);
+});
+
+test('previsualizarContenidoCarta: PD7 sustituye «Plazo_dias» usando la configuración actual, igual que renderizarCarta', async () => {
+  const general = await getGeneral();
+  const datos = fixtureParaBanda('PD7');
+  const borrador = 'Plazo: «Plazo_dias» días hábiles.';
+  const r = previsualizarContenidoCarta('PD7', borrador, 'Asunto PD7', datos, general, {});
+  assert.equal(r.disponible, true);
+  assert.match(r.contenido, /Plazo: 5 días hábiles/);
+});
+
+test('previsualizarContenidoCarta: ignora el flag "activo" de la BD — previsualiza el borrador de una plantilla desactivada (carta_pd6) sin problema', async () => {
+  const general = await getGeneral();
+  const datos = fixtureParaBanda('PD6');
+  const r = previsualizarContenidoCarta('PD6', 'Borrador de «Nombre_Mayusculas» mientras está inactiva.', 'Asunto', datos, general, {});
+  assert.equal(r.disponible, true);
+  assert.match(r.contenido, /MARÍA EJEMPLO LÓPEZ/);
+});
+
+test('previsualizarContenidoCarta: PD inválido devuelve disponible:false sin lanzar', async () => {
+  const general = await getGeneral();
+  const datos = fixtureParaBanda('PD4');
+  const r = previsualizarContenidoCarta('no-es-un-pd', 'texto', 'asunto', datos, general, {});
+  assert.equal(r.disponible, false);
+  assert.equal(r.pd, null);
+});
+
+test('previsualizarContenidoCarta: NUNCA persiste nada — config_plantillas/config_plantillas_versiones quedan intactas tras previsualizar', async () => {
+  const antes = JSON.stringify(CONFIG_PLANTILLAS);
+  const general = await getGeneral();
+  const datos = fixtureParaBanda('PD4');
+  previsualizarContenidoCarta('PD4', 'Un borrador cualquiera «Saldo»', 'Asunto cualquiera', datos, general, {});
+  assert.equal(JSON.stringify(CONFIG_PLANTILLAS), antes);
 });
