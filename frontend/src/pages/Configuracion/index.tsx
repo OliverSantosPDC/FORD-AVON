@@ -138,6 +138,12 @@ const ConfiguracionPage = () => {
   const [variablesCarta, setVariablesCarta] = useState<VariableCarta[]>([]);
   const [cartaEditClave, setCartaEditClave] = useState<string | null>(null);
   const [cartaEditContenido, setCartaEditContenido] = useState('');
+  const [cartaEditAsunto, setCartaEditAsunto] = useState('');
+  const [cartaEditActivo, setCartaEditActivo] = useState(true);
+  // Solo relevante al editar carta_pd7 — reutiliza la MISMA clave general
+  // 'plazo_pd7_dias' (nunca un campo paralelo); se guarda junto con la
+  // plantilla en un solo "Guardar" para que se sienta una sola edición.
+  const [cartaEditPlazo, setCartaEditPlazo] = useState('');
   const [cartaEditBusy, setCartaEditBusy] = useState(false);
   const [cartaPrevClave, setCartaPrevClave] = useState<string | null>(null);
   const [cartaPrevCodigo, setCartaPrevCodigo] = useState('');
@@ -198,15 +204,34 @@ const ConfiguracionPage = () => {
 
   const descargarP = async (clave: string) => { try { const u = await descargarPlantilla(clave); window.open(u, '_blank'); } catch (e) { setToast(e instanceof Error ? e.message : 'Sin archivo.'); } };
 
-  const abrirEdicionCarta = (p: PlantillaCarta) => { setCartaEditClave(p.clave); setCartaEditContenido(p.contenido ?? ''); };
+  // Clave de la plantilla de PD7, derivada de las bandas que manda el backend
+  // (nunca una clave fija asumida): el plazo configurable solo aplica a ella.
+  const cartaPd7Clave = useMemo(() => plantillasCarta.find((p) => p.bandas.includes('PD7'))?.clave ?? null, [plantillasCarta]);
+
+  const abrirEdicionCarta = (p: PlantillaCarta) => {
+    setCartaEditClave(p.clave);
+    setCartaEditContenido(p.contenido ?? '');
+    setCartaEditAsunto(p.asunto ?? '');
+    setCartaEditActivo(p.activo);
+    setCartaEditPlazo(gv('plazo_pd7_dias'));
+  };
   const guardarPlantillaCarta = async () => {
     if (!cartaEditClave) return;
     setCartaEditBusy(true);
     try {
-      await actualizarPlantillaCarta(cartaEditClave, cartaEditContenido);
-      const pc = await getPlantillasCarta();
+      await actualizarPlantillaCarta(cartaEditClave, { contenido: cartaEditContenido, asunto: cartaEditAsunto, activo: cartaEditActivo });
+      // Plazo (solo PD7): se persiste aquí mismo, en config_general, EXACTAMENTE
+      // la misma clave 'plazo_pd7_dias' que usa el resto del sistema — nunca
+      // un valor paralelo.
+      if (cartaEditClave === cartaPd7Clave && cartaEditPlazo.trim() && cartaEditPlazo !== gv('plazo_pd7_dias')) {
+        await putGeneral({ plazo_pd7_dias: cartaEditPlazo });
+      }
+      // Re-fetch desde el servidor (NUNCA solo el estado local recién editado)
+      // para confirmar que lo guardado realmente persistió.
+      const [pc, g] = await Promise.all([getPlantillasCarta(), getGeneral()]);
       setPlantillasCarta(pc.items);
-      setToast('Plantilla de carta actualizada.');
+      setGeneral2(g);
+      setToast('Plantilla de carta actualizada y confirmada en el servidor.');
       setCartaEditClave(null);
     } catch (e) { setToast(e instanceof Error ? e.message : 'No se pudo guardar.'); }
     finally { setCartaEditBusy(false); }
@@ -391,19 +416,56 @@ const ConfiguracionPage = () => {
           <Divider sx={{ my: 3 }} />
           <Stack spacing={2}>
             <Box>
-              <Typography sx={{ fontWeight: 700 }}>Plantillas de Carta de Cobro por PD</Typography>
+              <Typography variant="h6" sx={{ fontWeight: 800 }}>Plantillas de Cartas de Cobro</Typography>
               <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-                PD0 no tiene carta. PD1-PD3 comparten una misma plantilla. El Gestor solo ve la
-                plantilla correspondiente al PD ACTUAL de la cuenta — nunca puede elegir otra.
+                PD0 no tiene carta. PD1-PD3 comparten una misma plantilla (editarla afecta a las tres).
+                El Gestor solo ve la plantilla correspondiente al PD ACTUAL de la cuenta — nunca puede elegir otra.
               </Typography>
             </Box>
 
-            <Typography sx={{ fontWeight: 700, fontSize: 13 }}>Datos de contacto y plazo</Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6} md={4}>
+                <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, height: '100%', bgcolor: 'action.hover' }}>
+                  <Stack spacing={1} sx={{ height: '100%' }}>
+                    <Chip size="small" label="PD0" sx={{ alignSelf: 'flex-start' }} />
+                    <Typography sx={{ fontWeight: 700 }}>Sin carta</Typography>
+                    <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                      PD0 no genera carta de cobro — no existe ninguna plantilla asociada a este nivel.
+                    </Typography>
+                  </Stack>
+                </Paper>
+              </Grid>
+              {plantillasCarta.map((p) => (
+                <Grid item xs={12} sm={6} md={4} key={p.clave}>
+                  <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, height: '100%' }}>
+                    <Stack spacing={1} sx={{ height: '100%' }}>
+                      <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                        {p.bandas.map((b) => <Chip key={b} size="small" label={b} />)}
+                      </Stack>
+                      <Typography sx={{ fontWeight: 700 }}>{p.nombre}</Typography>
+                      <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>{p.tono}</Typography>
+                      <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                        <Chip size="small" label={p.activo ? 'Activa' : 'Inactiva'} color={p.activo ? 'success' : 'default'} variant={p.activo ? 'filled' : 'outlined'} />
+                        <Chip size="small" label={p.contenido ? 'Configurada' : 'Sin contenido'} color={p.contenido ? 'success' : 'default'} variant="outlined" />
+                      </Stack>
+                      <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
+                        Versión {p.version ?? 1} · {p.updatedAt ? String(p.updatedAt).slice(0, 16).replace('T', ' ') : 'Sin fecha'}
+                      </Typography>
+                      <Box sx={{ flex: 1 }} />
+                      <Stack direction="row" spacing={1}>
+                        <Button size="small" variant="outlined" onClick={() => abrirPreviewCarta(p.clave)} sx={{ textTransform: 'none' }}>Vista Previa</Button>
+                        {canEdit && <Button size="small" variant="contained" onClick={() => abrirEdicionCarta(p)} sx={{ textTransform: 'none' }}>Editar</Button>}
+                      </Stack>
+                    </Stack>
+                  </Paper>
+                </Grid>
+              ))}
+            </Grid>
+
+            <Divider />
+            <Typography sx={{ fontWeight: 700, fontSize: 13 }}>Datos de contacto (aplican a las 5 plantillas)</Typography>
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6}><TextField label="WhatsApp de cobros" value={gv('whatsapp_cobros')} onChange={(e) => sgv('whatsapp_cobros', e.target.value)} size="small" fullWidth disabled={!canEdit} /></Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField label="Plazo PD7 (días)" type="number" value={gv('plazo_pd7_dias')} onChange={(e) => sgv('plazo_pd7_dias', e.target.value)} size="small" fullWidth disabled={!canEdit} inputProps={{ min: 0, step: 1 }} />
-              </Grid>
             </Grid>
             <Typography sx={{ fontWeight: 700, fontSize: 13 }}>Direcciones por país (Localización de la carta)</Typography>
             <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
@@ -418,37 +480,41 @@ const ConfiguracionPage = () => {
               ))}
             </Grid>
             {canEdit && <Box><Button variant="contained" onClick={guardarGeneral} sx={{ textTransform: 'none' }}>Guardar configuración de cartas</Button></Box>}
-
-            <Divider />
-            <TableContainer>
-              <Table size="small">
-                <TableHead><TableRow>{['Plantilla', 'PD', 'Estado', 'Acciones'].map((h) => <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>)}</TableRow></TableHead>
-                <TableBody>
-                  {plantillasCarta.map((p) => (
-                    <TableRow key={p.clave} hover>
-                      <TableCell>{p.nombre}</TableCell>
-                      <TableCell><Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>{p.bandas.map((b) => <Chip key={b} size="small" label={b} />)}</Stack></TableCell>
-                      <TableCell><Chip size="small" label={p.contenido ? 'Configurada' : 'Sin contenido'} color={p.contenido ? 'success' : 'default'} variant="outlined" /></TableCell>
-                      <TableCell>
-                        <Stack direction="row" spacing={0.5}>
-                          <Button size="small" onClick={() => abrirPreviewCarta(p.clave)} sx={{ textTransform: 'none' }}>Previsualizar</Button>
-                          {canEdit && <Button size="small" onClick={() => abrirEdicionCarta(p)} sx={{ textTransform: 'none' }}>Editar</Button>}
-                        </Stack>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
           </Stack>
         </Paper>
       )}
 
-      {/* Editar plantilla de carta (texto + variables disponibles) */}
+      {/* Editar plantilla de carta: Asunto (campo propio), activo/inactiva,
+          plazo SOLO si es carta_pd7, cuerpo multilínea + variables disponibles. */}
       <Dialog open={Boolean(cartaEditClave)} onClose={() => setCartaEditClave(null)} maxWidth="md" fullWidth>
         <DialogTitle sx={{ fontWeight: 700 }}>Editar plantilla · {plantillasCarta.find((p) => p.clave === cartaEditClave)?.nombre}</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2}>
+            <Stack direction="row" spacing={2} alignItems="center">
+              <TextField label="Asunto" value={cartaEditAsunto} onChange={(e) => setCartaEditAsunto(e.target.value)} size="small" fullWidth disabled={!canEdit} />
+              <FormControlLabel
+                sx={{ whiteSpace: 'nowrap', mr: 0 }}
+                control={<Switch checked={cartaEditActivo} onChange={(e) => setCartaEditActivo(e.target.checked)} disabled={!canEdit} />}
+                label={cartaEditActivo ? 'Activa' : 'Inactiva'}
+              />
+            </Stack>
+            {!cartaEditActivo && (
+              <Alert severity="warning" sx={{ py: 0.5 }}>
+                Mientras esté inactiva, el Gestor NO podrá generar ni previsualizar esta carta.
+              </Alert>
+            )}
+            {cartaEditClave === cartaPd7Clave && (
+              <TextField
+                label="Plazo de días (solo PD7)"
+                type="number"
+                value={cartaEditPlazo}
+                onChange={(e) => setCartaEditPlazo(e.target.value)}
+                size="small"
+                sx={{ maxWidth: 260 }}
+                disabled={!canEdit}
+                inputProps={{ min: 0, step: 1 }}
+              />
+            )}
             <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
               Usa variables con el formato «Variable» — se sustituyen automáticamente al generar la carta.
               «Logo» y «Firma» se reemplazan por las imágenes configuradas arriba, solo una vez autorizada.
@@ -464,7 +530,16 @@ const ConfiguracionPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setCartaEditClave(null)} sx={{ textTransform: 'none' }}>Cancelar</Button>
-          {canEdit && <Button variant="contained" disabled={cartaEditBusy || !cartaEditContenido.trim()} onClick={guardarPlantillaCarta} sx={{ textTransform: 'none' }}>Guardar</Button>}
+          {canEdit && (
+            <Button
+              variant="contained"
+              disabled={cartaEditBusy || !cartaEditContenido.trim() || !cartaEditAsunto.trim()}
+              onClick={guardarPlantillaCarta}
+              sx={{ textTransform: 'none' }}
+            >
+              {cartaEditBusy ? 'Guardando...' : 'Guardar'}
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
 
@@ -479,16 +554,20 @@ const ConfiguracionPage = () => {
             </Stack>
             <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>Sin código, se usa una cuenta de prueba representativa de este PD.</Typography>
             {cartaPrevBusy && <CircularProgress size={22} />}
-            {cartaPrevResult?.variablesFaltantes && cartaPrevResult.variablesFaltantes.length > 0 && (
+            {cartaPrevResult && !cartaPrevResult.disponible && (
+              <Alert severity="info" sx={{ py: 0.5 }}>
+                {cartaPrevResult.variablesFaltantes.includes('plantilla_inactiva')
+                  ? 'Esta plantilla está desactivada. Actívala en "Editar" para poder previsualizarla.'
+                  : 'No hay plantilla disponible para este PD.'}
+              </Alert>
+            )}
+            {cartaPrevResult?.disponible && cartaPrevResult.variablesFaltantes.length > 0 && (
               <Alert severity="warning" sx={{ py: 0.5 }}>
                 Pendiente de configurar: {cartaPrevResult.variablesFaltantes.join(', ')}
               </Alert>
             )}
             {cartaPrevResult?.contenido && (
               <CartaRenderer contenido={cartaPrevResult.contenido} logoUrl={cartaPrevLogoUrl} firmaUrl={cartaPrevFirmaUrl} />
-            )}
-            {cartaPrevResult && !cartaPrevResult.disponible && (
-              <Alert severity="info" sx={{ py: 0.5 }}>No hay plantilla disponible para este PD.</Alert>
             )}
           </Stack>
         </DialogContent>

@@ -3,7 +3,7 @@ import {
   getGeneral, setGeneral, listCatalogos, crearCatalogo, actualizarCatalogo, eliminarCatalogo,
   getRolesPermisos, setRolPermisos,
   listPlantillas, subirPlantilla, subirAsset, urlAsset, urlPlantilla,
-  leerContenidoPlantilla, actualizarContenidoPlantilla, getTasasPorMoneda,
+  leerPlantillaCarta, guardarPlantillaCarta, getTasasPorMoneda,
   listTasasConversion, actualizarTasaConversion, ConfigError
 } from '../services/ConfigService';
 import { getMetaGlobalComputada, guardarMetaGlobal } from '../services/MetasService';
@@ -100,18 +100,35 @@ export class ConfigController {
   async plantillasCarta(_req: Request, res: Response) {
     try {
       const items = await Promise.all(PLANTILLAS_CARTA_INFO.map(async (info) => {
-        const contenido = await leerContenidoPlantilla(info.clave);
-        return { ...info, contenido };
+        const row = await leerPlantillaCarta(info.clave);
+        return {
+          ...info,
+          contenido: row?.contenido ?? null,
+          asunto: row?.asunto ?? null,
+          activo: row?.activo ?? true,
+          version: row?.version ?? null,
+          updatedAt: row?.updated_at ?? null,
+          updatedBy: row?.updated_by ?? null
+        };
       }));
       return res.json({ items, variables: VARIABLES_CARTA });
     } catch (e) { return this.fail(res, e); }
   }
 
+  /** Solo las 5 claves reales (PLANTILLAS_CARTA_INFO) pueden editarse — nunca
+   *  se crea una plantilla nueva/independiente para PD2 o PD3 (comparten
+   *  carta_pd1) ni para ninguna clave arbitraria del body/params. */
   async actualizarPlantillaCarta(req: Request, res: Response) {
     try {
+      if (!PLANTILLAS_CARTA_INFO.some((p) => p.clave === req.params.clave)) {
+        return res.status(404).json({ error: 'Plantilla no encontrada.' });
+      }
       const contenido = String(req.body?.contenido ?? '');
+      const asunto = String(req.body?.asunto ?? '');
+      const activo = req.body?.activo !== false;
       if (!contenido.trim()) return res.status(400).json({ error: 'El contenido no puede estar vacío.' });
-      const r = await actualizarContenidoPlantilla(req.params.clave, contenido, req.auth?.userId ?? null);
+      if (!asunto.trim()) return res.status(400).json({ error: 'El asunto no puede estar vacío.' });
+      const r = await guardarPlantillaCarta(req.params.clave, { contenido, asunto, activo }, req.auth?.userId ?? null);
       await this.audit(req, 'CONFIG_PLANTILLA_CARTA_EDITAR', req.params.clave);
       return res.json(r);
     } catch (e) { return this.fail(res, e); }

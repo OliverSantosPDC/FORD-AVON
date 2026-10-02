@@ -157,18 +157,33 @@ export const subirPlantilla = async (clave: string, nombreArchivo: string, buffe
  * vive en la columna `contenido` (texto con variables «Placeholder»), no en
  * Storage — se edita en un textarea, no se "sube un archivo" cada vez.
  */
-export const leerContenidoPlantilla = async (clave: string): Promise<string | null> => {
-  const { data, error } = await c().from('config_plantillas').select('contenido').eq('clave', clave).maybeSingle();
+export interface PlantillaCartaRow {
+  contenido: string | null;
+  asunto: string | null;
+  activo: boolean;
+  version: number | null;
+  updated_at: string | null;
+  updated_by: string | null;
+}
+
+export const leerPlantillaCarta = async (clave: string): Promise<PlantillaCartaRow | null> => {
+  const { data, error } = await c().from('config_plantillas').select('contenido, asunto, activo, version, updated_at, updated_by').eq('clave', clave).maybeSingle();
   if (error) throw new ConfigError(error.message);
-  return (data as { contenido?: string } | null)?.contenido ?? null;
+  return (data as PlantillaCartaRow | null) ?? null;
 };
 
-export const actualizarContenidoPlantilla = async (clave: string, contenido: string, actor: string | null) => {
+export const guardarPlantillaCarta = async (
+  clave: string,
+  patch: { contenido: string; asunto: string; activo: boolean },
+  actor: string | null
+) => {
   const { data: actual } = await c().from('config_plantillas').select('version').eq('clave', clave).maybeSingle();
   const version = (((actual as { version?: number } | null)?.version) ?? 0) + 1;
-  const { error } = await c().from('config_plantillas').update({ contenido, version, updated_at: new Date().toISOString(), updated_by: actor }).eq('clave', clave);
+  const { error } = await c().from('config_plantillas')
+    .update({ contenido: patch.contenido, asunto: patch.asunto, activo: patch.activo, version, updated_at: new Date().toISOString(), updated_by: actor })
+    .eq('clave', clave);
   if (error) throw new ConfigError(error.message);
-  await c().from('config_plantillas_versiones').insert({ clave, contenido, version, updated_by: actor, url: null });
+  await c().from('config_plantillas_versiones').insert({ clave, contenido: patch.contenido, asunto: patch.asunto, version, updated_by: actor, url: null });
   return { version };
 };
 

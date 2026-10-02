@@ -57,7 +57,11 @@ export const subirAsset = async (clave: string, file: File) => { const f = new F
 export const obtenerUrlAsset = async (clave: string): Promise<string | null> => { const r = await apiFetch(`/api/configuracion/assets/${clave}/url`, { cache: 'no-store' }); if (!r.ok) return null; return (await r.json()).url as string | null; };
 
 /** Plantillas de carta de cobro por PD (PD1-PD3 comparten una; PD0 no tiene carta). */
-export interface PlantillaCarta { clave: string; nombre: string; bandas: string[]; contenido: string | null; }
+export interface PlantillaCarta {
+  clave: string; nombre: string; bandas: string[]; tono: string;
+  contenido: string | null; asunto: string | null; activo: boolean;
+  version: number | null; updatedAt: string | null; updatedBy: string | null;
+}
 export interface VariableCarta { variable: string; descripcion: string; soloPd7?: boolean; }
 export interface CartaPreviewAdmin { pd: string | null; disponible: boolean; plantillaClave: string | null; contenido: string | null; variablesFaltantes: string[]; }
 
@@ -66,9 +70,10 @@ export const getPlantillasCarta = async (): Promise<{ items: PlantillaCarta[]; v
   if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.'));
   return r.json();
 };
-export const actualizarPlantillaCarta = async (clave: string, contenido: string) => {
-  const r = await apiFetch(`/api/configuracion/plantillas-carta/${clave}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contenido }) });
+export const actualizarPlantillaCarta = async (clave: string, patch: { contenido: string; asunto: string; activo: boolean }): Promise<{ version: number }> => {
+  const r = await apiFetch(`/api/configuracion/plantillas-carta/${clave}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
   if (!r.ok) throw new Error(await err(r, 'No se pudo guardar.'));
+  return r.json();
 };
 /** Previsualiza con una cuenta real (`codigo`) o, si se omite, con una cuenta de prueba de la banda de PD indicada. */
 export const previsualizarPlantillaCarta = async (clave: string, params: { codigo?: string; pd?: string } = {}): Promise<CartaPreviewAdmin> => {

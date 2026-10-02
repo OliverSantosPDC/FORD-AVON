@@ -37,15 +37,17 @@ const CONFIG_GENERAL = [
   { clave: 'nombre_empresa', valor: 'Avon Centroamérica' },
   { clave: 'whatsapp_cobros', valor: '+502 1234 5678' },
   { clave: 'plazo_pd7_dias', valor: '5' },
-  { clave: 'direccion_pais_guatemala', valor: 'Guatemala, Ciudad de Guatemala' },
+  { clave: 'direccion_pais_guatemala', valor: 'Ciudad de Guatemala' },
   { clave: 'logo_principal', valor: 'assets/logo_principal_1.png' },
   { clave: 'firma', valor: 'assets/firma_1.png' }
 ];
 const CONFIG_PLANTILLAS = [
-  { clave: 'carta_pd1', contenido: 'Hola «Nombre_Mayusculas», código «Codigo», zona «Zona», saldo «Saldo». «Localizacion» «Fecha_emision» «Campania» «Anio_Campania» «Contacto_Gestor» «Razon_Social» «WhatsApp» «Logo» «Firma»' },
-  { clave: 'carta_pd4', contenido: 'PD4: «Nombre_Mayusculas» «Saldo»' },
-  { clave: 'carta_pd7', contenido: 'PD7: «Nombre_Mayusculas» «Saldo» plazo de «Plazo_dias» días' }
-  // carta_pd5 / carta_pd6 deliberadamente SIN fila -> simulan "sin contenido todavía".
+  { clave: 'carta_pd1', asunto: 'Recordatorio de saldo pendiente', activo: true, version: 1, updated_at: null, updated_by: null, contenido: 'Asunto: «Asunto». Hola «Nombre_Mayusculas», código «Codigo», zona «Zona», saldo «Saldo». «Localizacion» «Fecha_emision» «Campania» «Anio_Campania» «Contacto_Gestor» «Razon_Social» «WhatsApp» «Logo» «Firma»' },
+  { clave: 'carta_pd4', asunto: 'Aviso de cuenta vencida', activo: true, version: 1, updated_at: null, updated_by: null, contenido: 'PD4: «Nombre_Mayusculas» «Saldo»' },
+  { clave: 'carta_pd7', asunto: 'Requerimiento formal de pago', activo: true, version: 1, updated_at: null, updated_by: null, contenido: 'PD7: «Nombre_Mayusculas» «Saldo» plazo de «Plazo_dias» días' },
+  { clave: 'carta_pd6', asunto: 'Urgente', activo: false, version: 1, updated_at: null, updated_by: null, contenido: 'PD6: «Nombre_Mayusculas» «Saldo»' }
+  // carta_pd5 deliberadamente SIN fila -> simula "sin contenido todavía".
+  // carta_pd6 existe pero activo:false -> simula una plantilla desactivada.
 ];
 let gestionCartasRows = [];
 let nextCartaId = 1;
@@ -171,11 +173,19 @@ test('renderizarCarta: PD0 no tiene carta disponible (ningún contenido, ninguna
   assert.equal(r.contenido, null);
 });
 
-test('renderizarCarta: PD5/PD6 sin contenido cargado todavía -> disponible false, variablesFaltantes=["plantilla"]', async () => {
+test('renderizarCarta: PD5 sin fila de plantilla todavía -> disponible false, variablesFaltantes=["plantilla"]', async () => {
   const r = await renderizarCarta(fixtureParaBanda('PD5'), {});
   assert.equal(r.disponible, false);
   assert.equal(r.plantillaClave, 'carta_pd5');
   assert.deepEqual(r.variablesFaltantes, ['plantilla']);
+});
+
+test('renderizarCarta: PD6 existe pero está DESACTIVADA (activo:false) -> disponible false, variablesFaltantes=["plantilla_inactiva"], nunca se confunde con "sin contenido"', async () => {
+  const r = await renderizarCarta(fixtureParaBanda('PD6'), {});
+  assert.equal(r.disponible, false);
+  assert.equal(r.plantillaClave, 'carta_pd6');
+  assert.deepEqual(r.variablesFaltantes, ['plantilla_inactiva']);
+  assert.equal(r.contenido, null);
 });
 
 test('renderizarCarta: PD1 con configuración completa sustituye variables correctamente y preserva «Logo»/«Firma» literales', async () => {
@@ -187,10 +197,12 @@ test('renderizarCarta: PD1 con configuración completa sustituye variables corre
   assert.match(r.contenido, /C-001/);
   assert.match(r.contenido, /Zona Centro/);
   assert.match(r.contenido, /Q 1,234\.50/);
-  assert.match(r.contenido, /Guatemala, Guatemala, Ciudad de Guatemala/);
+  assert.match(r.contenido, /Guatemala, Ciudad de Guatemala/);
   assert.match(r.contenido, /2026/);
   assert.match(r.contenido, /Avon Centroamérica/);
   assert.match(r.contenido, /\+502 1234 5678/);
+  // «Asunto» se sustituye desde la columna propia (no el cuerpo embebido).
+  assert.match(r.contenido, /Asunto: Recordatorio de saldo pendiente/);
   // «Logo» y «Firma» quedan como anclas literales: el renderer nunca las toca.
   assert.match(r.contenido, /«Logo»/);
   assert.match(r.contenido, /«Firma»/);
@@ -256,6 +268,12 @@ test('renderizarCarta: dirección de país no configurada se marca pendiente, nu
 test('crearCarta: PD0 (sin plantilla) es rechazado con error explícito, no se inserta ninguna fila', async () => {
   const row = { codigo: 'C-100', pais: 'Guatemala', nombre: 'Ana', zona: 'Z', saldo_actual: 100, campania_adeuda: 'CAMPAÑA 1-2026', pd_actual: 'PD0' };
   await assert.rejects(() => crearCarta(row, {}, null, 'gestor-1'), /No hay plantilla de carta disponible/);
+  assert.equal(gestionCartasRows.length, 0);
+});
+
+test('crearCarta: PD6 con plantilla DESACTIVADA es rechazado con mensaje claro ("desactivada"), no se confunde con "sin plantilla", no se inserta ninguna fila', async () => {
+  const row = { codigo: 'C-106', pais: 'Guatemala', nombre: 'Ana', zona: 'Z', saldo_actual: 100, campania_adeuda: 'CAMPAÑA 1-2026', pd_actual: 'PD6' };
+  await assert.rejects(() => crearCarta(row, {}, null, 'gestor-1'), /está desactivada en Configuración/);
   assert.equal(gestionCartasRows.length, 0);
 });
 

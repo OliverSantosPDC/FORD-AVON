@@ -1,5 +1,5 @@
 import { ALLOWED_COUNTRIES, resolveCountry, MONEDA_POR_PAIS, usdEquivalente, type CountryInfo } from '../utils/carteraAggregations';
-import { getGeneral, leerContenidoPlantilla } from './ConfigService';
+import { getGeneral, leerPlantillaCarta } from './ConfigService';
 import { getSupabaseClient } from '../config/supabaseClient';
 import { SUPABASE_CARTERA_TABLE } from '../config/env';
 
@@ -108,11 +108,18 @@ export const renderizarCarta = async (
     return { pd, disponible: false, plantillaClave: null, contenido: null, variablesFaltantes: [] };
   }
 
-  const [general, plantilla] = await Promise.all([getGeneral(), leerContenidoPlantilla(clave)]);
+  const [general, plantillaRow] = await Promise.all([getGeneral(), leerPlantillaCarta(clave)]);
   const faltantes: string[] = [];
-  if (!plantilla) {
+  if (!plantillaRow || !plantillaRow.contenido) {
     return { pd, disponible: false, plantillaClave: clave, contenido: null, variablesFaltantes: ['plantilla'] };
   }
+  // Una plantilla desactivada en Configuración no se genera/previsualiza en
+  // ningún lado (Gestión ni la vista previa de Configuración) — motivo
+  // distinto de "sin contenido" para que el mensaje al usuario sea claro.
+  if (!plantillaRow.activo) {
+    return { pd, disponible: false, plantillaClave: clave, contenido: null, variablesFaltantes: ['plantilla_inactiva'] };
+  }
+  const plantilla = plantillaRow.contenido;
 
   const country = resolveCountry(datos.pais);
   const direccionClave = direccionClaveParaPais(country);
@@ -134,12 +141,15 @@ export const renderizarCarta = async (
   if (!razonSocial) faltantes.push('nombre_empresa');
   const plazoDias = general.plazo_pd7_dias || '';
   if (pd === 'PD7' && !plazoDias) faltantes.push('plazo_pd7_dias');
+  const asunto = plantillaRow.asunto || '';
+  if (!asunto) faltantes.push('asunto');
   // Sin fuente confiable de contacto directo del Gestor (ninguna tabla lo
   // registra hoy — ver auditoría): se marca explícitamente como pendiente,
   // nunca se inventa un número.
   faltantes.push('contacto_gestor');
 
   const valores: Record<string, string> = {
+    Asunto: asunto || pendiente('Asunto'),
     Localizacion: localizacion,
     Fecha_emision: formatearFechaEspanol(fechaEmision),
     Nombre_Mayusculas: String(datos.nombre ?? '').toUpperCase(),
@@ -168,18 +178,20 @@ export const renderizarCarta = async (
 
 export { ALLOWED_COUNTRIES };
 
-/** Las 5 plantillas reales que existen (PD0 no tiene carta). Fuente única para
- *  listarlas en Configuración > Plantillas (clave, bandas de PD, variables). */
-export const PLANTILLAS_CARTA_INFO: Array<{ clave: string; nombre: string; bandas: PdValido[] }> = [
-  { clave: 'carta_pd1', nombre: 'Carta PD1-PD3', bandas: ['PD1', 'PD2', 'PD3'] },
-  { clave: 'carta_pd4', nombre: 'Carta PD4', bandas: ['PD4'] },
-  { clave: 'carta_pd5', nombre: 'Carta PD5', bandas: ['PD5'] },
-  { clave: 'carta_pd6', nombre: 'Carta PD6', bandas: ['PD6'] },
-  { clave: 'carta_pd7', nombre: 'Carta PD7', bandas: ['PD7'] }
+/** Las 5 plantillas reales que existen (PD0 no tiene carta). Fuente única —
+ *  backend y frontend, nunca duplicada — para listarlas en Configuración >
+ *  Plantillas (clave, bandas de PD, tono/descripción, variables). */
+export const PLANTILLAS_CARTA_INFO: Array<{ clave: string; nombre: string; bandas: PdValido[]; tono: string }> = [
+  { clave: 'carta_pd1', nombre: 'Carta PD1-PD3', bandas: ['PD1', 'PD2', 'PD3'], tono: 'Preventivo / suave' },
+  { clave: 'carta_pd4', nombre: 'Carta PD4', bandas: ['PD4'], tono: 'Firme' },
+  { clave: 'carta_pd5', nombre: 'Carta PD5', bandas: ['PD5'], tono: 'Firme y específico' },
+  { clave: 'carta_pd6', nombre: 'Carta PD6', bandas: ['PD6'], tono: 'Urgente y claro' },
+  { clave: 'carta_pd7', nombre: 'Carta PD7', bandas: ['PD7'], tono: 'Formal / crítico (requerimiento)' }
 ];
 
 /** Variables documentadas para la vista "Ver sus variables" de Configuración. `soloPd7` marca la única exclusiva de ese nivel. */
 export const VARIABLES_CARTA = [
+  { variable: 'Asunto', descripcion: 'Asunto de la carta — se edita en su propio campo, no a mano dentro del cuerpo.' },
   { variable: 'Localizacion', descripcion: 'País + dirección configurada para ese país.' },
   { variable: 'Fecha_emision', descripcion: 'Fecha de generación, formato "01 de Octubre de 2026".' },
   { variable: 'Nombre_Mayusculas', descripcion: 'Nombre de la representante, en mayúsculas.' },

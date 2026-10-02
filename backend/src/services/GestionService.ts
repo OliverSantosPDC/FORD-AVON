@@ -215,6 +215,9 @@ export const previsualizarCarta = async (row: Record<string, unknown>, tasas: Re
 export const crearCarta = async (row: Record<string, unknown>, tasas: Record<string, number>, comentario: string | null, gestorId: string | null) => {
   const render = await previsualizarCarta(row, tasas);
   if (!render.disponible || !render.contenido) {
+    if (render.variablesFaltantes.includes('plantilla_inactiva')) {
+      throw new GestionError(`La plantilla de carta para ${render.pd ?? 'este PD'} está desactivada en Configuración.`);
+    }
     throw new GestionError(`No hay plantilla de carta disponible para ${render.pd ?? 'este PD'}.`);
   }
   const { data, error } = await client().from('gestion_cartas').insert({
