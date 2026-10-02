@@ -151,6 +151,27 @@ export const subirPlantilla = async (clave: string, nombreArchivo: string, buffe
   return { path, version };
 };
 
+/**
+ * Plantillas de TEXTO (cartas de cobro por PD): misma fila/clave/version/
+ * updated_at/updated_by que una plantilla-archivo, pero el contenido editable
+ * vive en la columna `contenido` (texto con variables «Placeholder»), no en
+ * Storage — se edita en un textarea, no se "sube un archivo" cada vez.
+ */
+export const leerContenidoPlantilla = async (clave: string): Promise<string | null> => {
+  const { data, error } = await c().from('config_plantillas').select('contenido').eq('clave', clave).maybeSingle();
+  if (error) throw new ConfigError(error.message);
+  return (data as { contenido?: string } | null)?.contenido ?? null;
+};
+
+export const actualizarContenidoPlantilla = async (clave: string, contenido: string, actor: string | null) => {
+  const { data: actual } = await c().from('config_plantillas').select('version').eq('clave', clave).maybeSingle();
+  const version = (((actual as { version?: number } | null)?.version) ?? 0) + 1;
+  const { error } = await c().from('config_plantillas').update({ contenido, version, updated_at: new Date().toISOString(), updated_by: actor }).eq('clave', clave);
+  if (error) throw new ConfigError(error.message);
+  await c().from('config_plantillas_versiones').insert({ clave, contenido, version, updated_by: actor, url: null });
+  return { version };
+};
+
 export const urlPlantilla = async (clave: string): Promise<string> => {
   const { data: row } = await c().from('config_plantillas').select('url').eq('clave', clave).single();
   const path = (row as { url?: string } | null)?.url;

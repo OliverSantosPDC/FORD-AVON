@@ -21,6 +21,16 @@ const parseError = async (res: Response, fallback: string): Promise<string> => {
 export interface CartaGestion {
   id: string; codigo: string; tipo: string; estado: string; comentario: string | null;
   gestor_id: string | null; aprobado_por: string | null; comentario_aprobacion: string | null; created_at: string;
+  pd?: string | null; plantilla_clave?: string | null; contenido?: string | null;
+}
+/** Detalle completo de una carta: logo/firma SIEMPRE null si aún no está
+ *  autorizada (lo decide el backend por `estado`, nunca el cliente). */
+export interface CartaDetalle extends CartaGestion {
+  logoUrl: string | null; firmaUrl: string | null; descargable: boolean;
+}
+/** Vista previa EN VIVO bloqueada al PD actual de la cuenta — nunca una plantilla elegida manualmente. */
+export interface CartaPreview {
+  pd: string | null; disponible: boolean; plantillaClave: string | null; contenido: string | null; variablesFaltantes: string[];
 }
 export interface DetalleCuenta {
   historial: Array<Record<string, unknown>>;
@@ -98,9 +108,19 @@ export const subirAdjunto = async (codigo: string, tipo: string, file: File) => 
   if (!res.ok) throw new Error(await parseError(res, 'No se pudo subir el adjunto.'));
 };
 
-export const crearCarta = async (codigo: string, tipo: string, comentario: string) => {
+/** Vista previa EN VIVO (sin guardar nada) de la carta para el PD ACTUAL de
+ *  la cuenta — el backend decide la plantilla; el cliente nunca elige una. */
+export const getCartaPreview = async (codigo: string): Promise<CartaPreview> => {
+  const res = await apiFetch(`/api/gestion/cuentas/${encodeURIComponent(codigo)}/carta-preview`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudo generar la vista previa.'));
+  return res.json();
+};
+
+/** Genera y guarda la carta. Ya NO se envía `tipo`/plantilla: el backend la
+ *  determina él mismo a partir del PD actual de la cuenta. */
+export const crearCarta = async (codigo: string, comentario: string) => {
   const res = await apiFetch(`/api/gestion/cuentas/${encodeURIComponent(codigo)}/cartas`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tipo, comentario })
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ comentario })
   });
   if (!res.ok) throw new Error(await parseError(res, 'No se pudo crear la carta.'));
 };
@@ -108,6 +128,13 @@ export const crearCarta = async (codigo: string, tipo: string, comentario: strin
 export const getCartas = async (estado?: string): Promise<CartaGestion[]> => {
   const res = await apiFetch(`/api/gestion/cartas${estado ? `?estado=${encodeURIComponent(estado)}` : ''}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(await parseError(res, 'No se pudieron cargar las cartas.'));
+  return res.json();
+};
+
+/** Detalle de una carta puntual: logo/firma solo si ya está autorizada. */
+export const getCartaDetalle = async (id: string): Promise<CartaDetalle> => {
+  const res = await apiFetch(`/api/gestion/cartas/${id}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudo cargar la carta.'));
   return res.json();
 };
 

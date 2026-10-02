@@ -31,6 +31,11 @@ router.get('/configuracion/plantillas', requireAuth, requirePermission(VER), (re
 router.get('/configuracion/plantillas/:clave/descargar', requireAuth, requirePermission(VER), (req, res) => c.descargarPlantilla(req, res));
 router.post('/configuracion/plantillas/:clave', requireAuth, requirePermission(EDIT), upload.single('file'), (req, res) => c.subirPlantilla(req, res));
 
+// Plantillas de carta de cobro por PD (PD1-PD3 comparten una, PD4-PD7 cada una la suya; PD0 no tiene carta).
+router.get('/configuracion/plantillas-carta', requireAuth, requirePermission(VER), (req, res) => c.plantillasCarta(req, res));
+router.put('/configuracion/plantillas-carta/:clave', requireAuth, requirePermission(EDIT), (req, res) => c.actualizarPlantillaCarta(req, res));
+router.get('/configuracion/plantillas-carta/:clave/preview', requireAuth, requirePermission(VER), (req, res) => c.previsualizarPlantillaCarta(req, res));
+
 // Sin requirePermission(VER) a propósito: logo_principal se resuelve desde el
 // Sidebar/Header para CUALQUIER usuario autenticado (no solo quienes tienen
 // acceso al módulo Configuración) — mostrar un logo ya configurado no es una

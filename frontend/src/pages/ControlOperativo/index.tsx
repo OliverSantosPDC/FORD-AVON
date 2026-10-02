@@ -23,10 +23,12 @@ import {
   type CalidadResumen, type CalidadEvaluacion, type CalidadGestor, type ResumenOperativo
 } from '../../services/controlService';
 import {
-  getDetalleCuenta, getInfoCuenta, tipificarCuenta, crearPromesa, subirAdjunto, crearCarta, aprobarCarta, rechazarCarta,
+  getDetalleCuenta, getInfoCuenta, tipificarCuenta, crearPromesa, subirAdjunto,
+  crearCarta, getCartaPreview, aprobarCarta, rechazarCarta,
   getEstadoCuentas, getCatalogo, siglaPais, TIPIFICACIONES, TIPO_CONTACTO, CANALES, MONEDA_POR_PAIS,
-  type DetalleCuenta, type EstadoCuenta
+  type DetalleCuenta, type EstadoCuenta, type CartaPreview
 } from '../../services/gestionService';
+import CartaRenderer from '../../components/common/CartaRenderer';
 
 const EMPTY_OPTS: DashboardFilterOptions = { pais: [], gestor: [], gerente: [], zona: [], pd: [], campania: [] };
 const EMPTY_FILTERS: DashboardMultiFilterParams = { pais: [], gestor: [], gerente: [], zona: [], pd: [], campania: [] };
@@ -88,6 +90,7 @@ const KpiMini = ({ l, v }: { l: string; v: string | number }) => (
 const ControlOperativoPage = () => {
   const { hasPermission } = useAuth();
   const canGestionar = hasPermission('gestion.gestionar');
+  const canCarta = hasPermission('gestion.carta.crear');
   const canAprobar = hasPermission('gestion.carta.aprobar');
   const canCalidadVer = hasPermission('control_operativo.calidad.ver');
   const canCalidadEdit = hasPermission('control_operativo.calidad.editar');
@@ -120,9 +123,14 @@ const ControlOperativoPage = () => {
 
   const [panel, setPanel] = useState<Record<string, unknown> | null>(null); const [ptab, setPtab] = useState(0);
   const [detalle, setDetalle] = useState<DetalleCuenta | null>(null); const [info, setInfo] = useState<Record<string, unknown> | null>(null);
-  const [g, setG] = useState({ tipoContacto: '', canal: '', tip: '', tipCom: '', fechaProm: '', montoProm: '', cartaTipo: 'Carta de cobro', adjTipo: 'Boleta de pago' });
+  const [g, setG] = useState({ tipoContacto: '', canal: '', tip: '', tipCom: '', fechaProm: '', montoProm: '', cartaCom: '', adjTipo: 'Boleta de pago' });
   const [adjFile, setAdjFile] = useState<File | null>(null); const [busy, setBusy] = useState(false);
-  const [cartaPrev, setCartaPrev] = useState<{ tipo: string; contenido: string } | null>(null);
+  // Vista previa EN VIVO bloqueada al PD actual de la cuenta — el backend
+  // decide la plantilla (ver getCartaPreview); nunca se elige manualmente.
+  const [cartaPreview, setCartaPreview] = useState<CartaPreview | null>(null);
+  const [cartaPrevOpen, setCartaPrevOpen] = useState(false);
+  const [cartaSel, setCartaSel] = useState<Record<string, unknown> | null>(null);
+  const [cartaComent, setCartaComent] = useState('');
   const [cCatTip, setCCatTip] = useState<string[]>(TIPIFICACIONES);
   const [cCatTC, setCCatTC] = useState<string[]>(TIPO_CONTACTO);
   const [cCatCanal, setCCatCanal] = useState<string[]>(CANALES);
@@ -209,13 +217,17 @@ const ControlOperativoPage = () => {
 
   const abrir = async (row: Record<string, unknown>) => {
     setPanel(row); setPtab(0); setDetalle(null); setInfo(null);
-    setG({ tipoContacto: '', canal: '', tip: '', tipCom: '', fechaProm: '', montoProm: '', cartaTipo: 'Carta de cobro', adjTipo: 'Boleta de pago' }); setAdjFile(null);
-    const cod = str(row.codigo); getDetalleCuenta(cod).then(setDetalle).catch(() => undefined); getInfoCuenta(cod).then(setInfo).catch(() => undefined);
+    setG({ tipoContacto: '', canal: '', tip: '', tipCom: '', fechaProm: '', montoProm: '', cartaCom: '', adjTipo: 'Boleta de pago' }); setAdjFile(null);
+    setCartaPreview(null);
+    const cod = str(row.codigo);
+    getDetalleCuenta(cod).then(setDetalle).catch(() => undefined);
+    getInfoCuenta(cod).then(setInfo).catch(() => undefined);
+    if (canCarta) getCartaPreview(cod).then(setCartaPreview).catch(() => undefined);
   };
   const cod = str(panel?.codigo);
   const accion = async (fn: () => Promise<void>, ok: string) => { setBusy(true); try { await fn(); setToast(ok); setDetalle(await getDetalleCuenta(cod)); } catch (e) { setToast(e instanceof Error ? e.message : 'Error.'); } finally { setBusy(false); } };
   const pick = (row: Record<string, unknown>, keys: string[]): string => { for (const k of keys) { const v = row[k]; if (v !== null && v !== undefined && String(v).trim() !== '') return String(v); } return 'No disponible'; };
-  const resolverCarta = async (id: string, aprobar: boolean) => { try { aprobar ? await aprobarCarta(id, '') : await rechazarCarta(id, ''); setToast(aprobar ? 'Carta aprobada.' : 'Carta rechazada.'); setPend(await getPendientes()); } catch (e) { setToast(e instanceof Error ? e.message : 'Error.'); } };
+  const resolverCarta = async (id: string, aprobar: boolean, comentario: string) => { try { aprobar ? await aprobarCarta(id, comentario) : await rechazarCarta(id, comentario); setToast(aprobar ? 'Carta aprobada.' : 'Carta rechazada.'); setCartaSel(null); setPend(await getPendientes()); } catch (e) { setToast(e instanceof Error ? e.message : 'Error.'); } };
   // Información de cobro y reglas de promesa de la cuenta abierta.
   const cMoneda = MONEDA_POR_PAIS[str(panel?.pais).toUpperCase()] ?? '—';
   const cCobroPD = str(panel?.pd_actual) || 'No disponible';
@@ -227,13 +239,6 @@ const ControlOperativoPage = () => {
     await tipificarCuenta(cod, { tipificacion: g.tip, comentario: g.tipCom, tipoContacto: g.tipoContacto, canal: g.canal });
     if (cEsPromesa) await crearPromesa(cod, { fechaPromesa: g.fechaProm, monto: cMontoNum });
   }, cEsPromesa ? 'Gestión y promesa registradas.' : 'Gestión registrada.');
-  const cContenidoCarta = (tipo: string) => {
-    const saldo = money(Number(str(panel?.saldo_actual)));
-    const cuerpo = tipo === 'Carta de acuerdo de pago'
-      ? 'Por medio de la presente se formaliza el acuerdo de pago correspondiente a su cuenta.'
-      : 'Por medio de la presente le recordamos que su cuenta mantiene un saldo pendiente.';
-    return `Estimado(a) ${str(panel?.nombre) || 'cliente'},\n\n${cuerpo}\n\nCuenta: ${cod}\nSaldo actual: ${saldo} ${cMoneda}\nPD: ${cCobroPD}\n\nAtentamente,\nDepartamento de Cobranza`;
-  };
 
   if (loading && !dash) return <Box sx={{ display: 'flex', gap: 1.5, p: 3, alignItems: 'center' }}><CircularProgress size={22} /><Typography sx={{ fontSize: 14 }}>Cargando control operativo...</Typography></Box>;
   if (error) return <Box sx={{ p: 2 }}><Alert severity="error">{error}</Alert></Box>;
@@ -408,8 +413,8 @@ const ControlOperativoPage = () => {
                   <Typography sx={{ fontSize: 13, fontWeight: 600 }}>Cartas / acuerdos pendientes ({pend.cartas.length})</Typography>
                   <Stack sx={{ maxHeight: 180, overflowY: 'auto' }}>{pend.cartas.slice(0, 30).map((cr) => (
                     <Box key={str(cr.id)} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Typography sx={{ fontSize: 12, flex: 1 }}>{str(cr.codigo)} · {str(cr.tipo)}</Typography>
-                      {canAprobar && <><Button size="small" color="success" onClick={() => resolverCarta(str(cr.id), true)} sx={{ textTransform: 'none', minWidth: 0 }}>Aprobar</Button><Button size="small" color="error" onClick={() => resolverCarta(str(cr.id), false)} sx={{ textTransform: 'none', minWidth: 0 }}>Rechazar</Button></>}
+                      <Typography sx={{ fontSize: 12, flex: 1 }}>{str(cr.codigo)} · {str(cr.pd)}</Typography>
+                      {canAprobar && <Button size="small" onClick={() => { setCartaSel(cr); setCartaComent(''); }} sx={{ textTransform: 'none', minWidth: 0 }}>Revisar</Button>}
                     </Box>
                   ))}</Stack>
                 </Grid>
@@ -571,8 +576,18 @@ const ControlOperativoPage = () => {
               )}
               <Button variant="contained" disabled={!canGestionar || busy || !g.tip || !cPromValida} onClick={cRegistrarGestion} sx={{ textTransform: 'none' }}>Registrar gestión{cEsPromesa ? ' + promesa' : ''}</Button>
               <Divider />
-              <TextField select label="Tipo de carta (opcional)" value={g.cartaTipo} onChange={(e) => setG({ ...g, cartaTipo: e.target.value })} size="small" fullWidth>{['Carta de cobro', 'Carta de acuerdo de pago'].map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}</TextField>
-              <Button variant="outlined" disabled={busy} onClick={() => setCartaPrev({ tipo: g.cartaTipo, contenido: cContenidoCarta(g.cartaTipo) })} sx={{ textTransform: 'none' }}>Generar carta (vista previa)</Button>
+              {/* La plantilla disponible depende EXCLUSIVAMENTE del PD actual de la
+                  cuenta (ver getCartaPreview) — no se elige manualmente; PD0 no tiene
+                  carta disponible. */}
+              {cartaPreview?.disponible ? (
+                <Button variant="outlined" disabled={!canCarta || busy} onClick={() => setCartaPrevOpen(true)} sx={{ textTransform: 'none' }}>
+                  Generar carta ({cartaPreview.pd}) — vista previa
+                </Button>
+              ) : (
+                <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                  {cartaPreview === null ? 'Cargando…' : `Sin plantilla de carta para ${cartaPreview.pd ?? 'este PD'}.`}
+                </Typography>
+              )}
               <Divider />
               <TextField select label="Tipo de documento" value={g.adjTipo} onChange={(e) => setG({ ...g, adjTipo: e.target.value })} size="small" fullWidth>{['Carta recibida por la representante', 'Boleta de pago', 'Acuerdo de pago', 'Otro documento'].map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}</TextField>
               <Button variant="outlined" component="label" sx={{ textTransform: 'none' }}>{adjFile ? adjFile.name : 'Seleccionar archivo'}<input hidden type="file" onChange={(e) => setAdjFile(e.target.files?.[0] ?? null)} /></Button>
@@ -583,15 +598,35 @@ const ControlOperativoPage = () => {
         <DialogActions><Button onClick={() => setPanel(null)} sx={{ textTransform: 'none' }}>Cerrar</Button></DialogActions>
       </Dialog>
 
-      {/* Vista previa de carta antes de enviar a aprobación */}
-      <Dialog open={Boolean(cartaPrev)} onClose={() => setCartaPrev(null)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ fontWeight: 700 }}>Vista previa · {cartaPrev?.tipo}</DialogTitle>
+      {/* Vista previa de carta antes de enviar a aprobación: SIEMPRE sin logo/
+          firma (nada está autorizado todavía — ver CartaRenderer/estado). */}
+      <Dialog open={cartaPrevOpen} onClose={() => setCartaPrevOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Vista previa · {cartaPreview?.pd}</DialogTitle>
         <DialogContent dividers>
-          <Paper variant="outlined" sx={{ p: 2, whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.6 }}>{cartaPrev?.contenido}</Paper>
+          {cartaPreview?.contenido && <CartaRenderer contenido={cartaPreview.contenido} logoUrl={null} firmaUrl={null} />}
+          <TextField label="Comentario (opcional)" value={g.cartaCom} onChange={(e) => setG({ ...g, cartaCom: e.target.value })} size="small" fullWidth multiline minRows={2} sx={{ mt: 2 }} />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCartaPrev(null)} sx={{ textTransform: 'none' }}>Cancelar</Button>
-          <Button variant="contained" disabled={busy} onClick={() => { const t = cartaPrev?.tipo ?? g.cartaTipo; setCartaPrev(null); void accion(() => crearCarta(cod, t, ''), 'Carta enviada a aprobación.'); }} sx={{ textTransform: 'none' }}>Confirmar y enviar</Button>
+          <Button onClick={() => setCartaPrevOpen(false)} sx={{ textTransform: 'none' }}>Cancelar</Button>
+          <Button variant="contained" disabled={busy} onClick={() => { setCartaPrevOpen(false); void accion(() => crearCarta(cod, g.cartaCom), 'Carta enviada a aprobación.'); }} sx={{ textTransform: 'none' }}>Confirmar y enviar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Revisar carta (Supervisor): contenido ya incluido en la fila de
+          pendientes — sin logo/firma porque aún no está autorizada. */}
+      <Dialog open={Boolean(cartaSel)} onClose={() => setCartaSel(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Revisar carta · {str(cartaSel?.pd)}</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2}>
+            <Typography sx={{ fontSize: 13 }}>Cuenta {str(cartaSel?.codigo)}</Typography>
+            {cartaSel?.contenido != null && <CartaRenderer contenido={str(cartaSel.contenido)} logoUrl={null} firmaUrl={null} />}
+            <TextField label="Comentario" value={cartaComent} onChange={(e) => setCartaComent(e.target.value)} size="small" fullWidth multiline minRows={2} />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCartaSel(null)} sx={{ textTransform: 'none' }}>Cerrar</Button>
+          <Button color="error" onClick={() => cartaSel && resolverCarta(str(cartaSel.id), false, cartaComent)} sx={{ textTransform: 'none' }}>Rechazar</Button>
+          <Button variant="contained" onClick={() => cartaSel && resolverCarta(str(cartaSel.id), true, cartaComent)} sx={{ textTransform: 'none' }}>Aprobar</Button>
         </DialogActions>
       </Dialog>
 

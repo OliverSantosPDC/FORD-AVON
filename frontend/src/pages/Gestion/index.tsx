@@ -18,10 +18,12 @@ import { MONEDA_OPTIONS, simboloMoneda } from '../../utils/monedaOptions';
 import type { DashboardResponse, DashboardFilterOptions, DashboardMultiFilterParams } from '../../types/cartera';
 import {
   getGestionDashboard, getGestionCuentas, getDetalleCuenta, getInfoCuenta, tipificarCuenta, crearPromesa,
-  subirAdjunto, crearCarta, getCartas, aprobarCarta, rechazarCarta, getZonasPd, getPdCampanas, getEstadoCuentas,
+  subirAdjunto, crearCarta, getCartaPreview, getCartaDetalle, getCartas, aprobarCarta, rechazarCarta, getZonasPd, getPdCampanas, getEstadoCuentas,
   getCatalogo, MONEDA_POR_PAIS, siglaPais, TIPIFICACIONES, TIPO_CONTACTO, CANALES,
-  type CartaGestion, type DetalleCuenta, type AggNode, type EstadoCuenta
+  type CartaGestion, type CartaPreview, type CartaDetalle, type DetalleCuenta, type AggNode, type EstadoCuenta
 } from '../../services/gestionService';
+import CartaRenderer from '../../components/common/CartaRenderer';
+import { descargarCartaPdf } from '../../utils/exportCartaPdf';
 
 const EMPTY_OPTS: DashboardFilterOptions = { pais: [], gestor: [], gerente: [], zona: [], pd: [], campania: [] };
 const EMPTY_FILTERS: DashboardMultiFilterParams = { pais: [], gestor: [], gerente: [], zona: [], pd: [], campania: [] };
@@ -158,14 +160,22 @@ const GestionPage = () => {
   const [panel, setPanel] = useState<Record<string, unknown> | null>(null);
   const [detalle, setDetalle] = useState<DetalleCuenta | null>(null);
   const [info, setInfo] = useState<Record<string, unknown> | null>(null);
-  const [gForm, setGForm] = useState({ tipoContacto: '', canal: '', tip: '', tipCom: '', fechaProm: '', montoProm: '', promCom: '', cartaTipo: 'Carta de cobro', cartaCom: '', adjTipo: 'Boleta de pago' });
+  const [gForm, setGForm] = useState({ tipoContacto: '', canal: '', tip: '', tipCom: '', fechaProm: '', montoProm: '', promCom: '', cartaCom: '', adjTipo: 'Boleta de pago' });
   const [adjFile, setAdjFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
 
   const [cartas, setCartas] = useState<CartaGestion[]>([]);
   const [cartaSel, setCartaSel] = useState<CartaGestion | null>(null);
   const [cartaComent, setCartaComent] = useState('');
-  const [cartaPrev, setCartaPrev] = useState<{ tipo: string; contenido: string } | null>(null);
+  // Vista previa EN VIVO bloqueada al PD actual de la cuenta abierta en el
+  // panel — se pide al backend cada vez que se abre el panel, nunca la
+  // decide el cliente (ver getCartaPreview).
+  const [cartaPreview, setCartaPreview] = useState<CartaPreview | null>(null);
+  const [cartaPrevOpen, setCartaPrevOpen] = useState(false);
+  // Detalle completo (con logo/firma SOLO si ya está autorizada) de una
+  // carta puntual de la pestaña "Cartas", para ver/descargar.
+  const [cartaDetalle, setCartaDetalle] = useState<CartaDetalle | null>(null);
+  const cartaRenderRef = useRef<HTMLDivElement>(null);
 
   // Catálogos configurables (fuente única: Configuración). Fallback a constantes si el catálogo está vacío.
   const [catTip, setCatTip] = useState<string[]>(TIPIFICACIONES);
@@ -303,11 +313,13 @@ const GestionPage = () => {
 
   const abrirPanel = async (row: Record<string, unknown>) => {
     setPanel(row); setDetalle(null); setInfo(null);
-    setGForm({ tipoContacto: '', canal: '', tip: '', tipCom: '', fechaProm: '', montoProm: '', promCom: '', cartaTipo: 'Carta de cobro', cartaCom: '', adjTipo: 'Boleta de pago' });
+    setGForm({ tipoContacto: '', canal: '', tip: '', tipCom: '', fechaProm: '', montoProm: '', promCom: '', cartaCom: '', adjTipo: 'Boleta de pago' });
     setAdjFile(null);
+    setCartaPreview(null);
     const cod = str(row.codigo);
     getDetalleCuenta(cod).then(setDetalle).catch(() => undefined);
     getInfoCuenta(cod).then(setInfo).catch(() => undefined);
+    if (canCarta) getCartaPreview(cod).then(setCartaPreview).catch(() => undefined);
   };
   const cod = str(panel?.codigo);
   const accion = async (fn: () => Promise<void>, ok: string) => {
@@ -328,13 +340,6 @@ const GestionPage = () => {
       await crearPromesa(cod, { fechaPromesa: gForm.fechaProm, monto: montoPromNum, comentario: gForm.promCom });
     }
   }, esPromesa ? 'Gestión y promesa registradas.' : 'Gestión registrada.');
-  const contenidoCarta = (tipo: string) => {
-    const saldo = money(Number(str(panel?.saldo_actual)));
-    const cuerpo = tipo === 'Carta de acuerdo de pago'
-      ? 'Por medio de la presente se formaliza el acuerdo de pago correspondiente a su cuenta, según las condiciones convenidas con nuestro equipo de cobranza.'
-      : 'Por medio de la presente le recordamos que su cuenta mantiene un saldo pendiente. Le invitamos a regularizar su situación a la brevedad.';
-    return `Estimado(a) ${str(panel?.nombre) || 'cliente'},\n\n${cuerpo}\n\nCuenta: ${cod}\nSaldo actual: ${saldo} ${monedaCuenta}\nPD: ${cobroPD}\n\nAtentamente,\nDepartamento de Cobranza`;
-  };
 
   if (loading && !dashboard) return <Box sx={{ display: 'flex', gap: 1.5, p: 3, alignItems: 'center' }}><CircularProgress size={22} /><Typography sx={{ fontSize: 14 }}>Cargando gestión...</Typography></Box>;
   if (error) return <Box sx={{ p: 2 }}><Alert severity="error">{error}</Alert></Box>;
@@ -481,14 +486,19 @@ const GestionPage = () => {
         <Paper sx={{ mt: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
           <TableContainer sx={{ maxHeight: '65vh' }}>
             <Table stickyHeader size="small">
-              <TableHead><TableRow>{['Código', 'Tipo', 'Estado', 'Comentario', ''].map((h) => <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>)}</TableRow></TableHead>
+              <TableHead><TableRow>{['Código', 'PD', 'Estado', 'Comentario', ''].map((h) => <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>)}</TableRow></TableHead>
               <TableBody>
                 {cartas.map((c) => (
                   <TableRow key={c.id} hover>
-                    <TableCell>{c.codigo}</TableCell><TableCell>{c.tipo}</TableCell>
+                    <TableCell>{c.codigo}</TableCell><TableCell>{c.pd ?? '—'}</TableCell>
                     <TableCell><Chip size="small" label={c.estado} color={c.estado === 'APROBADA' ? 'success' : c.estado === 'RECHAZADA' ? 'error' : 'warning'} variant="outlined" /></TableCell>
                     <TableCell sx={{ fontSize: 12 }}>{c.comentario}</TableCell>
-                    <TableCell>{canAprobar && c.estado === 'PENDIENTE_APROBACION' && <Button size="small" onClick={() => { setCartaSel(c); setCartaComent(''); }} sx={{ textTransform: 'none' }}>Revisar</Button>}</TableCell>
+                    <TableCell>
+                      <Stack direction="row" spacing={0.5}>
+                        <Button size="small" onClick={() => { setCartaDetalle(null); getCartaDetalle(c.id).then(setCartaDetalle).catch((e) => setToast(e instanceof Error ? e.message : 'Error.')); }} sx={{ textTransform: 'none' }}>Ver</Button>
+                        {canAprobar && c.estado === 'PENDIENTE_APROBACION' && <Button size="small" onClick={() => { setCartaSel(c); setCartaComent(''); }} sx={{ textTransform: 'none' }}>Revisar</Button>}
+                      </Stack>
+                    </TableCell>
                   </TableRow>
                 ))}
                 {cartas.length === 0 && <TableRow><TableCell colSpan={5} align="center" sx={{ py: 3, color: 'text.secondary' }}>Sin cartas.</TableCell></TableRow>}
@@ -654,10 +664,18 @@ const GestionPage = () => {
                 <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.25 }}>
                   <Stack spacing={0.5}>
                     <Typography sx={{ fontWeight: 700, fontSize: 11.5 }}>Carta (opcional)</Typography>
-                    <TextField select label="Tipo de carta" value={gForm.cartaTipo} onChange={(e) => setGForm({ ...gForm, cartaTipo: e.target.value })} size="small" fullWidth InputLabelProps={{ sx: { fontSize: 12 } }} InputProps={{ sx: { fontSize: 12 } }}>
-                      {['Carta de cobro', 'Carta de acuerdo de pago'].map((t) => <MenuItem key={t} value={t} sx={{ fontSize: 12 }}>{t}</MenuItem>)}
-                    </TextField>
-                    <Button variant="outlined" size="small" disabled={!canCarta || busy} onClick={() => setCartaPrev({ tipo: gForm.cartaTipo, contenido: contenidoCarta(gForm.cartaTipo) })} sx={{ textTransform: 'none', fontSize: 11.5 }}>Generar carta (vista previa)</Button>
+                    {/* La plantilla la decide ÚNICAMENTE el PD actual de la cuenta (backend,
+                        ver getCartaPreview) — el Gestor nunca elige manualmente una plantilla
+                        de otro PD; PD0 no tiene carta disponible. */}
+                    {cartaPreview?.disponible ? (
+                      <Button variant="outlined" size="small" disabled={!canCarta || busy} onClick={() => setCartaPrevOpen(true)} sx={{ textTransform: 'none', fontSize: 11.5 }}>
+                        Generar carta ({cartaPreview.pd}) — vista previa
+                      </Button>
+                    ) : (
+                      <Typography sx={{ fontSize: 11.5, color: 'text.secondary' }}>
+                        {cartaPreview === null ? 'Cargando…' : `Sin plantilla de carta para ${cartaPreview.pd ?? 'este PD'}.`}
+                      </Typography>
+                    )}
                   </Stack>
                   <Stack spacing={0.5}>
                     <Typography sx={{ fontWeight: 700, fontSize: 11.5 }}>Adjunto (opcional)</Typography>
@@ -675,31 +693,61 @@ const GestionPage = () => {
         <DialogActions><Button onClick={() => setPanel(null)} sx={{ textTransform: 'none' }}>Cerrar</Button></DialogActions>
       </Dialog>
 
-      {/* Vista previa de carta antes de enviar a aprobación */}
-      <Dialog open={Boolean(cartaPrev)} onClose={() => setCartaPrev(null)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ fontWeight: 700 }}>Vista previa · {cartaPrev?.tipo}</DialogTitle>
+      {/* Vista previa de carta antes de enviar a aprobación: SIEMPRE sin logo/
+          firma (nada está autorizado todavía — ver CartaRenderer/estado). */}
+      <Dialog open={cartaPrevOpen} onClose={() => setCartaPrevOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Vista previa · {cartaPreview?.pd}</DialogTitle>
         <DialogContent dividers>
-          <Paper variant="outlined" sx={{ p: 2, whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.6 }}>{cartaPrev?.contenido}</Paper>
+          <Chip size="small" color="warning" variant="outlined" label="Pendiente de autorización" sx={{ mb: 1.5 }} />
+          {cartaPreview?.contenido && <CartaRenderer contenido={cartaPreview.contenido} logoUrl={null} firmaUrl={null} />}
           <TextField label="Comentario (opcional)" value={gForm.cartaCom} onChange={(e) => setGForm({ ...gForm, cartaCom: e.target.value })} size="small" fullWidth multiline minRows={2} sx={{ mt: 2 }} />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCartaPrev(null)} sx={{ textTransform: 'none' }}>Cancelar</Button>
-          <Button variant="contained" disabled={busy} onClick={() => { const t = cartaPrev?.tipo ?? gForm.cartaTipo; setCartaPrev(null); void accion(() => crearCarta(cod, t, gForm.cartaCom), 'Carta enviada a aprobación.'); }} sx={{ textTransform: 'none' }}>Confirmar y enviar</Button>
+          <Button onClick={() => setCartaPrevOpen(false)} sx={{ textTransform: 'none' }}>Cancelar</Button>
+          <Button variant="contained" disabled={busy} onClick={() => { setCartaPrevOpen(false); void accion(() => crearCarta(cod, gForm.cartaCom), 'Carta enviada a aprobación.'); }} sx={{ textTransform: 'none' }}>Confirmar y enviar</Button>
         </DialogActions>
       </Dialog>
 
-      {/* Revisar carta */}
-      <Dialog open={Boolean(cartaSel)} onClose={() => setCartaSel(null)} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ fontWeight: 700 }}>Revisar carta</DialogTitle>
+      {/* Revisar carta (Supervisor): el contenido ya viene en la fila listada
+          (listarCartas devuelve la fila completa) — sin logo/firma porque
+          todavía no está autorizada. */}
+      <Dialog open={Boolean(cartaSel)} onClose={() => setCartaSel(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Revisar carta · {cartaSel?.pd}</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2}>
-            <Typography sx={{ fontSize: 13 }}>Cuenta {cartaSel?.codigo} · {cartaSel?.tipo}</Typography>
+            <Typography sx={{ fontSize: 13 }}>Cuenta {cartaSel?.codigo}</Typography>
+            {cartaSel?.contenido && <CartaRenderer contenido={cartaSel.contenido} logoUrl={null} firmaUrl={null} />}
             <TextField label="Comentario" value={cartaComent} onChange={(e) => setCartaComent(e.target.value)} size="small" fullWidth multiline minRows={2} />
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button color="error" onClick={async () => { if (cartaSel) { await rechazarCarta(cartaSel.id, cartaComent); setCartaSel(null); setToast('Carta rechazada.'); getCartas().then(setCartas); } }} sx={{ textTransform: 'none' }}>Rechazar</Button>
           <Button variant="contained" onClick={async () => { if (cartaSel) { await aprobarCarta(cartaSel.id, cartaComent); setCartaSel(null); setToast('Carta aprobada.'); getCartas().then(setCartas); } }} sx={{ textTransform: 'none' }}>Aprobar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Ver / descargar una carta puntual: logo/firma y "Descargar" SOLO si
+          el backend marcó `descargable` (estado === 'APROBADA') — nunca por
+          un flag local, así que ni manipulando el estado del cliente se
+          puede saltar la autorización. */}
+      <Dialog open={Boolean(cartaDetalle)} onClose={() => setCartaDetalle(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Carta · {cartaDetalle?.codigo} · {cartaDetalle?.pd}</DialogTitle>
+        <DialogContent dividers>
+          {!cartaDetalle?.descargable && <Chip size="small" color="warning" variant="outlined" label="Pendiente de autorización" sx={{ mb: 1.5 }} />}
+          {cartaDetalle?.contenido && (
+            <CartaRenderer ref={cartaRenderRef} contenido={cartaDetalle.contenido} logoUrl={cartaDetalle.logoUrl} firmaUrl={cartaDetalle.firmaUrl} />
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCartaDetalle(null)} sx={{ textTransform: 'none' }}>Cerrar</Button>
+          <Button
+            variant="contained"
+            disabled={!cartaDetalle?.descargable}
+            onClick={() => cartaRenderRef.current && descargarCartaPdf(cartaRenderRef.current, `Carta_${cartaDetalle?.codigo}_${cartaDetalle?.pd}`)}
+            sx={{ textTransform: 'none' }}
+          >
+            Descargar Carta
+          </Button>
         </DialogActions>
       </Dialog>
 

@@ -23,6 +23,12 @@ router.get('/gestion/cuentas/:codigo/info', requireAuth, requirePermission('gest
 // listarlas por API directa. Todo rol que hoy tiene gestion.ver también
 // tiene al menos uno de estos dos permisos, así que ninguno pierde acceso.
 router.get('/gestion/cartas', requireAuth, requireAnyPermission('gestion.carta.crear', 'gestion.carta.aprobar'), (req, res) => c.listarCartas(req, res));
+// Detalle de una carta puntual (logo/firma solo si ya está autorizada): la
+// misma exigencia de permiso que el listado — nunca solo gestion.ver.
+router.get('/gestion/cartas/:id', requireAuth, requireAnyPermission('gestion.carta.crear', 'gestion.carta.aprobar'), (req, res) => c.obtenerCarta(req, res));
+// Vista previa EN VIVO, bloqueada al PD actual de la cuenta — mismo permiso
+// que generar la carta (quien no puede crearla, tampoco previsualiza).
+router.get('/gestion/cuentas/:codigo/carta-preview', requireAuth, requirePermission('gestion.carta.crear'), (req, res) => c.previsualizarCarta(req, res));
 
 // Escrituras.
 router.post('/gestion/cuentas/:codigo/tipificacion', requireAuth, requirePermission('gestion.gestionar'), (req, res) => c.tipificar(req, res));

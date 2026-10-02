@@ -5,7 +5,7 @@ import { getCarteraDataSource } from '../config/dataSource';
 import {
   registrarTipificacion, detalleCuenta, crearPromesa, actualizarPromesa,
   registrarAdjunto, eliminarAdjunto, subirArchivoStorage,
-  crearCarta, listarCartas, resolverCarta,
+  crearCarta, listarCartas, resolverCarta, previsualizarCarta, obtenerCarta,
   aggregarZonasPd, aggregarPdCampanas, estadoCuentas, infoCuenta, GestionError,
   filtrarCodigosEnAlcance, codigoDePromesa, codigoDeAdjunto, gestorDeCarta, gestorEnAlcance
 } from '../services/GestionService';
@@ -161,13 +161,26 @@ export class GestionController {
     } catch (e) { return this.fail(res, e, 'No se pudo eliminar el adjunto.'); }
   }
 
+  /** Vista previa en vivo (sin guardar nada), bloqueada al PD ACTUAL de la
+   *  cuenta — el cliente nunca elige la plantilla. */
+  async previsualizarCarta(req: Request, res: Response): Promise<Response | void> {
+    try {
+      const ctx = this.scope(req, res); if (!ctx) return;
+      const row = await infoCuenta(req.params.codigo, ctx);
+      if (!row) return res.status(404).json({ error: 'Cuenta no encontrada en tu alcance.' });
+      const tasas = await getTasasPorMoneda();
+      return res.json(await previsualizarCarta(row, tasas));
+    } catch (e) { return this.fail(res, e, 'No se pudo generar la vista previa de la carta.'); }
+  }
+
   async crearCarta(req: Request, res: Response): Promise<Response | void> {
     try {
       const ctx = this.scope(req, res); if (!ctx) return;
       const row = await infoCuenta(req.params.codigo, ctx);
       if (!row) return res.status(404).json({ error: 'Cuenta no encontrada en tu alcance.' });
       const actor = req.auth?.userId ?? null;
-      const r = await crearCarta(req.params.codigo, req.body?.tipo, req.body?.comentario ?? null, actor);
+      const tasas = await getTasasPorMoneda();
+      const r = await crearCarta(row, tasas, req.body?.comentario ?? null, actor);
       await registrarAuditoria(actor, 'GESTION_CARTA_CREAR', 'gestion', r.id, { codigo: req.params.codigo });
       return res.status(201).json(r);
     } catch (e) { return this.fail(res, e, 'No se pudo crear la carta.'); }
@@ -178,6 +191,21 @@ export class GestionController {
       const ctx = this.scope(req, res); if (!ctx) return;
       return res.json(await listarCartas(ctx, { estado: req.query.estado as string, codigo: req.query.codigo as string }));
     } catch (e) { return this.fail(res, e, 'No se pudieron cargar las cartas.'); }
+  }
+
+  /** Detalle de una carta puntual, con logo/firma SOLO si ya está autorizada
+   *  (ver GestionService.obtenerCarta) — ni un Gestor sin permiso de aprobar,
+   *  ni una llamada directa a este endpoint, pueden obtenerlos antes. */
+  async obtenerCarta(req: Request, res: Response): Promise<Response | void> {
+    try {
+      const ctx = this.scope(req, res); if (!ctx) return;
+      const carta = await gestorDeCarta(req.params.id);
+      if (!carta) return res.status(404).json({ error: 'Carta no encontrada.' });
+      if (!(await gestorEnAlcance(carta.gestorId, ctx))) return res.status(404).json({ error: 'Carta no encontrada en tu alcance.' });
+      const detalle = await obtenerCarta(req.params.id);
+      if (!detalle) return res.status(404).json({ error: 'Carta no encontrada.' });
+      return res.json(detalle);
+    } catch (e) { return this.fail(res, e, 'No se pudo cargar la carta.'); }
   }
 
   async aprobarCarta(req: Request, res: Response): Promise<Response | void> {

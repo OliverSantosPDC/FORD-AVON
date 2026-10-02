@@ -55,3 +55,28 @@ export const descargarPlantilla = async (clave: string): Promise<string> => { co
 export const subirAsset = async (clave: string, file: File) => { const f = new FormData(); f.append('file', file); const r = await apiFetch(`/api/configuracion/assets/${clave}`, { method: 'POST', body: f }); if (!r.ok) throw new Error(await err(r, 'No se pudo subir.')); };
 /** URL firmada temporal para previsualizar un asset (logo/fondo). `null` si la clave no tiene archivo configurado. */
 export const obtenerUrlAsset = async (clave: string): Promise<string | null> => { const r = await apiFetch(`/api/configuracion/assets/${clave}/url`, { cache: 'no-store' }); if (!r.ok) return null; return (await r.json()).url as string | null; };
+
+/** Plantillas de carta de cobro por PD (PD1-PD3 comparten una; PD0 no tiene carta). */
+export interface PlantillaCarta { clave: string; nombre: string; bandas: string[]; contenido: string | null; }
+export interface VariableCarta { variable: string; descripcion: string; soloPd7?: boolean; }
+export interface CartaPreviewAdmin { pd: string | null; disponible: boolean; plantillaClave: string | null; contenido: string | null; variablesFaltantes: string[]; }
+
+export const getPlantillasCarta = async (): Promise<{ items: PlantillaCarta[]; variables: VariableCarta[] }> => {
+  const r = await apiFetch('/api/configuracion/plantillas-carta', { cache: 'no-store' });
+  if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.'));
+  return r.json();
+};
+export const actualizarPlantillaCarta = async (clave: string, contenido: string) => {
+  const r = await apiFetch(`/api/configuracion/plantillas-carta/${clave}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contenido }) });
+  if (!r.ok) throw new Error(await err(r, 'No se pudo guardar.'));
+};
+/** Previsualiza con una cuenta real (`codigo`) o, si se omite, con una cuenta de prueba de la banda de PD indicada. */
+export const previsualizarPlantillaCarta = async (clave: string, params: { codigo?: string; pd?: string } = {}): Promise<CartaPreviewAdmin> => {
+  const qs = new URLSearchParams();
+  if (params.codigo) qs.set('codigo', params.codigo);
+  if (params.pd) qs.set('pd', params.pd);
+  const q = qs.toString();
+  const r = await apiFetch(`/api/configuracion/plantillas-carta/${clave}/preview${q ? `?${q}` : ''}`, { cache: 'no-store' });
+  if (!r.ok) throw new Error(await err(r, 'No se pudo previsualizar.'));
+  return r.json();
+};

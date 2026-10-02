@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  Alert, Box, Button, Chip, CircularProgress, Divider, FormControlLabel, Grid,
+  Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, Grid,
   MenuItem, Paper, Snackbar, Stack, Switch, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Tabs, TextField, Typography
 } from '@mui/material';
@@ -14,9 +14,21 @@ import {
   getGeneral, putGeneral, getCatalogos, crearCatalogo, actualizarCatalogo,
   getPlantillas, subirPlantilla, descargarPlantilla, subirAsset, obtenerUrlAsset,
   getTasasConversion, actualizarTasaConversion, getMetaGlobal, guardarMetaGlobal,
-  type Catalogo, type Plantilla, type TasaConversion, type MetaGlobal
+  getPlantillasCarta, actualizarPlantillaCarta, previsualizarPlantillaCarta,
+  type Catalogo, type Plantilla, type TasaConversion, type MetaGlobal,
+  type PlantillaCarta, type VariableCarta, type CartaPreviewAdmin
 } from '../../services/configuracionService';
 import { simboloMoneda } from '../../utils/monedaOptions';
+import CartaRenderer from '../../components/common/CartaRenderer';
+
+const DIRECCIONES_PAIS: Array<{ clave: string; label: string }> = [
+  { clave: 'direccion_pais_guatemala', label: 'Guatemala' },
+  { clave: 'direccion_pais_el_salvador', label: 'El Salvador' },
+  { clave: 'direccion_pais_honduras', label: 'Honduras' },
+  { clave: 'direccion_pais_nicaragua', label: 'Nicaragua' },
+  { clave: 'direccion_pais_panama', label: 'Panamá' },
+  { clave: 'direccion_pais_republica_dominicana', label: 'República Dominicana' }
+];
 
 const CATALOGOS_FIJOS = [
   'tipificaciones', 'tipos_contacto', 'canales', 'estados_promesa', 'estados_carta',
@@ -121,6 +133,18 @@ const ConfiguracionPage = () => {
   const [nuevoCat, setNuevoCat] = useState('');
   // Plantillas
   const [plantillas, setPlantillas] = useState<Plantilla[]>([]);
+  // Plantillas de carta de cobro por PD (PD1-PD3 comparten una; PD0 no tiene carta)
+  const [plantillasCarta, setPlantillasCarta] = useState<PlantillaCarta[]>([]);
+  const [variablesCarta, setVariablesCarta] = useState<VariableCarta[]>([]);
+  const [cartaEditClave, setCartaEditClave] = useState<string | null>(null);
+  const [cartaEditContenido, setCartaEditContenido] = useState('');
+  const [cartaEditBusy, setCartaEditBusy] = useState(false);
+  const [cartaPrevClave, setCartaPrevClave] = useState<string | null>(null);
+  const [cartaPrevCodigo, setCartaPrevCodigo] = useState('');
+  const [cartaPrevResult, setCartaPrevResult] = useState<CartaPreviewAdmin | null>(null);
+  const [cartaPrevLogoUrl, setCartaPrevLogoUrl] = useState<string | null>(null);
+  const [cartaPrevFirmaUrl, setCartaPrevFirmaUrl] = useState<string | null>(null);
+  const [cartaPrevBusy, setCartaPrevBusy] = useState(false);
   // Tasas de conversión
   const [tasas, setTasas] = useState<TasaConversion[]>([]);
   const [tasaDrafts, setTasaDrafts] = useState<Record<string, string>>({});
@@ -135,8 +159,9 @@ const ConfiguracionPage = () => {
   useEffect(() => {
     (async () => {
       try {
-        const [g, c, p, tc, mc] = await Promise.all([getGeneral(), getCatalogos(), getPlantillas(), getTasasConversion(), getMetaGlobal()]);
+        const [g, c, p, tc, mc, pc] = await Promise.all([getGeneral(), getCatalogos(), getPlantillas(), getTasasConversion(), getMetaGlobal(), getPlantillasCarta()]);
         setGeneral2(g); setCatalogos(c); setPlantillas(p); setTasas(tc);
+        setPlantillasCarta(pc.items); setVariablesCarta(pc.variables);
         setMetaCfg(mc);
         setMetaTipo(mc.tipo ?? 'MONTO');
         setMetaDraft(mc.tipo === 'PORCENTAJE' ? String(Math.round((mc.porcentaje ?? 0) * 1e6) / 1e4) : mc.tipo === 'MONTO' ? String(Math.round((mc.montoUsdGlobal ?? 0) * 100) / 100) : '');
@@ -172,6 +197,37 @@ const ConfiguracionPage = () => {
   const catalogosDistintos = useMemo(() => [...new Set([...CATALOGOS_FIJOS, ...catalogos.map((c) => c.catalogo)])], [catalogos]);
 
   const descargarP = async (clave: string) => { try { const u = await descargarPlantilla(clave); window.open(u, '_blank'); } catch (e) { setToast(e instanceof Error ? e.message : 'Sin archivo.'); } };
+
+  const abrirEdicionCarta = (p: PlantillaCarta) => { setCartaEditClave(p.clave); setCartaEditContenido(p.contenido ?? ''); };
+  const guardarPlantillaCarta = async () => {
+    if (!cartaEditClave) return;
+    setCartaEditBusy(true);
+    try {
+      await actualizarPlantillaCarta(cartaEditClave, cartaEditContenido);
+      const pc = await getPlantillasCarta();
+      setPlantillasCarta(pc.items);
+      setToast('Plantilla de carta actualizada.');
+      setCartaEditClave(null);
+    } catch (e) { setToast(e instanceof Error ? e.message : 'No se pudo guardar.'); }
+    finally { setCartaEditBusy(false); }
+  };
+
+  const abrirPreviewCarta = (clave: string) => {
+    setCartaPrevClave(clave); setCartaPrevCodigo(''); setCartaPrevResult(null);
+    obtenerUrlAsset('logo_principal').then(setCartaPrevLogoUrl);
+    obtenerUrlAsset('firma').then(setCartaPrevFirmaUrl);
+    setCartaPrevBusy(true);
+    previsualizarPlantillaCarta(clave, {}).then(setCartaPrevResult).catch((e) => setToast(e instanceof Error ? e.message : 'No se pudo previsualizar.')).finally(() => setCartaPrevBusy(false));
+  };
+  const ejecutarPreviewCarta = async () => {
+    if (!cartaPrevClave) return;
+    setCartaPrevBusy(true);
+    try {
+      const r = await previsualizarPlantillaCarta(cartaPrevClave, cartaPrevCodigo.trim() ? { codigo: cartaPrevCodigo.trim() } : {});
+      setCartaPrevResult(r);
+    } catch (e) { setToast(e instanceof Error ? e.message : 'No se pudo previsualizar.'); }
+    finally { setCartaPrevBusy(false); }
+  };
 
   const metaDraftNum = Number(metaDraft);
   const metaDraftValido = metaDraft.trim() !== '' && Number.isFinite(metaDraftNum) && metaDraftNum > 0;
@@ -216,6 +272,7 @@ const ConfiguracionPage = () => {
             <AssetUpload label="Logo principal" clave="logo_principal" value={gv('logo_principal')} canEdit={canEdit} onUpload={uploadAsset} />
             <AssetUpload label="Logo Login" clave="logo_login" value={gv('logo_login')} canEdit={canEdit} onUpload={uploadAsset} />
             <AssetUpload label="Favicon" clave="favicon" value={gv('favicon')} canEdit={canEdit} onUpload={uploadAsset} />
+            <AssetUpload label="Firma (cartas de cobro)" clave="firma" value={gv('firma')} canEdit={canEdit} onUpload={uploadAsset} />
             <Divider /><Typography sx={{ fontWeight: 700 }}>Configuración</Typography>
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6}><TextField label="Zona horaria" value={gv('zona_horaria')} onChange={(e) => sgv('zona_horaria', e.target.value)} size="small" fullWidth disabled={!canEdit} /></Grid>
@@ -330,8 +387,115 @@ const ConfiguracionPage = () => {
               </TableBody>
             </Table>
           </TableContainer>
+
+          <Divider sx={{ my: 3 }} />
+          <Stack spacing={2}>
+            <Box>
+              <Typography sx={{ fontWeight: 700 }}>Plantillas de Carta de Cobro por PD</Typography>
+              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                PD0 no tiene carta. PD1-PD3 comparten una misma plantilla. El Gestor solo ve la
+                plantilla correspondiente al PD ACTUAL de la cuenta — nunca puede elegir otra.
+              </Typography>
+            </Box>
+
+            <Typography sx={{ fontWeight: 700, fontSize: 13 }}>Datos de contacto y plazo</Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6}><TextField label="WhatsApp de cobros" value={gv('whatsapp_cobros')} onChange={(e) => sgv('whatsapp_cobros', e.target.value)} size="small" fullWidth disabled={!canEdit} /></Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField label="Plazo PD7 (días)" type="number" value={gv('plazo_pd7_dias')} onChange={(e) => sgv('plazo_pd7_dias', e.target.value)} size="small" fullWidth disabled={!canEdit} inputProps={{ min: 0, step: 1 }} />
+              </Grid>
+            </Grid>
+            <Typography sx={{ fontWeight: 700, fontSize: 13 }}>Direcciones por país (Localización de la carta)</Typography>
+            <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
+              Solo la dirección/ciudad — el país ya se antepone automáticamente. Ej. para Guatemala, escribir
+              "Ciudad de Guatemala" produce "Guatemala, Ciudad de Guatemala" en la carta.
+            </Typography>
+            <Grid container spacing={2}>
+              {DIRECCIONES_PAIS.map(({ clave, label }) => (
+                <Grid item xs={12} sm={6} key={clave}>
+                  <TextField label={label} value={gv(clave)} onChange={(e) => sgv(clave, e.target.value)} size="small" fullWidth disabled={!canEdit} placeholder="Ej. Ciudad de Guatemala" />
+                </Grid>
+              ))}
+            </Grid>
+            {canEdit && <Box><Button variant="contained" onClick={guardarGeneral} sx={{ textTransform: 'none' }}>Guardar configuración de cartas</Button></Box>}
+
+            <Divider />
+            <TableContainer>
+              <Table size="small">
+                <TableHead><TableRow>{['Plantilla', 'PD', 'Estado', 'Acciones'].map((h) => <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>)}</TableRow></TableHead>
+                <TableBody>
+                  {plantillasCarta.map((p) => (
+                    <TableRow key={p.clave} hover>
+                      <TableCell>{p.nombre}</TableCell>
+                      <TableCell><Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>{p.bandas.map((b) => <Chip key={b} size="small" label={b} />)}</Stack></TableCell>
+                      <TableCell><Chip size="small" label={p.contenido ? 'Configurada' : 'Sin contenido'} color={p.contenido ? 'success' : 'default'} variant="outlined" /></TableCell>
+                      <TableCell>
+                        <Stack direction="row" spacing={0.5}>
+                          <Button size="small" onClick={() => abrirPreviewCarta(p.clave)} sx={{ textTransform: 'none' }}>Previsualizar</Button>
+                          {canEdit && <Button size="small" onClick={() => abrirEdicionCarta(p)} sx={{ textTransform: 'none' }}>Editar</Button>}
+                        </Stack>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Stack>
         </Paper>
       )}
+
+      {/* Editar plantilla de carta (texto + variables disponibles) */}
+      <Dialog open={Boolean(cartaEditClave)} onClose={() => setCartaEditClave(null)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Editar plantilla · {plantillasCarta.find((p) => p.clave === cartaEditClave)?.nombre}</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2}>
+            <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+              Usa variables con el formato «Variable» — se sustituyen automáticamente al generar la carta.
+              «Logo» y «Firma» se reemplazan por las imágenes configuradas arriba, solo una vez autorizada.
+            </Typography>
+            <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+              {variablesCarta.map((v) => (
+                <Chip key={v.variable} size="small" variant="outlined" label={`«${v.variable}»${v.soloPd7 ? ' (solo PD7)' : ''}`} title={v.descripcion} />
+              ))}
+            </Stack>
+            <TextField value={cartaEditContenido} onChange={(e) => setCartaEditContenido(e.target.value)} multiline minRows={16} fullWidth disabled={!canEdit}
+              sx={{ '& textarea': { fontFamily: 'monospace', fontSize: 12.5 } }} />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCartaEditClave(null)} sx={{ textTransform: 'none' }}>Cancelar</Button>
+          {canEdit && <Button variant="contained" disabled={cartaEditBusy || !cartaEditContenido.trim()} onClick={guardarPlantillaCarta} sx={{ textTransform: 'none' }}>Guardar</Button>}
+        </DialogActions>
+      </Dialog>
+
+      {/* Previsualizar plantilla de carta con datos reales o de prueba */}
+      <Dialog open={Boolean(cartaPrevClave)} onClose={() => setCartaPrevClave(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Previsualizar · {plantillasCarta.find((p) => p.clave === cartaPrevClave)?.nombre}</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2}>
+            <Stack direction="row" spacing={1}>
+              <TextField label="Código de cuenta real (opcional)" value={cartaPrevCodigo} onChange={(e) => setCartaPrevCodigo(e.target.value)} size="small" fullWidth />
+              <Button variant="outlined" disabled={cartaPrevBusy} onClick={ejecutarPreviewCarta} sx={{ textTransform: 'none', whiteSpace: 'nowrap' }}>Cargar</Button>
+            </Stack>
+            <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>Sin código, se usa una cuenta de prueba representativa de este PD.</Typography>
+            {cartaPrevBusy && <CircularProgress size={22} />}
+            {cartaPrevResult?.variablesFaltantes && cartaPrevResult.variablesFaltantes.length > 0 && (
+              <Alert severity="warning" sx={{ py: 0.5 }}>
+                Pendiente de configurar: {cartaPrevResult.variablesFaltantes.join(', ')}
+              </Alert>
+            )}
+            {cartaPrevResult?.contenido && (
+              <CartaRenderer contenido={cartaPrevResult.contenido} logoUrl={cartaPrevLogoUrl} firmaUrl={cartaPrevFirmaUrl} />
+            )}
+            {cartaPrevResult && !cartaPrevResult.disponible && (
+              <Alert severity="info" sx={{ py: 0.5 }}>No hay plantilla disponible para este PD.</Alert>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCartaPrevClave(null)} sx={{ textTransform: 'none' }}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* TASAS DE CONVERSIÓN */}
       {tab === 7 && (

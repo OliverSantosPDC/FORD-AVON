@@ -36,6 +36,16 @@
  * Calendario), quedan exactamente igual que antes.
  *
  * Ejecutar (tras `npm run build`): node --test test/gestor-control-operativo-cartas.test.cjs
+ *
+ * ACTUALIZACIÓN (tarea "Plantillas de cartas de cobro por PD", 2026-10-02):
+ * el nuevo flujo de generación/autorización por PD requiere que el rol
+ * `gestor` pueda generar y previsualizar su propia carta (nunca aprobarla ni
+ * descargarla) — decisión explícita del usuario (ver AskUserQuestion de esta
+ * sesión), que restaura `gestion.carta.crear` a `gestor` únicamente
+ * (migración `restaurar_gestion_carta_crear_gestor`). `gestion.carta.aprobar`
+ * y `control_operativo.*` NO se tocan: Gestor sigue sin Control Operativo ni
+ * sin poder aprobar/descargar cartas. Los tests de esta sección se actualizan
+ * para reflejar ese único cambio; el resto de la matriz queda intacta.
  */
 
 const test = require('node:test');
@@ -64,7 +74,7 @@ const PERMISOS_POR_ROL = {
   ],
   gestor: [
     'calendario.ver', 'carta.solicitar', 'escalamiento.crear',
-    'gestion.adjunto.subir', 'gestion.gestionar', 'gestion.promesa.crear',
+    'gestion.adjunto.subir', 'gestion.carta.crear', 'gestion.gestionar', 'gestion.promesa.crear',
     'gestion.promesa.editar', 'gestion.ver', 'informacion.ver', 'modulo.calendario',
     'modulo.gestion', 'modulo.informacion', 'permiso.solicitar', 'rec.solicitar'
   ],
@@ -168,23 +178,41 @@ test('GET /control-operativo y /asignacion (permisos que usa AppRoutes.tsx en fr
 });
 
 /* ============================================================================
- * 2) CARTAS: ahora ❌ para Gestor (igual que Gerente)
+ * 2) CARTAS: Gestor ahora PUEDE generar/previsualizar (gestion.carta.crear
+ *    restaurado para el flujo de plantillas por PD), pero sigue SIN poder
+ *    aprobar ni descargar (gestion.carta.aprobar permanece ausente).
+ *    Gerente_zona sigue sin ningún acceso a cartas (sin cambios).
  * ========================================================================== */
 
-test('POST /api/gestion/cuentas/:codigo/cartas: Gestor DENEGADO', async () => {
+test('POST /api/gestion/cuentas/:codigo/cartas: Gestor PERMITIDO (genera su propia carta), Gerente DENEGADO', async () => {
   const gestionRoutes = require(path.join(distDir, 'routes', 'gestionRoutes.js')).default;
   const gate = routeHandlerAt(gestionRoutes, 'post', '/gestion/cuentas/:codigo/cartas', 1);
   const gestor = await probarAutorizacion(gate, 'gestor');
-  assert.equal(gestor.nextCalled, false);
-  assert.equal(gestor.statusCode, 403);
+  assert.equal(gestor.nextCalled, true);
+  const gerente = await probarAutorizacion(gate, 'gerente_zona');
+  assert.equal(gerente.nextCalled, false);
+  assert.equal(gerente.statusCode, 403);
 });
 
-test('GET /api/gestion/cartas (listado): Gestor DENEGADO', async () => {
+test('GET /api/gestion/cartas (listado): Gestor PERMITIDO (requireAnyPermission crear|aprobar), Gerente DENEGADO', async () => {
   const gestionRoutes = require(path.join(distDir, 'routes', 'gestionRoutes.js')).default;
   const gate = routeHandlerAt(gestionRoutes, 'get', '/gestion/cartas', 1);
   const gestor = await probarAutorizacion(gate, 'gestor');
-  assert.equal(gestor.nextCalled, false);
-  assert.equal(gestor.statusCode, 403);
+  assert.equal(gestor.nextCalled, true);
+  const gerente = await probarAutorizacion(gate, 'gerente_zona');
+  assert.equal(gerente.nextCalled, false);
+  assert.equal(gerente.statusCode, 403);
+});
+
+test('PATCH /api/gestion/cartas/:id/aprobar y /rechazar: Gestor sigue DENEGADO (no se le restauró gestion.carta.aprobar)', async () => {
+  const gestionRoutes = require(path.join(distDir, 'routes', 'gestionRoutes.js')).default;
+  for (const ruta of ['/gestion/cartas/:id/aprobar', '/gestion/cartas/:id/rechazar']) {
+    const gate = routeHandlerAt(gestionRoutes, 'patch', ruta, 1);
+    // eslint-disable-next-line no-await-in-loop
+    const gestor = await probarAutorizacion(gate, 'gestor');
+    assert.equal(gestor.nextCalled, false, `Gestor no debe poder ${ruta}`);
+    assert.equal(gestor.statusCode, 403);
+  }
 });
 
 /* ============================================================================
@@ -215,7 +243,7 @@ test('Calendario: Gestor nunca tuvo calendario.crear — "Nuevo evento" sigue au
  *    Supervisor/Administrador/Liderazgo, byte a byte intactos
  * ========================================================================== */
 
-test('Matriz final: Gerente y Gestor coinciden en Análisis/Control Operativo/Cartas/Repositorio/Configuración/Usuarios (todos ❌)', () => {
+test('Matriz final: Gerente y Gestor coinciden en Análisis/Control Operativo/Repositorio/Configuración/Usuarios (❌); Cartas difiere (Gestor ✅ generar, Gerente ❌)', () => {
   const matriz = (rol) => ({
     analisis: has(rol)('modulo.dashboard') || has(rol)('modulo.centro_inteligencia'),
     gestion: has(rol)('modulo.gestion'),
@@ -226,12 +254,13 @@ test('Matriz final: Gerente y Gestor coinciden en Análisis/Control Operativo/Ca
     configuracion: has(rol)('configuracion.ver'),
     usuarios: has(rol)('modulo.usuarios')
   });
-  const esperado = {
+  const esperadoGerente = {
     analisis: false, gestion: true, controlOperativo: false, cartas: false,
     informacion: true, repositorio: false, configuracion: false, usuarios: false
   };
-  assert.deepEqual(matriz('gerente_zona'), esperado);
-  assert.deepEqual(matriz('gestor'), esperado);
+  const esperadoGestor = { ...esperadoGerente, cartas: true };
+  assert.deepEqual(matriz('gerente_zona'), esperadoGerente);
+  assert.deepEqual(matriz('gestor'), esperadoGestor);
 });
 
 test('Regresión: Supervisor, Administrador y Liderazgo quedan byte a byte intactos (44/39/33 permisos, sin cambios)', () => {
@@ -251,6 +280,10 @@ test('Consistencia por rol (arquitectura de permisos): un único role_id por rol
   // Supabase reciben, sin excepción, exactamente este mismo array.
   assert.equal(PERMISOS_POR_ROL.gestor.includes('control_operativo.ver'), false);
   assert.equal(PERMISOS_POR_ROL.gestor.includes('modulo.control_operativo'), false);
-  assert.equal(PERMISOS_POR_ROL.gestor.includes('gestion.carta.crear'), false);
-  assert.equal(PERMISOS_POR_ROL.gestor.length, 14);
+  // gestion.carta.crear fue restaurado a `gestor` para el flujo de plantillas
+  // por PD (ver nota de actualización al inicio de este archivo) —
+  // gestion.carta.aprobar permanece ausente (Gestor nunca aprueba/descarga).
+  assert.equal(PERMISOS_POR_ROL.gestor.includes('gestion.carta.crear'), true);
+  assert.equal(PERMISOS_POR_ROL.gestor.includes('gestion.carta.aprobar'), false);
+  assert.equal(PERMISOS_POR_ROL.gestor.length, 15);
 });

@@ -3,6 +3,8 @@ import { SUPABASE_CARTERA_TABLE } from '../config/env';
 import { applyScope } from './ScopeFilter';
 import { gestoresEnAlcance, gerentesZonaEnAlcance, type ScopeContext } from './ScopeService';
 import { gestorPorPaisZona, overlayIdentidadReal, usdEquivalente } from '../utils/carteraAggregations';
+import { renderizarCarta, type DatosCuentaCarta } from './CartaPdService';
+import { urlAsset } from './ConfigService';
 
 /**
  * Operaciones de gestión de cobranza (tipificación, promesas, adjuntos, cartas).
@@ -189,14 +191,54 @@ export const subirArchivoStorage = async (nombre: string, buffer: Buffer, conten
   return path;
 };
 
-/* ===== Cartas ===== */
-export const crearCarta = async (codigo: string, tipo: string, comentario: string | null, gestorId: string | null) => {
-  if (!tipo?.trim()) throw new GestionError('El tipo de carta es obligatorio.');
+/* ===== Cartas de cobro por PD ===== */
+
+/** Vista previa SIN guardar nada: usa el PD y los datos ACTUALES de la cuenta
+ *  (saldo, tasas, etc., siempre en vivo) — nunca una plantilla elegida por el
+ *  cliente. Si el PD actual no tiene carta (PD0, o un PD no reconocido),
+ *  `disponible` viene en `false` y no hay nada que previsualizar ni generar. */
+export const previsualizarCarta = async (row: Record<string, unknown>, tasas: Record<string, number>) => {
+  const datos: DatosCuentaCarta = {
+    pais: row.pais, nombre: row.nombre, codigo: row.codigo, zona: row.zona,
+    saldoActual: row.saldo_actual, campaniaAdeuda: row.campania_adeuda, pdActual: row.pd_actual
+  };
+  return renderizarCarta(datos, tasas);
+};
+
+/**
+ * Genera y guarda la carta. El PD y la plantilla los decide ÚNICAMENTE el
+ * backend a partir del PD ACTUAL de la cuenta (`row.pd_actual`, ya validado
+ * en el alcance del actor por el caller) — el cliente NUNCA elige la
+ * plantilla ni el tipo de carta. El contenido ya renderizado se guarda como
+ * snapshot (no se recalcula después si cambian tasas/plantillas/variables).
+ */
+export const crearCarta = async (row: Record<string, unknown>, tasas: Record<string, number>, comentario: string | null, gestorId: string | null) => {
+  const render = await previsualizarCarta(row, tasas);
+  if (!render.disponible || !render.contenido) {
+    throw new GestionError(`No hay plantilla de carta disponible para ${render.pd ?? 'este PD'}.`);
+  }
   const { data, error } = await client().from('gestion_cartas').insert({
-    codigo, tipo, comentario: comentario ?? null, gestor_id: gestorId, estado: 'PENDIENTE_APROBACION'
+    codigo: row.codigo, tipo: render.plantillaClave, pd: render.pd, plantilla_clave: render.plantillaClave,
+    contenido: render.contenido, comentario: comentario ?? null, gestor_id: gestorId, estado: 'PENDIENTE_APROBACION'
   }).select('id').single();
   if (error) throw new GestionError(`No se pudo crear la carta: ${error.message}`);
   return { id: String((data as { id: string }).id) };
+};
+
+/** Detalle de una carta YA guardada, con logo/firma SOLO si estado==='APROBADA'
+ *  (nunca por un flag del cliente ni por el rol que consulta — el gate es
+ *  exclusivamente el estado real de la carta, así que ni una llamada directa
+ *  al endpoint ni un Gestor sin permiso de aprobar pueden obtenerlos antes). */
+export const obtenerCarta = async (id: string) => {
+  const { data, error } = await client().from('gestion_cartas').select('*').eq('id', id).limit(1);
+  if (error) throw new GestionError(`No se pudo leer la carta: ${error.message}`);
+  const row = (data ?? [])[0] as Record<string, unknown> | undefined;
+  if (!row) return null;
+  const autorizada = row.estado === 'APROBADA';
+  const [logoUrl, firmaUrl] = autorizada
+    ? await Promise.all([urlAsset('logo_principal'), urlAsset('firma')])
+    : [null, null];
+  return { ...row, logoUrl, firmaUrl, descargable: autorizada };
 };
 
 export const listarCartas = async (ctx: ScopeContext, filtros: { estado?: string; codigo?: string } = {}) => {
