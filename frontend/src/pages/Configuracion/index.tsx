@@ -413,83 +413,63 @@ const ConfiguracionPage = () => {
         </Grid>
       )}
 
-      {/* PLANTILLAS */}
+      {/* PLANTILLAS — tabla única de registros. Para las 5 cartas de cobro
+          por PD (carta_pd1/4/5/6/7), además de las acciones de ARCHIVO
+          (Descargar / Reemplazar), se agregan las acciones de PLANTILLA DE
+          TEXTO: Visualizar / Editar — en la MISMA fila, nunca en otra
+          sección aparte. */}
       {tab === 4 && (
         <Paper sx={{ p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
+          <Box sx={{ mb: 1.5 }}>
+            <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+              Las filas "Carta PD1-PD3 / PD4+ / PD5 / PD6 / PD7" son plantillas de TEXTO configurables (contenido en
+              config_plantillas): usa <strong>Visualizar</strong> para leer la carta completa y <strong>Editar</strong> para
+              modificar asunto/cuerpo/estado (y el plazo, solo en PD7). PD0 no tiene carta. PD1-PD3 comparten una misma
+              plantilla — editarla afecta a las tres.
+            </Typography>
+          </Box>
           <TableContainer sx={{ maxHeight: '65vh' }}>
             <Table stickyHeader size="small">
               <TableHead><TableRow>{['Plantilla', 'Versión', 'Fecha', 'Usuario', 'Estado', 'Acciones'].map((h) => <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>)}</TableRow></TableHead>
               <TableBody>
-                {plantillas.map((p) => (
-                  <TableRow key={p.id} hover>
-                    <TableCell>{p.nombre}</TableCell>
-                    <TableCell>{p.version ?? 1}</TableCell>
-                    <TableCell sx={{ fontSize: 12 }}>{p.updated_at ? String(p.updated_at).slice(0, 16).replace('T', ' ') : '—'}</TableCell>
-                    <TableCell sx={{ fontSize: 12 }}>{p.updated_by ?? '—'}</TableCell>
-                    <TableCell><Chip size="small" label={p.url ? 'Configurada' : 'Sin archivo'} color={p.url ? 'success' : 'default'} variant="outlined" /></TableCell>
-                    <TableCell>
-                      <Stack direction="row" spacing={0.5}>
-                        <Button size="small" disabled={!p.url} onClick={() => descargarP(p.clave)} sx={{ textTransform: 'none' }}>Descargar</Button>
-                        {canEdit && <Button size="small" component="label" sx={{ textTransform: 'none' }}>Reemplazar / Nueva versión<input hidden type="file" onChange={async (e) => { const f = e.target.files?.[0]; if (f) { await subirPlantilla(p.clave, f); setPlantillas(await getPlantillas()); setToast('Plantilla actualizada.'); } }} /></Button>}
-                      </Stack>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {plantillas.map((p) => {
+                  const carta = plantillasCarta.find((pc) => pc.clave === p.clave);
+                  return (
+                    <TableRow key={p.id} hover>
+                      <TableCell>
+                        {p.nombre}
+                        {carta && <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{carta.tono} · {carta.bandas.join('/')}</Typography>}
+                      </TableCell>
+                      <TableCell>{carta ? carta.version ?? 1 : p.version ?? 1}</TableCell>
+                      <TableCell sx={{ fontSize: 12 }}>
+                        {carta
+                          ? (carta.updatedAt ? String(carta.updatedAt).slice(0, 16).replace('T', ' ') : '—')
+                          : (p.updated_at ? String(p.updated_at).slice(0, 16).replace('T', ' ') : '—')}
+                      </TableCell>
+                      <TableCell sx={{ fontSize: 12 }}>{(carta ? carta.updatedBy : p.updated_by) ?? '—'}</TableCell>
+                      <TableCell>
+                        {carta
+                          ? <Chip size="small" label={carta.activo ? 'Activa' : 'Inactiva'} color={carta.activo ? 'success' : 'default'} variant={carta.activo ? 'filled' : 'outlined'} />
+                          : <Chip size="small" label={p.url ? 'Configurada' : 'Sin archivo'} color={p.url ? 'success' : 'default'} variant="outlined" />}
+                      </TableCell>
+                      <TableCell>
+                        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                          {carta && <Button size="small" variant="outlined" onClick={() => abrirPreviewCarta(carta.clave)} sx={{ textTransform: 'none' }}>Visualizar</Button>}
+                          {carta && canEdit && <Button size="small" variant="contained" onClick={() => abrirEdicionCarta(carta)} sx={{ textTransform: 'none' }}>Editar</Button>}
+                          <Button size="small" disabled={!p.url} onClick={() => descargarP(p.clave)} sx={{ textTransform: 'none' }}>Descargar</Button>
+                          {canEdit && <Button size="small" component="label" sx={{ textTransform: 'none' }}>Reemplazar / Nueva versión<input hidden type="file" onChange={async (e) => { const f = e.target.files?.[0]; if (f) { await subirPlantilla(p.clave, f); setPlantillas(await getPlantillas()); setToast('Plantilla actualizada.'); } }} /></Button>}
+                        </Stack>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </TableContainer>
 
           <Divider sx={{ my: 3 }} />
           <Stack spacing={2}>
-            <Box>
-              <Typography variant="h6" sx={{ fontWeight: 800 }}>Plantillas de Cartas de Cobro</Typography>
-              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-                PD0 no tiene carta. PD1-PD3 comparten una misma plantilla (editarla afecta a las tres).
-                El Gestor solo ve la plantilla correspondiente al PD ACTUAL de la cuenta — nunca puede elegir otra.
-              </Typography>
-            </Box>
-
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={6} md={4}>
-                <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, height: '100%', bgcolor: 'action.hover' }}>
-                  <Stack spacing={1} sx={{ height: '100%' }}>
-                    <Chip size="small" label="PD0" sx={{ alignSelf: 'flex-start' }} />
-                    <Typography sx={{ fontWeight: 700 }}>Sin carta</Typography>
-                    <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-                      PD0 no genera carta de cobro — no existe ninguna plantilla asociada a este nivel.
-                    </Typography>
-                  </Stack>
-                </Paper>
-              </Grid>
-              {plantillasCarta.map((p) => (
-                <Grid item xs={12} sm={6} md={4} key={p.clave}>
-                  <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, height: '100%' }}>
-                    <Stack spacing={1} sx={{ height: '100%' }}>
-                      <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-                        {p.bandas.map((b) => <Chip key={b} size="small" label={b} />)}
-                      </Stack>
-                      <Typography sx={{ fontWeight: 700 }}>{p.nombre}</Typography>
-                      <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>{p.tono}</Typography>
-                      <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-                        <Chip size="small" label={p.activo ? 'Activa' : 'Inactiva'} color={p.activo ? 'success' : 'default'} variant={p.activo ? 'filled' : 'outlined'} />
-                        <Chip size="small" label={p.contenido ? 'Configurada' : 'Sin contenido'} color={p.contenido ? 'success' : 'default'} variant="outlined" />
-                      </Stack>
-                      <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
-                        Versión {p.version ?? 1} · {p.updatedAt ? String(p.updatedAt).slice(0, 16).replace('T', ' ') : 'Sin fecha'}
-                      </Typography>
-                      <Box sx={{ flex: 1 }} />
-                      <Stack direction="row" spacing={1}>
-                        <Button size="small" variant="outlined" onClick={() => abrirPreviewCarta(p.clave)} sx={{ textTransform: 'none' }}>Visualizar carta</Button>
-                        {canEdit && <Button size="small" variant="contained" onClick={() => abrirEdicionCarta(p)} sx={{ textTransform: 'none' }}>Editar carta</Button>}
-                      </Stack>
-                    </Stack>
-                  </Paper>
-                </Grid>
-              ))}
-            </Grid>
-
-            <Divider />
-            <Typography sx={{ fontWeight: 700, fontSize: 13 }}>Datos de contacto (aplican a las 5 plantillas)</Typography>
+            <Typography sx={{ fontWeight: 700, fontSize: 13 }}>Datos de contacto (aplican a las 5 plantillas de carta)</Typography>
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6}><TextField label="WhatsApp de cobros" value={gv('whatsapp_cobros')} onChange={(e) => sgv('whatsapp_cobros', e.target.value)} size="small" fullWidth disabled={!canEdit} /></Grid>
             </Grid>
