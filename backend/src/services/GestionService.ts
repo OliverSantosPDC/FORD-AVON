@@ -4,7 +4,7 @@ import { applyScope } from './ScopeFilter';
 import { gestoresEnAlcance, gerentesZonaEnAlcance, type ScopeContext } from './ScopeService';
 import { gestorPorPaisZona, overlayIdentidadReal, usdEquivalente } from '../utils/carteraAggregations';
 import { renderizarCarta, type DatosCuentaCarta } from './CartaPdService';
-import { urlAsset, urlFirmaSupervisor } from './ConfigService';
+import { urlAsset, storagePathFirmaSupervisor, urlFirmaPorPath } from './ConfigService';
 
 /**
  * Operaciones de gestión de cobranza (tipificación, promesas, adjuntos, cartas).
@@ -222,12 +222,11 @@ export const crearCarta = async (row: Record<string, unknown>, tasas: Record<str
   }
   const { data, error } = await client().from('gestion_cartas').insert({
     codigo: row.codigo, tipo: render.plantillaClave, pd: render.pd, plantilla_clave: render.plantillaClave,
-    contenido: render.contenido, comentario: comentario ?? null, gestor_id: gestorId, estado: 'PENDIENTE_APROBACION',
-    // Snapshot del supervisor configurado en la plantilla AL MOMENTO de crear
-    // la carta (igual criterio que `contenido`/`plantilla_clave`): si luego
-    // cambia la firma configurada en Configuración, no altera retroactivamente
-    // una carta ya en el flujo de aprobación.
-    firma_supervisor_id: render.firmaSupervisorId
+    contenido: render.contenido, comentario: comentario ?? null, gestor_id: gestorId, estado: 'PENDIENTE_APROBACION'
+    // firma_supervisor_id NO se fija aquí: la firma la determina el
+    // SUPERVISOR QUE AUTORIZA, no la plantilla ni el momento de creación —
+    // ver resolverCarta/resolverCartasMasivo, que la snapshotean recién al
+    // aprobar (queda null mientras la carta está PENDIENTE_APROBACION).
   }).select('id').single();
   if (error) throw new GestionError(`No se pudo crear la carta: ${error.message}`);
   return { id: String((data as { id: string }).id) };
@@ -243,8 +242,13 @@ export const obtenerCarta = async (id: string) => {
   const row = (data ?? [])[0] as Record<string, unknown> | undefined;
   if (!row) return null;
   const autorizada = row.estado === 'APROBADA';
+  // La firma de una carta ya aprobada se resuelve EXCLUSIVAMENTE desde el
+  // snapshot `firma_storage_path` (la ruta vigente en el momento exacto de
+  // autorizar) — nunca releyendo la firma ACTUAL del supervisor por su id,
+  // para que un cambio posterior de su firma predeterminada nunca altere
+  // retroactivamente una carta ya aprobada.
   const [logoUrl, firmaUrl] = autorizada
-    ? await Promise.all([urlAsset('logo_principal'), urlFirmaSupervisor((row.firma_supervisor_id as string | null) ?? null)])
+    ? await Promise.all([urlAsset('logo_principal'), urlFirmaPorPath((row.firma_storage_path as string | null) ?? null)])
     : [null, null];
   return { ...row, logoUrl, firmaUrl, descargable: autorizada };
 };
@@ -341,12 +345,96 @@ export const estadoCuentas = async (codigos: string[]): Promise<Record<string, {
   return map;
 };
 
+/** Mensaje EXACTO cuando quien autoriza no tiene su firma predeterminada
+ *  configurada — compartido por resolverCarta y resolverCartasMasivo para
+ *  que el bloqueo sea idéntico en el flujo individual y en el masivo. */
+export const SIN_FIRMA_AUTORIZACION_MSG = 'No tienes una firma de autorización configurada. Configura tu firma predeterminada antes de autorizar cartas.';
+
+/**
+ * Aprueba/rechaza UNA carta. Al APROBAR, la firma SIEMPRE es la firma
+ * predeterminada de quien autoriza (`aprobadoPor`) — nunca una elegida por
+ * plantilla ni por el Gestor — y se snapshotea EN ESTE MISMO MOMENTO en dos
+ * columnas: `firma_supervisor_id` (quién autorizó, para auditoría) y
+ * `firma_storage_path` (la RUTA EXACTA del archivo de firma vigente en ese
+ * instante — la única fuente real de la imagen). Un cambio posterior de la
+ * firma predeterminada del supervisor NO debe alterar retroactivamente una
+ * carta ya aprobada, y como `firma_storage_path` queda fijo, no lo hace. Si
+ * quien autoriza no tiene firma configurada, se rechaza la operación ANTES
+ * de tocar la carta (nunca una aprobación parcial/sin firma).
+ */
 export const resolverCarta = async (id: string, aprobar: boolean, comentario: string | null, aprobadoPor: string | null) => {
-  const { error } = await client().from('gestion_cartas').update({
+  const patch: Record<string, unknown> = {
     estado: aprobar ? 'APROBADA' : 'RECHAZADA',
     aprobado_por: aprobadoPor,
     comentario_aprobacion: comentario ?? null,
     updated_at: new Date().toISOString()
-  }).eq('id', id);
+  };
+  if (aprobar) {
+    if (!aprobadoPor) throw new GestionError('No se pudo identificar al supervisor que autoriza.');
+    const path = await storagePathFirmaSupervisor(aprobadoPor);
+    if (!path) throw new GestionError(SIN_FIRMA_AUTORIZACION_MSG);
+    patch.firma_supervisor_id = aprobadoPor;
+    patch.firma_storage_path = path;
+  }
+  const { error } = await client().from('gestion_cartas').update(patch).eq('id', id);
   if (error) throw new GestionError(`No se pudo actualizar la carta: ${error.message}`);
+};
+
+export interface ResolverCartasMasivoResultado {
+  autorizadas: string[];
+  omitidas: Array<{ id: string; motivo: string }>;
+}
+
+/**
+ * Autoriza EN LOTE una selección de cartas pendientes — mismo criterio de
+ * firma que `resolverCarta` (snapshot de la firma predeterminada de
+ * `actor` en el momento de autorizar), pero re-validando CADA carta contra
+ * el alcance real de `actor` (nunca confía en que el frontend ya filtró
+ * correctamente) y de forma atómica contra condiciones de carrera: el
+ * UPDATE solo toca filas que SIGAN en PENDIENTE_APROBACION en el momento
+ * exacto de ejecutarse (`.eq('estado', 'PENDIENTE_APROBACION')`), así que
+ * una carta resuelta por alguien más entre la selección y el clic de
+ * autorizar queda automáticamente en "omitidas", nunca sobrescrita.
+ */
+export const resolverCartasMasivo = async (
+  ids: string[], comentario: string | null, actor: string, ctx: ScopeContext
+): Promise<ResolverCartasMasivoResultado> => {
+  const idsUnicos = Array.from(new Set(ids.filter((x) => typeof x === 'string' && x.trim())));
+  if (idsUnicos.length === 0) return { autorizadas: [], omitidas: [] };
+
+  const firmaPath = await storagePathFirmaSupervisor(actor);
+  if (!firmaPath) throw new GestionError(SIN_FIRMA_AUTORIZACION_MSG);
+
+  const { data: filas, error } = await client().from('gestion_cartas').select('id, gestor_id, estado').in('id', idsUnicos);
+  if (error) throw new GestionError(`No se pudieron leer las cartas: ${error.message}`);
+  const encontradas = new Map(((filas ?? []) as Array<{ id: string; gestor_id: string | null; estado: string }>).map((f) => [f.id, f]));
+
+  const alcance = await usuariosDelAlcance(ctx);
+  const omitidas: Array<{ id: string; motivo: string }> = [];
+  const candidatas: string[] = [];
+  for (const id of idsUnicos) {
+    const fila = encontradas.get(id);
+    if (!fila) { omitidas.push({ id, motivo: 'Carta no encontrada.' }); continue; }
+    const enAlcance = alcance.global || (fila.gestor_id ? alcance.ids.has(fila.gestor_id) : false);
+    if (!enAlcance) { omitidas.push({ id, motivo: 'Fuera de tu alcance.' }); continue; }
+    if (fila.estado !== 'PENDIENTE_APROBACION') { omitidas.push({ id, motivo: `Ya está en estado ${fila.estado}.` }); continue; }
+    candidatas.push(id);
+  }
+  if (candidatas.length === 0) return { autorizadas: [], omitidas };
+
+  const { data: actualizadas, error: updErr } = await client().from('gestion_cartas')
+    .update({
+      estado: 'APROBADA', aprobado_por: actor, comentario_aprobacion: comentario ?? null,
+      updated_at: new Date().toISOString(), firma_supervisor_id: actor, firma_storage_path: firmaPath
+    })
+    .in('id', candidatas)
+    .eq('estado', 'PENDIENTE_APROBACION')
+    .select('id');
+  if (updErr) throw new GestionError(`No se pudieron autorizar las cartas: ${updErr.message}`);
+
+  const autorizadas = ((actualizadas ?? []) as Array<{ id: string }>).map((r) => r.id);
+  const autorizadasSet = new Set(autorizadas);
+  candidatas.forEach((id) => { if (!autorizadasSet.has(id)) omitidas.push({ id, motivo: 'Cambió de estado justo antes de autorizar.' }); });
+
+  return { autorizadas, omitidas };
 };

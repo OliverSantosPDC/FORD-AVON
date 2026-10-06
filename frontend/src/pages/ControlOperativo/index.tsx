@@ -25,8 +25,9 @@ import {
 import {
   getDetalleCuenta, getInfoCuenta, tipificarCuenta, crearPromesa, subirAdjunto,
   crearCarta, getCartaPreview, aprobarCarta, rechazarCarta,
+  getFirmaAutorizacion, subirFirmaAutorizacion, autorizarCartasMasivo,
   getEstadoCuentas, getCatalogo, siglaPais, TIPIFICACIONES, TIPO_CONTACTO, CANALES, MONEDA_POR_PAIS,
-  type DetalleCuenta, type EstadoCuenta, type CartaPreview
+  type DetalleCuenta, type EstadoCuenta, type CartaPreview, type FirmaAutorizacion
 } from '../../services/gestionService';
 import CartaRenderer from '../../components/common/CartaRenderer';
 
@@ -88,13 +89,14 @@ const KpiMini = ({ l, v }: { l: string; v: string | number }) => (
 );
 
 const ControlOperativoPage = () => {
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
   const canGestionar = hasPermission('gestion.gestionar');
   const canCarta = hasPermission('gestion.carta.crear');
   const canAprobar = hasPermission('gestion.carta.aprobar');
   const canCalidadVer = hasPermission('control_operativo.calidad.ver');
   const canCalidadEdit = hasPermission('control_operativo.calidad.editar');
   const { tasas } = useTasasConversion();
+  const nombreAutorizador = user ? (`${user.nombre ?? ''} ${user.apellido ?? ''}`.trim() || user.email) : '';
 
   const [filters, setFilters] = useState<DashboardMultiFilterParams>(EMPTY_FILTERS);
   const [dash, setDash] = useState<ControlDashboard | null>(null);
@@ -131,6 +133,26 @@ const ControlOperativoPage = () => {
   const [cartaPrevOpen, setCartaPrevOpen] = useState(false);
   const [cartaSel, setCartaSel] = useState<Record<string, unknown> | null>(null);
   const [cartaComent, setCartaComent] = useState('');
+  // "Mi firma de autorización": la firma predeterminada del supervisor
+  // AUTENTICADO, usada automáticamente al autorizar — nunca elegida a mano.
+  const [miFirma, setMiFirma] = useState<FirmaAutorizacion | null>(null);
+  const [miFirmaSubiendo, setMiFirmaSubiendo] = useState(false);
+  const cargarMiFirma = () => { if (canAprobar) getFirmaAutorizacion().then(setMiFirma).catch(() => undefined); };
+  const subirMiFirma = async (file: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { setToast('El archivo debe ser una imagen (PNG, JPG, GIF, WEBP, SVG, etc.).'); return; }
+    setMiFirmaSubiendo(true);
+    try { await subirFirmaAutorizacion(file); cargarMiFirma(); setToast('Firma de autorización actualizada.'); }
+    catch (e) { setToast(e instanceof Error ? e.message : 'No se pudo subir tu firma.'); }
+    finally { setMiFirmaSubiendo(false); }
+  };
+  useEffect(() => { cargarMiFirma(); /* eslint-disable-next-line */ }, [canAprobar]);
+  // Selección múltiple de cartas pendientes (autorización masiva) — SIEMPRE
+  // acotada a lo que el usuario puede ver bajo los filtros/alcance actuales
+  // (ver cartasPendientesFiltradas más abajo), nunca a la lista completa sin filtrar.
+  const [seleccionadas, setSeleccionadas] = useState<Set<string>>(new Set());
+  const [autorizarOpen, setAutorizarOpen] = useState(false);
+  const [autorizarBusy, setAutorizarBusy] = useState(false);
   const [cCatTip, setCCatTip] = useState<string[]>(TIPIFICACIONES);
   const [cCatTC, setCCatTC] = useState<string[]>(TIPO_CONTACTO);
   const [cCatCanal, setCCatCanal] = useState<string[]>(CANALES);
@@ -199,6 +221,26 @@ const ControlOperativoPage = () => {
   const optsTabla = useMemo(() => { const u = (k: string) => [...new Set(cuentas.map((r) => str(r[k])).filter(Boolean))].sort(); return { pd: u('pd_actual'), zona: u('zona'), campania: u('campania_adeuda') }; }, [cuentas]);
   const filtradas = useMemo(() => cuentas.filter((r) => (!fPd || str(r.pd_actual) === fPd) && (!fZona || str(r.zona) === fZona) && (!fCamp || str(r.campania_adeuda) === fCamp)), [cuentas, fPd, fZona, fCamp]);
   const paged = filtradas.slice(page * rpp, page * rpp + rpp);
+  // Cartas pendientes "visibles": intersección entre TODAS las pendientes del
+  // alcance (pend.cartas, ya acotadas por backend) y las cuentas que pasan
+  // los filtros ACTUALES (país/gestor/gerente/zona/pd/campaña arriba +
+  // PD/Zona/Campaña de esta tabla) — "Seleccionar todas" nunca toca una
+  // carta fuera de lo que el usuario está viendo en este momento.
+  const codigosFiltrados = useMemo(() => new Set(filtradas.map((r) => str(r.codigo))), [filtradas]);
+  const cartasPendientesFiltradas = useMemo(
+    () => (pend?.cartas ?? []).filter((cr) => codigosFiltrados.has(str(cr.codigo))),
+    [pend, codigosFiltrados]
+  );
+  useEffect(() => {
+    setSeleccionadas((prev) => {
+      const visibles = new Set(cartasPendientesFiltradas.map((cr) => str(cr.id)));
+      const next = new Set([...prev].filter((id) => visibles.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [cartasPendientesFiltradas]);
+  const toggleSeleccion = (id: string) => setSeleccionadas((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const seleccionarTodasVisibles = () => setSeleccionadas(new Set(cartasPendientesFiltradas.map((cr) => str(cr.id))));
+  const deseleccionarTodas = () => setSeleccionadas(new Set());
   useEffect(() => { const cs = paged.map((r) => str(r.codigo)).filter(Boolean); if (cs.length) getEstadoCuentas(cs).then((m) => setEstado((p) => ({ ...p, ...m }))).catch(() => undefined); /* eslint-disable-next-line */ }, [page, rpp, filtradas]);
 
   const toggle = (s2: Set<string>, k: string, set: (x: Set<string>) => void) => { const n = new Set(s2); n.has(k) ? n.delete(k) : n.add(k); set(n); };
@@ -400,6 +442,41 @@ const ControlOperativoPage = () => {
             </Grid>
           </Grid>
 
+          {/* "Mi firma de autorización": SOLO visible/accesible para quien puede
+              aprobar cartas (gestion.carta.aprobar) — es la firma que el
+              sistema usará AUTOMÁTICAMENTE al autorizar, nunca elegida a mano
+              por carta ni por plantilla. */}
+          {canAprobar && (
+            <Paper sx={{ p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
+              <Typography sx={{ fontWeight: 700, mb: 1 }}>Firma de autorización</Typography>
+              <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
+                <Box sx={{ minWidth: 160 }}>
+                  <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase' }}>Supervisor</Typography>
+                  <Typography sx={{ fontSize: 13 }}>{nombreAutorizador || '—'}</Typography>
+                </Box>
+                <Box sx={{ minWidth: 140 }}>
+                  {miFirma?.url ? (
+                    <Box component="img" src={miFirma.url} alt="Mi firma" sx={{ height: 48, border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 0.5, bgcolor: '#fff' }} />
+                  ) : (
+                    <Typography sx={{ fontSize: 13, color: 'text.secondary', fontStyle: 'italic' }}>Sin firma configurada</Typography>
+                  )}
+                </Box>
+                <Button variant="outlined" size="small" component="label" disabled={miFirmaSubiendo} sx={{ textTransform: 'none' }}>
+                  {miFirmaSubiendo ? 'Subiendo...' : (miFirma?.configurada ? 'Reemplazar firma' : 'Agregar firma')}
+                  <input hidden type="file" accept="image/*" onChange={(e) => { const f = e.target.files?.[0] ?? null; e.target.value = ''; void subirMiFirma(f); }} />
+                </Button>
+                {miFirma && (
+                  <Chip size="small" label={miFirma.configurada ? 'Firma configurada' : 'Sin firma configurada'} color={miFirma.configurada ? 'success' : 'default'} variant={miFirma.configurada ? 'filled' : 'outlined'} />
+                )}
+              </Stack>
+              {miFirma && !miFirma.configurada && (
+                <Alert severity="warning" sx={{ mt: 1.5, py: 0.5 }}>
+                  No tienes una firma de autorización configurada. Configúrala antes de autorizar cartas — mientras tanto no podrás aprobar ninguna.
+                </Alert>
+              )}
+            </Paper>
+          )}
+
           {/* Panel supervisor: pendientes */}
           {pend && (
             <Paper sx={{ p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
@@ -410,13 +487,32 @@ const ControlOperativoPage = () => {
                   <Stack sx={{ maxHeight: 180, overflowY: 'auto' }}>{pend.promesas.slice(0, 30).map((p, i) => <Typography key={i} sx={{ fontSize: 12 }}>{str(p.codigo)} · {str(p.fecha_promesa)} · {str(p.monto) || '—'}</Typography>)}</Stack>
                 </Grid>
                 <Grid item xs={12} md={6}>
-                  <Typography sx={{ fontSize: 13, fontWeight: 600 }}>Cartas / acuerdos pendientes ({pend.cartas.length})</Typography>
-                  <Stack sx={{ maxHeight: 180, overflowY: 'auto' }}>{pend.cartas.slice(0, 30).map((cr) => (
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, mb: 0.5 }}>
+                    <Typography sx={{ fontSize: 13, fontWeight: 600 }}>
+                      Cartas / acuerdos pendientes ({cartasPendientesFiltradas.length}{cartasPendientesFiltradas.length !== pend.cartas.length ? ` de ${pend.cartas.length}, según filtros` : ''})
+                    </Typography>
+                    {canAprobar && cartasPendientesFiltradas.length > 0 && (
+                      <Stack direction="row" spacing={0.5}>
+                        <Button size="small" onClick={seleccionarTodasVisibles} sx={{ textTransform: 'none', minWidth: 0 }}>Seleccionar todas</Button>
+                        <Button size="small" onClick={deseleccionarTodas} disabled={seleccionadas.size === 0} sx={{ textTransform: 'none', minWidth: 0 }}>Deseleccionar</Button>
+                      </Stack>
+                    )}
+                  </Box>
+                  <Stack sx={{ maxHeight: 180, overflowY: 'auto' }}>{cartasPendientesFiltradas.slice(0, 50).map((cr) => (
                     <Box key={str(cr.id)} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      {canAprobar && <Checkbox size="small" checked={seleccionadas.has(str(cr.id))} onChange={() => toggleSeleccion(str(cr.id))} sx={{ p: 0.5 }} />}
                       <Typography sx={{ fontSize: 12, flex: 1 }}>{str(cr.codigo)} · {str(cr.pd)}</Typography>
                       {canAprobar && <Button size="small" onClick={() => { setCartaSel(cr); setCartaComent(''); }} sx={{ textTransform: 'none', minWidth: 0 }}>Revisar</Button>}
                     </Box>
                   ))}</Stack>
+                  {canAprobar && (
+                    <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>{seleccionadas.size} carta{seleccionadas.size === 1 ? '' : 's'} seleccionada{seleccionadas.size === 1 ? '' : 's'}</Typography>
+                      <Button size="small" variant="contained" disabled={seleccionadas.size === 0} onClick={() => setAutorizarOpen(true)} sx={{ textTransform: 'none' }}>
+                        Autorizar seleccionada{seleccionadas.size === 1 ? '' : 's'}
+                      </Button>
+                    </Box>
+                  )}
                 </Grid>
               </Grid>
             </Paper>
@@ -613,20 +709,100 @@ const ControlOperativoPage = () => {
       </Dialog>
 
       {/* Revisar carta (Supervisor): contenido ya incluido en la fila de
-          pendientes — sin logo/firma porque aún no está autorizada. */}
+          pendientes. Logo: aún pendiente de autorización (comportamiento por
+          defecto de CartaRenderer, sin cambios). Firma: la que SE USARÁ al
+          autorizar es la firma predeterminada del usuario autenticado
+          (miFirma) — no la de la carta (que todavía no tiene ninguna). Si no
+          hay firma configurada, Aprobar queda bloqueado (y el backend lo
+          rechazaría igual aunque se forzara el botón). */}
       <Dialog open={Boolean(cartaSel)} onClose={() => setCartaSel(null)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 700 }}>Revisar carta · {str(cartaSel?.pd)}</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2}>
             <Typography sx={{ fontSize: 13 }}>Cuenta {str(cartaSel?.codigo)}</Typography>
-            {cartaSel?.contenido != null && <CartaRenderer contenido={str(cartaSel.contenido)} logoUrl={null} firmaUrl={null} />}
+            <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, bgcolor: 'action.hover' }}>
+              <Typography sx={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'text.secondary' }}>Autorizará</Typography>
+              <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 0.5 }}>
+                <Typography sx={{ fontSize: 13 }}>{nombreAutorizador}</Typography>
+                {miFirma?.url && <Box component="img" src={miFirma.url} alt="Mi firma" sx={{ height: 32 }} />}
+              </Stack>
+            </Paper>
+            {miFirma && !miFirma.configurada && (
+              <Alert severity="warning" sx={{ py: 0.5 }}>
+                No tienes una firma de autorización configurada. Configura tu firma predeterminada antes de autorizar cartas.
+              </Alert>
+            )}
+            {cartaSel?.contenido != null && (
+              <CartaRenderer
+                contenido={str(cartaSel.contenido)}
+                logoUrl={null}
+                firmaUrl={miFirma?.url ?? null}
+                firmaPendienteTexto="Firma pendiente de configurar"
+              />
+            )}
             <TextField label="Comentario" value={cartaComent} onChange={(e) => setCartaComent(e.target.value)} size="small" fullWidth multiline minRows={2} />
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setCartaSel(null)} sx={{ textTransform: 'none' }}>Cerrar</Button>
           <Button color="error" onClick={() => cartaSel && resolverCarta(str(cartaSel.id), false, cartaComent)} sx={{ textTransform: 'none' }}>Rechazar</Button>
-          <Button variant="contained" onClick={() => cartaSel && resolverCarta(str(cartaSel.id), true, cartaComent)} sx={{ textTransform: 'none' }}>Aprobar</Button>
+          <Button variant="contained" disabled={!miFirma?.configurada} onClick={() => cartaSel && resolverCarta(str(cartaSel.id), true, cartaComent)} sx={{ textTransform: 'none' }}>Aprobar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Autorizar en lote: la firma SIEMPRE es la predeterminada del
+          usuario autenticado — nunca un selector. Bloqueado si no hay firma
+          configurada. El resultado informa cuáles no pudieron autorizarse
+          (ya resueltas, fuera de alcance, condición de carrera). */}
+      <Dialog open={autorizarOpen} onClose={() => (!autorizarBusy && setAutorizarOpen(false))} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Autorizar cartas</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={1.5}>
+            <Typography sx={{ fontSize: 13 }}>Cartas seleccionadas: <strong>{seleccionadas.size}</strong></Typography>
+            <Box>
+              <Typography sx={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'text.secondary' }}>Supervisor autorizador</Typography>
+              <Typography sx={{ fontSize: 13 }}>{nombreAutorizador}</Typography>
+            </Box>
+            <Box>
+              <Typography sx={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'text.secondary' }}>Firma</Typography>
+              {miFirma?.url ? (
+                <Box component="img" src={miFirma.url} alt="Mi firma" sx={{ height: 44, mt: 0.5 }} />
+              ) : (
+                <Typography sx={{ fontSize: 13, color: 'text.secondary', fontStyle: 'italic' }}>Sin firma configurada</Typography>
+              )}
+            </Box>
+            {miFirma?.configurada ? (
+              <Alert severity="info" sx={{ py: 0.5 }}>Esta firma se aplicará a todas las cartas seleccionadas.</Alert>
+            ) : (
+              <Alert severity="warning" sx={{ py: 0.5 }}>
+                No tienes una firma de autorización configurada. Configura tu firma predeterminada antes de autorizar cartas.
+              </Alert>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAutorizarOpen(false)} disabled={autorizarBusy} sx={{ textTransform: 'none' }}>Cancelar</Button>
+          <Button
+            variant="contained"
+            disabled={autorizarBusy || !miFirma?.configurada || seleccionadas.size === 0}
+            onClick={async () => {
+              setAutorizarBusy(true);
+              try {
+                const r = await autorizarCartasMasivo(Array.from(seleccionadas));
+                const msg = r.omitidas.length > 0
+                  ? `${r.autorizadas.length} carta(s) autorizada(s). ${r.omitidas.length} no se pudieron autorizar (ya resueltas o fuera de alcance).`
+                  : `${r.autorizadas.length} carta(s) autorizada(s).`;
+                setToast(msg);
+                setSeleccionadas(new Set());
+                setAutorizarOpen(false);
+                setPend(await getPendientes());
+              } catch (e) { setToast(e instanceof Error ? e.message : 'No se pudieron autorizar las cartas.'); }
+              finally { setAutorizarBusy(false); }
+            }}
+            sx={{ textTransform: 'none' }}
+          >
+            {autorizarBusy ? 'Autorizando...' : `Autorizar ${seleccionadas.size} carta${seleccionadas.size === 1 ? '' : 's'}`}
+          </Button>
         </DialogActions>
       </Dialog>
 

@@ -39,5 +39,11 @@ router.delete('/gestion/adjuntos/:id', requireAuth, requirePermission('gestion.a
 router.post('/gestion/cuentas/:codigo/cartas', requireAuth, requirePermission('gestion.carta.crear'), (req, res) => c.crearCarta(req, res));
 router.patch('/gestion/cartas/:id/aprobar', requireAuth, requirePermission('gestion.carta.aprobar'), (req, res) => c.aprobarCarta(req, res));
 router.patch('/gestion/cartas/:id/rechazar', requireAuth, requirePermission('gestion.carta.aprobar'), (req, res) => c.rechazarCarta(req, res));
+router.post('/gestion/cartas/autorizar-masivo', requireAuth, requirePermission('gestion.carta.aprobar'), (req, res) => c.autorizarCartasMasivo(req, res));
+
+// "Mi firma de autorización" (autoservicio, Operación > Control Operativo):
+// mismo permiso que aprobar cartas — reutilizado, nunca un permiso nuevo.
+router.get('/gestion/firma-autorizacion', requireAuth, requirePermission('gestion.carta.aprobar'), (req, res) => c.miFirmaAutorizacion(req, res));
+router.post('/gestion/firma-autorizacion', requireAuth, requirePermission('gestion.carta.aprobar'), upload.single('file'), (req, res) => c.subirMiFirmaAutorizacion(req, res));
 
 export default router;

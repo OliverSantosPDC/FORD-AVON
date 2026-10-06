@@ -37,10 +37,10 @@ router.put('/configuracion/plantillas-carta/:clave', requireAuth, requirePermiss
 router.get('/configuracion/plantillas-carta/:clave/preview', requireAuth, requirePermission(VER), (req, res) => c.previsualizarPlantillaCarta(req, res));
 router.post('/configuracion/plantillas-carta/:clave/preview-borrador', requireAuth, requirePermission(EDIT), (req, res) => c.previsualizarBorradorPlantillaCarta(req, res));
 
-// Firma de carta, configurable POR SUPERVISOR real (nunca hardcodeada ni global).
-router.get('/configuracion/supervisores-firma', requireAuth, requirePermission(VER), (req, res) => c.supervisoresFirma(req, res));
-router.post('/configuracion/supervisores-firma/:supervisorId', requireAuth, requirePermission(EDIT), upload.single('file'), (req, res) => c.subirFirmaSupervisor(req, res));
-router.get('/configuracion/supervisores-firma/:supervisorId/url', requireAuth, requirePermission(VER), (req, res) => c.urlFirmaSupervisor(req, res));
+// NOTA: la firma de autorización YA NO se configura aquí. Se resuelve
+// automáticamente a la firma predeterminada del supervisor que autoriza,
+// configurada en Operación > Control Operativo (ver gestionRoutes.ts:
+// /gestion/firma-autorizacion, /gestion/cartas/autorizar-masivo).
 
 // Sin requirePermission(VER) a propósito: logo_principal se resuelve desde el
 // Sidebar/Header para CUALQUIER usuario autenticado (no solo quienes tienen

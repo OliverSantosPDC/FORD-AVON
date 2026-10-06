@@ -5,12 +5,12 @@ import { getCarteraDataSource } from '../config/dataSource';
 import {
   registrarTipificacion, detalleCuenta, crearPromesa, actualizarPromesa,
   registrarAdjunto, eliminarAdjunto, subirArchivoStorage,
-  crearCarta, listarCartas, resolverCarta, previsualizarCarta, obtenerCarta,
+  crearCarta, listarCartas, resolverCarta, resolverCartasMasivo, previsualizarCarta, obtenerCarta,
   aggregarZonasPd, aggregarPdCampanas, estadoCuentas, infoCuenta, GestionError,
   filtrarCodigosEnAlcance, codigoDePromesa, codigoDeAdjunto, gestorDeCarta, gestorEnAlcance
 } from '../services/GestionService';
 import { registrarAuditoria } from '../services/AuditoriaService';
-import { getTasasPorMoneda } from '../services/ConfigService';
+import { getTasasPorMoneda, subirFirmaSupervisor, urlFirmaSupervisor } from '../services/ConfigService';
 
 const carteraService = new CarteraService(new CarteraRepository(getCarteraDataSource()));
 
@@ -232,6 +232,46 @@ export class GestionController {
       await registrarAuditoria(actor, 'GESTION_CARTA_RECHAZAR', 'gestion', req.params.id, null);
       return res.json({ ok: true });
     } catch (e) { return this.fail(res, e, 'No se pudo rechazar la carta.'); }
+  }
+
+  /** "Mi firma de autorización" (autoservicio): devuelve la firma predeterminada
+   *  del usuario AUTENTICADO — nunca de otro usuario, nunca elegible desde
+   *  el cliente. La ruta ya exige gestion.carta.aprobar. */
+  async miFirmaAutorizacion(req: Request, res: Response): Promise<Response | void> {
+    try {
+      const actor = req.auth?.userId ?? null;
+      if (!actor) return res.status(401).json({ error: 'No autenticado.' });
+      const url = await urlFirmaSupervisor(actor);
+      return res.json({ configurada: Boolean(url), url });
+    } catch (e) { return this.fail(res, e, 'No se pudo cargar tu firma de autorización.'); }
+  }
+
+  /** Sube/reemplaza la firma de autorización del usuario AUTENTICADO. */
+  async subirMiFirmaAutorizacion(req: Request, res: Response): Promise<Response | void> {
+    try {
+      const actor = req.auth?.userId ?? null;
+      if (!actor) return res.status(401).json({ error: 'No autenticado.' });
+      if (!req.file?.buffer) return res.status(400).json({ error: 'Adjunta un archivo.' });
+      const r = await subirFirmaSupervisor(actor, req.file.originalname, req.file.buffer, req.file.mimetype || 'application/octet-stream', actor);
+      await registrarAuditoria(actor, 'GESTION_FIRMA_AUTORIZACION_SUBIR', 'gestion', actor, null);
+      return res.status(201).json(r);
+    } catch (e) { return this.fail(res, e, 'No se pudo subir tu firma de autorización.'); }
+  }
+
+  /** Autoriza en lote una selección de cartas pendientes, dentro del alcance
+   *  del actor — ver GestionService.resolverCartasMasivo (firma + alcance +
+   *  condición de carrera validados server-side, nunca solo en frontend). */
+  async autorizarCartasMasivo(req: Request, res: Response): Promise<Response | void> {
+    try {
+      const ctx = this.scope(req, res); if (!ctx) return;
+      const actor = req.auth?.userId ?? null;
+      if (!actor) return res.status(401).json({ error: 'No autenticado.' });
+      const ids = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]).map((x) => String(x)) : [];
+      const comentario = typeof req.body?.comentario === 'string' && req.body.comentario.trim() ? req.body.comentario : null;
+      const r = await resolverCartasMasivo(ids, comentario, actor, ctx);
+      await registrarAuditoria(actor, 'GESTION_CARTA_APROBAR_MASIVO', 'gestion', null, { solicitadas: ids.length, autorizadas: r.autorizadas.length, omitidas: r.omitidas.length });
+      return res.json(r);
+    } catch (e) { return this.fail(res, e, 'No se pudieron autorizar las cartas.'); }
   }
 
   private fail(res: Response, error: unknown, fallback: string): Response {

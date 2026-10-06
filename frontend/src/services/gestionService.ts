@@ -148,6 +148,38 @@ export const rechazarCarta = async (id: string, comentario: string) => {
   if (!res.ok) throw new Error(await parseError(res, 'No se pudo rechazar.'));
 };
 
+/** "Mi firma de autorización" (autoservicio): la firma predeterminada del
+ *  usuario AUTENTICADO, usada automáticamente al autorizar cartas — nunca
+ *  elegible manualmente, nunca de otro usuario. */
+export interface FirmaAutorizacion { configurada: boolean; url: string | null; }
+export const getFirmaAutorizacion = async (): Promise<FirmaAutorizacion> => {
+  const res = await apiFetch('/api/gestion/firma-autorizacion', { cache: 'no-store' });
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudo cargar tu firma de autorización.'));
+  return res.json();
+};
+export const subirFirmaAutorizacion = async (file: File): Promise<{ path: string }> => {
+  const f = new FormData(); f.append('file', file);
+  const res = await apiFetch('/api/gestion/firma-autorizacion', { method: 'POST', body: f });
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudo subir tu firma.'));
+  return res.json();
+};
+
+/** Autoriza en lote una selección de cartas pendientes — la firma SIEMPRE es
+ *  la firma predeterminada del usuario autenticado (nunca elegida en esta
+ *  llamada). El backend re-valida alcance/estado de CADA carta: `omitidas`
+ *  informa cuáles no pudieron autorizarse y por qué. */
+export interface AutorizarCartasMasivoResultado {
+  autorizadas: string[];
+  omitidas: Array<{ id: string; motivo: string }>;
+}
+export const autorizarCartasMasivo = async (ids: string[], comentario?: string): Promise<AutorizarCartasMasivoResultado> => {
+  const res = await apiFetch('/api/gestion/cartas/autorizar-masivo', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, comentario: comentario ?? null })
+  });
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudieron autorizar las cartas.'));
+  return res.json();
+};
+
 /**
  * Catálogo activo (fuente única: Configuración → config_catalogos).
  * Devuelve los nombres activos; si el catálogo está vacío, el caller usa su fallback.

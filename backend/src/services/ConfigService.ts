@@ -164,34 +164,26 @@ export interface PlantillaCartaRow {
   version: number | null;
   updated_at: string | null;
   updated_by: string | null;
-  /** Referencia estable (profiles.id) al supervisor cuya firma usa esta
-   *  plantilla — NUNCA la imagen en sí. `null` = "Sin firma" explícito. */
-  firma_supervisor_id: string | null;
 }
 
 export const leerPlantillaCarta = async (clave: string): Promise<PlantillaCartaRow | null> => {
-  const { data, error } = await c().from('config_plantillas').select('contenido, asunto, activo, version, updated_at, updated_by, firma_supervisor_id').eq('clave', clave).maybeSingle();
+  const { data, error } = await c().from('config_plantillas').select('contenido, asunto, activo, version, updated_at, updated_by').eq('clave', clave).maybeSingle();
   if (error) throw new ConfigError(error.message);
   return (data as PlantillaCartaRow | null) ?? null;
 };
 
 export const guardarPlantillaCarta = async (
   clave: string,
-  patch: { contenido: string; asunto: string; activo: boolean; firmaSupervisorId: string | null },
+  patch: { contenido: string; asunto: string; activo: boolean },
   actor: string | null
 ) => {
   const { data: actual } = await c().from('config_plantillas').select('version').eq('clave', clave).maybeSingle();
   const version = (((actual as { version?: number } | null)?.version) ?? 0) + 1;
   const { error } = await c().from('config_plantillas')
-    .update({
-      contenido: patch.contenido, asunto: patch.asunto, activo: patch.activo, firma_supervisor_id: patch.firmaSupervisorId,
-      version, updated_at: new Date().toISOString(), updated_by: actor
-    })
+    .update({ contenido: patch.contenido, asunto: patch.asunto, activo: patch.activo, version, updated_at: new Date().toISOString(), updated_by: actor })
     .eq('clave', clave);
   if (error) throw new ConfigError(error.message);
-  await c().from('config_plantillas_versiones').insert({
-    clave, contenido: patch.contenido, asunto: patch.asunto, firma_supervisor_id: patch.firmaSupervisorId, version, updated_by: actor, url: null
-  });
+  await c().from('config_plantillas_versiones').insert({ clave, contenido: patch.contenido, asunto: patch.asunto, version, updated_by: actor, url: null });
   return { version };
 };
 
@@ -268,98 +260,78 @@ export const urlAsset = async (clave: string): Promise<string | null> => {
   return data.signedUrl;
 };
 
-/* ===== Firma de cartas, configurable POR SUPERVISOR (nunca global, nunca
- * hardcodeada) ===== Cada una de las 5 plantillas de carta de cobro elige
- * la firma de un supervisor REAL (roles.clave = 'supervisor'); la imagen
- * vive en el mismo bucket privado `config-assets` que logo/firma globales,
- * referenciada por `firmas_supervisor.storage_path` — `config_plantillas.
- * firma_supervisor_id` solo guarda el id del supervisor (profiles.id),
- * nunca la imagen. */
+/* ===== Firma de AUTORIZACIÓN, por usuario que aprueba cartas (nunca global,
+ * nunca hardcodeada, nunca elegida por plantilla) ===== Cada usuario con
+ * permiso para aprobar cartas (gestion.carta.aprobar) tiene SU PROPIA firma
+ * predeterminada, configurada en Operación > Control Operativo ("Mi firma
+ * de autorización") — NUNCA en Configuración. La imagen vive en el mismo
+ * bucket privado `config-assets` que logo/firma globales, referenciada por
+ * `firmas_supervisor.storage_path` (tabla reutilizada tal cual; la columna
+ * `supervisor_id` es, en la práctica, el id de CUALQUIER usuario autorizado
+ * a aprobar — la autorización real la exige el middleware de permiso de la
+ * ruta, nunca una validación de rol aquí). Al autorizar una carta, GestionService
+ * snapshotea tanto `gestion_cartas.firma_supervisor_id` (quién autorizó, para
+ * auditoría/mostrar el nombre) como `gestion_cartas.firma_storage_path` (la
+ * RUTA EXACTA del archivo de firma vigente en ese momento) — esta segunda
+ * columna, y SOLO ella, es la fuente de la imagen de firma de una carta ya
+ * aprobada: un cambio posterior de `firmas_supervisor.storage_path` para ese
+ * mismo usuario (nueva firma subida) nunca la toca. Por eso
+ * `subirFirmaSupervisor` NUNCA borra el archivo anterior: puede seguir
+ * siendo el snapshot histórico de cartas ya aprobadas. */
 
-/** id de `roles` para la clave 'supervisor' — única consulta reutilizada
- *  por el resto de funciones de esta sección (nunca una lista hardcodeada
- *  de supervisores ni de roles). */
-const idRolSupervisor = async (): Promise<string | null> => {
-  const { data, error } = await c().from('roles').select('id').eq('clave', 'supervisor').maybeSingle();
-  if (error) throw new ConfigError(error.message);
-  return (data as { id?: string } | null)?.id ?? null;
-};
-
-/** `true` si `id` es un perfil REAL con rol supervisor (activo o no: una
- *  plantilla puede seguir referenciando a un supervisor que luego se
- *  desactivó — el estado se muestra, nunca bloquea silenciosamente). */
-export const esSupervisor = async (id: string): Promise<boolean> => {
-  const rolId = await idRolSupervisor();
-  if (!rolId) return false;
-  const { data } = await c().from('profiles').select('id').eq('id', id).eq('role_id', rolId).maybeSingle();
-  return Boolean(data);
-};
-
-export interface SupervisorFirmaRow { id: string; nombre: string; apellido: string | null; activo: boolean; tieneFirma: boolean; }
-
-/** Supervisores REALES del sistema (profiles con rol supervisor, activos
- *  o no) con si cada uno ya tiene una imagen de firma configurada —
- *  fuente única para el selector "Firma" de cada plantilla. Nunca una
- *  lista hardcodeada: si se da de alta/baja un supervisor, esta lista
- *  cambia sin tocar código. */
-export const listarSupervisoresFirma = async (): Promise<SupervisorFirmaRow[]> => {
-  const rolId = await idRolSupervisor();
-  if (!rolId) return [];
-  const { data: sups, error } = await c().from('profiles').select('id, nombre, apellido, activo').eq('role_id', rolId).order('nombre', { ascending: true });
-  if (error) throw new ConfigError(error.message);
-  const ids = ((sups ?? []) as Array<{ id: string }>).map((s) => s.id);
-  const { data: firmas, error: fErr } = ids.length
-    ? await c().from('firmas_supervisor').select('supervisor_id').in('supervisor_id', ids)
-    : { data: [] as Array<{ supervisor_id: string }>, error: null };
-  if (fErr) throw new ConfigError(fErr.message);
-  const conFirma = new Set(((firmas ?? []) as Array<{ supervisor_id: string }>).map((f) => f.supervisor_id));
-  return ((sups ?? []) as Array<Record<string, unknown>>).map((s) => ({
-    id: String(s.id), nombre: String(s.nombre ?? ''), apellido: (s.apellido as string | null) ?? null,
-    activo: Boolean(s.activo), tieneFirma: conFirma.has(String(s.id))
-  }));
-};
-
-/** Sube/reemplaza la imagen de firma de UN supervisor. Reutiliza el mismo
- *  bucket/validación de imagen que `subirAsset`; `firmas_supervisor` es la
- *  única fuente de verdad de qué archivo le corresponde (upsert por
- *  supervisor_id: nunca dos filas para el mismo supervisor). El archivo
- *  anterior se limpia best-effort SOLO tras confirmar el nuevo guardado,
- *  igual que subirAsset. */
-export const subirFirmaSupervisor = async (supervisorId: string, nombreArchivo: string, buffer: Buffer, contentType: string, actor: string | null) => {
+/** Sube/reemplaza la imagen de firma de autorización de UN usuario.
+ *  `usuarioId` SIEMPRE debe ser el id del usuario autenticado que hace la
+ *  petición (autoservicio) — la ruta que llama a esto ya exige el permiso
+ *  de aprobar cartas; esta función no vuelve a validar el rol. Reutiliza el
+ *  mismo bucket/validación de imagen que `subirAsset`; `firmas_supervisor`
+ *  es upsert por usuarioId (nunca dos filas para el mismo usuario). El
+ *  archivo ANTERIOR nunca se borra (a diferencia de `subirAsset`): puede
+ *  seguir siendo el snapshot histórico de `gestion_cartas.firma_storage_path`
+ *  de cartas ya aprobadas con la firma previa, y esas nunca deben alterarse. */
+export const subirFirmaSupervisor = async (usuarioId: string, nombreArchivo: string, buffer: Buffer, contentType: string, actor: string | null) => {
   if (!contentType.toLowerCase().startsWith(IMAGE_MIME_PREFIX)) {
     throw new ConfigError('El archivo debe ser una imagen (PNG, JPG, GIF, WEBP, SVG, etc.).');
   }
-  if (!(await esSupervisor(supervisorId))) throw new ConfigError('Supervisor no encontrado.');
 
-  const path = `firmas/${supervisorId}_${Date.now()}_${nombreArchivo.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-  const { data: actual } = await c().from('firmas_supervisor').select('storage_path').eq('supervisor_id', supervisorId).maybeSingle();
-  const pathAnterior = (actual as { storage_path?: string } | null)?.storage_path || null;
+  const path = `firmas/${usuarioId}_${Date.now()}_${nombreArchivo.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
 
   const { error: upErr } = await c().storage.from('config-assets').upload(path, buffer, { contentType, upsert: false, cacheControl: '31536000' });
   if (upErr) throw new ConfigError(upErr.message);
 
   const { error } = await c().from('firmas_supervisor').upsert(
-    { supervisor_id: supervisorId, storage_path: path, updated_at: new Date().toISOString(), updated_by: actor },
+    { supervisor_id: usuarioId, storage_path: path, updated_at: new Date().toISOString(), updated_by: actor },
     { onConflict: 'supervisor_id' }
   );
   if (error) throw new ConfigError(error.message);
 
-  if (pathAnterior && pathAnterior !== path) {
-    try { await c().storage.from('config-assets').remove([pathAnterior]); } catch { /* best-effort */ }
-  }
   return { path };
 };
 
-/** URL firmada de la firma de un supervisor, o `null` si no tiene ninguna
- *  configurada (nunca lanza por "no configurado" — el llamador decide cómo
- *  mostrarlo, ej. "[Firma no configurada]"). `supervisorId` puede ser
- *  `null` (plantilla con "Sin firma" explícito): también devuelve `null`. */
-export const urlFirmaSupervisor = async (supervisorId: string | null): Promise<string | null> => {
-  if (!supervisorId) return null;
-  const { data: row } = await c().from('firmas_supervisor').select('storage_path').eq('supervisor_id', supervisorId).maybeSingle();
-  const path = (row as { storage_path?: string } | null)?.storage_path;
+/** Ruta de Storage de la firma PREDETERMINADA ACTUAL de un usuario, o `null`
+ *  si no tiene ninguna configurada. Úsese para resolver la firma vigente
+ *  (autoservicio, vista previa antes de autorizar); NUNCA para la firma de
+ *  una carta ya aprobada — esa usa el snapshot `firma_storage_path`. */
+export const storagePathFirmaSupervisor = async (usuarioId: string | null): Promise<string | null> => {
+  if (!usuarioId) return null;
+  const { data: row } = await c().from('firmas_supervisor').select('storage_path').eq('supervisor_id', usuarioId).maybeSingle();
+  return (row as { storage_path?: string } | null)?.storage_path || null;
+};
+
+/** URL firmada para una ruta de Storage de firma ya conocida (p. ej. el
+ *  snapshot histórico `gestion_cartas.firma_storage_path`), o `null` si la
+ *  ruta es `null`/no genera URL. */
+export const urlFirmaPorPath = async (path: string | null): Promise<string | null> => {
   if (!path) return null;
   const { data, error } = await c().storage.from('config-assets').createSignedUrl(path, 3600);
   if (error || !data?.signedUrl) return null;
   return data.signedUrl;
+};
+
+/** URL firmada de la firma de autorización ACTUAL de un usuario, o `null` si
+ *  no tiene ninguna configurada (nunca lanza por "no configurado" — el
+ *  llamador decide cómo mostrarlo, ej. bloquear la autorización). `usuarioId`
+ *  puede ser `null`: también devuelve `null`. */
+export const urlFirmaSupervisor = async (usuarioId: string | null): Promise<string | null> => {
+  const path = await storagePathFirmaSupervisor(usuarioId);
+  return urlFirmaPorPath(path);
 };

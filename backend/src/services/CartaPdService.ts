@@ -87,11 +87,6 @@ export interface CartaRenderizada {
   plantillaClave: string | null;
   contenido: string | null;
   variablesFaltantes: string[];
-  /** Referencia estable (profiles.id) al supervisor cuya firma usa la
-   *  plantilla YA GUARDADA — null si es "Sin firma" explícito, si el PD no
-   *  tiene carta, o si viene de `previsualizarContenidoCarta` (un borrador
-   *  nunca lee config_plantillas, así que no hay fila de la que leerlo). */
-  firmaSupervisorId: string | null;
 }
 
 /**
@@ -184,12 +179,12 @@ export const renderizarCarta = async (
   const pd = normalizarPd(datos.pdActual);
   const clave = claveParaPd(datos.pdActual);
   if (!pd || !clave) {
-    return { pd, disponible: false, plantillaClave: null, contenido: null, variablesFaltantes: [], firmaSupervisorId: null };
+    return { pd, disponible: false, plantillaClave: null, contenido: null, variablesFaltantes: [] };
   }
 
   const [general, plantillaRow] = await Promise.all([getGeneral(), leerPlantillaCarta(clave)]);
   if (!plantillaRow || !plantillaRow.contenido) {
-    return { pd, disponible: false, plantillaClave: clave, contenido: null, variablesFaltantes: ['plantilla'], firmaSupervisorId: null };
+    return { pd, disponible: false, plantillaClave: clave, contenido: null, variablesFaltantes: ['plantilla'] };
   }
   // Una plantilla desactivada en Configuración no se genera/previsualiza en
   // ningún lado (Gestión ni la vista previa "de tarjeta" de Configuración)
@@ -197,11 +192,11 @@ export const renderizarCarta = async (
   // editor SÍ puede seguir previsualizando su borrador vía
   // previsualizarContenidoCarta, para poder revisarla antes de reactivarla.
   if (!plantillaRow.activo) {
-    return { pd, disponible: false, plantillaClave: clave, contenido: null, variablesFaltantes: ['plantilla_inactiva'], firmaSupervisorId: null };
+    return { pd, disponible: false, plantillaClave: clave, contenido: null, variablesFaltantes: ['plantilla_inactiva'] };
   }
 
   const { contenido, variablesFaltantes } = sustituirVariables(pd, plantillaRow.contenido, plantillaRow.asunto || '', datos, general, tasas, fechaEmision);
-  return { pd, disponible: true, plantillaClave: clave, contenido, variablesFaltantes, firmaSupervisorId: plantillaRow.firma_supervisor_id ?? null };
+  return { pd, disponible: true, plantillaClave: clave, contenido, variablesFaltantes };
 };
 
 /**
@@ -223,14 +218,11 @@ export const previsualizarContenidoCarta = (
 ): CartaRenderizada => {
   const pd = normalizarPd(pdRaw);
   if (!pd) {
-    return { pd: null, disponible: false, plantillaClave: null, contenido: null, variablesFaltantes: [], firmaSupervisorId: null };
+    return { pd: null, disponible: false, plantillaClave: null, contenido: null, variablesFaltantes: [] };
   }
   const clave = claveParaPd(pd);
   const { contenido, variablesFaltantes } = sustituirVariables(pd, contenidoBorrador, asuntoBorrador, datos, general, tasas, fechaEmision);
-  // Un borrador nunca lee config_plantillas: el supervisor elegido en el
-  // editor (aún sin guardar) lo resuelve el controller directamente desde
-  // el body de la petición, nunca desde aquí.
-  return { pd, disponible: true, plantillaClave: clave, contenido, variablesFaltantes, firmaSupervisorId: null };
+  return { pd, disponible: true, plantillaClave: clave, contenido, variablesFaltantes };
 };
 
 export { ALLOWED_COUNTRIES };
@@ -262,7 +254,7 @@ export const VARIABLES_CARTA = [
   { variable: 'WhatsApp', descripcion: 'Configuración > WhatsApp de cobros.' },
   { variable: 'Plazo_dias', descripcion: 'Días de plazo (Configuración > Plazo PD7). Solo debe usarse en la plantilla de PD7.', soloPd7: true },
   { variable: 'Logo', descripcion: 'Ancla de imagen: logo autorizado (visible solo tras autorización).' },
-  { variable: 'Firma', descripcion: 'Ancla de imagen: firma autorizada (visible solo tras autorización).' }
+  { variable: 'Firma', descripcion: 'Ancla de imagen: firma predeterminada del supervisor que autoriza la carta — se resuelve automáticamente al autorizar, visible solo tras aprobación. No se configura por plantilla.' }
 ];
 
 /** Cuenta de prueba (fixture) para previsualizar una plantilla sin necesidad de una cuenta real. */

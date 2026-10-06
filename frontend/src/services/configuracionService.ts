@@ -56,31 +56,26 @@ export const subirAsset = async (clave: string, file: File) => { const f = new F
 /** URL firmada temporal para previsualizar un asset (logo/fondo). `null` si la clave no tiene archivo configurado. */
 export const obtenerUrlAsset = async (clave: string): Promise<string | null> => { const r = await apiFetch(`/api/configuracion/assets/${clave}/url`, { cache: 'no-store' }); if (!r.ok) return null; return (await r.json()).url as string | null; };
 
-/** Plantillas de carta de cobro por PD (PD1-PD3 comparten una; PD0 no tiene carta). */
+/** Plantillas de carta de cobro por PD (PD1-PD3 comparten una; PD0 no tiene
+ *  carta). La firma NO forma parte de la plantilla: se resuelve
+ *  automáticamente a la firma del supervisor que autoriza, en Operación >
+ *  Control Operativo (ver gestionService.ts). */
 export interface PlantillaCarta {
   clave: string; nombre: string; bandas: string[]; tono: string;
   contenido: string | null; asunto: string | null; activo: boolean;
   version: number | null; updatedAt: string | null; updatedBy: string | null;
-  /** Referencia estable al supervisor cuya firma usa esta plantilla (null = "Sin firma" explícito). */
-  firmaSupervisorId: string | null;
-  /** URL firmada YA RESUELTA de esa firma (null si no tiene imagen configurada). */
-  firmaUrl: string | null;
 }
 export interface VariableCarta { variable: string; descripcion: string; soloPd7?: boolean; }
 export interface CartaPreviewAdmin {
   pd: string | null; disponible: boolean; plantillaClave: string | null; contenido: string | null; variablesFaltantes: string[];
-  firmaUrl: string | null;
 }
-
-/** Supervisor REAL del sistema, candidato a firma de una plantilla de carta (nunca hardcodeado). */
-export interface SupervisorFirma { id: string; nombre: string; apellido: string | null; activo: boolean; tieneFirma: boolean; }
 
 export const getPlantillasCarta = async (): Promise<{ items: PlantillaCarta[]; variables: VariableCarta[] }> => {
   const r = await apiFetch('/api/configuracion/plantillas-carta', { cache: 'no-store' });
   if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.'));
   return r.json();
 };
-export const actualizarPlantillaCarta = async (clave: string, patch: { contenido: string; asunto: string; activo: boolean; firmaSupervisorId: string | null }): Promise<{ version: number }> => {
+export const actualizarPlantillaCarta = async (clave: string, patch: { contenido: string; asunto: string; activo: boolean }): Promise<{ version: number }> => {
   const r = await apiFetch(`/api/configuracion/plantillas-carta/${clave}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
   if (!r.ok) throw new Error(await err(r, 'No se pudo guardar.'));
   return r.json();
@@ -99,31 +94,11 @@ export const previsualizarPlantillaCarta = async (clave: string, params: { codig
  *  editor) — nunca lee ni modifica lo guardado en config_plantillas. */
 export const previsualizarBorradorPlantillaCarta = async (
   clave: string,
-  borrador: { contenido: string; asunto: string; codigo?: string; firmaSupervisorId?: string | null }
+  borrador: { contenido: string; asunto: string; codigo?: string }
 ): Promise<CartaPreviewAdmin> => {
   const r = await apiFetch(`/api/configuracion/plantillas-carta/${clave}/preview-borrador`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(borrador)
   });
   if (!r.ok) throw new Error(await err(r, 'No se pudo previsualizar.'));
   return r.json();
-};
-
-/** Supervisores reales disponibles para elegir como firma de una plantilla
- *  (fuente única: backend, nunca una lista hardcodeada en el frontend). */
-export const getSupervisoresFirma = async (): Promise<SupervisorFirma[]> => {
-  const r = await apiFetch('/api/configuracion/supervisores-firma', { cache: 'no-store' });
-  if (!r.ok) throw new Error(await err(r, 'No se pudo cargar.'));
-  return r.json();
-};
-export const subirFirmaSupervisor = async (supervisorId: string, file: File): Promise<{ path: string }> => {
-  const f = new FormData(); f.append('file', file);
-  const r = await apiFetch(`/api/configuracion/supervisores-firma/${supervisorId}`, { method: 'POST', body: f });
-  if (!r.ok) throw new Error(await err(r, 'No se pudo subir.'));
-  return r.json();
-};
-/** URL firmada temporal de la firma de un supervisor (`null` si no tiene imagen configurada). */
-export const obtenerUrlFirmaSupervisor = async (supervisorId: string): Promise<string | null> => {
-  const r = await apiFetch(`/api/configuracion/supervisores-firma/${supervisorId}/url`, { cache: 'no-store' });
-  if (!r.ok) return null;
-  return (await r.json()).url as string | null;
 };
