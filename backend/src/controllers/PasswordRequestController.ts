@@ -6,6 +6,7 @@ import {
   eliminarSolicitudesHistorial,
   PasswordRequestError
 } from '../services/PasswordRequestService';
+import { notificarPasswordCambiada, notificarSolicitudPasswordRechazada } from '../services/NotificacionesService';
 
 /**
  * Controlador de solicitudes de cambio de contraseña.
@@ -42,6 +43,15 @@ export class PasswordRequestController {
       }
       const actorId = req.auth?.userId ?? null;
       const result = await resolverSolicitud(id, accion, observaciones ? String(observaciones) : null, actorId);
+      if (result.usuarioId) {
+        try {
+          if (accion === 'aprobar') {
+            await notificarPasswordCambiada({ usuarioId: result.usuarioId, actorId, referenciaId: id });
+          } else {
+            await notificarSolicitudPasswordRechazada({ usuarioId: result.usuarioId, actorId, solicitudId: id });
+          }
+        } catch (notifErr) { console.error('[NOTIFICACIONES] solicitud de contraseña:', notifErr); }
+      }
       return res.json(result);
     } catch (error) {
       return this.fail(res, error, 'No se pudo resolver la solicitud.');

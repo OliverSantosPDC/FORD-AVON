@@ -15,6 +15,7 @@ import catalogosRoutes from './routes/catalogosRoutes';
 import inteligenciaRoutes from './routes/inteligenciaRoutes';
 import asignacionRoutes from './routes/asignacionRoutes';
 import brandingRoutes from './routes/brandingRoutes';
+import notificacionesRoutes from './routes/notificacionesRoutes';
 
 const app = express();
 const port = process.env.PORT ?? 4000;
@@ -57,6 +58,7 @@ app.use('/api', usuariosRoutes);
 app.use('/api', calendarRoutes);
 app.use('/api', infoRoutes);
 app.use('/api', gestionRoutes);
+app.use('/api', notificacionesRoutes);
 app.use('/api', configRoutes);
 app.use('/api', controlRoutes);
 app.use('/api', catalogosRoutes);

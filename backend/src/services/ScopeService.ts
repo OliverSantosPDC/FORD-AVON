@@ -191,7 +191,7 @@ const paisZonaPorGerenteId = async (gerenteUserIds: string[]): Promise<Map<strin
  *  ramas paralelas (`supervisor_gestor` / `supervisor_gerente_zona`). Esta
  *  es la única fuente real para acotar el catálogo cruzado Gestor↔Gerente en
  *  los filtros (ver `PersonaFiltro.supervisorIds`, `carteraAggregations.ts`). */
-const supervisoresPorGestorId = async (gestorIds: string[]): Promise<Map<string, string[]>> => {
+export const supervisoresPorGestorId = async (gestorIds: string[]): Promise<Map<string, string[]>> => {
   const map = new Map<string, string[]>();
   if (gestorIds.length === 0) return map;
   const today = serverDate();

@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Alert, Box, Button, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle,
   Divider, Grid, IconButton, Menu, MenuItem, Paper, Snackbar, Stack, Tab, Table, TableBody, TableCell, TableContainer,
@@ -132,7 +133,12 @@ const GestionPage = () => {
   // por su posición entre los hijos efectivamente renderizados.
   const tabTipificaciones = canVerCartas ? 2 : 1;
 
-  const [tab, setTab] = useState(0);
+  const [searchParams] = useSearchParams();
+  // Deep link desde la campana de notificaciones (carta autorizada/rechazada
+  // -> /gestion?tab=cartas): solo decide la pestaña INICIAL, una sola vez al
+  // montar — después el usuario puede cambiar de pestaña libremente, sin que
+  // el parámetro de la URL lo vuelva a forzar.
+  const [tab, setTab] = useState(() => (searchParams.get('tab') === 'cartas' && canVerCartas ? 1 : 0));
   const [filters, setFilters] = useState<DashboardMultiFilterParams>(EMPTY_FILTERS);
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [cuentas, setCuentas] = useState<Array<Record<string, unknown>>>([]);

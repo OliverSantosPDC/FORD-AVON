@@ -64,11 +64,11 @@ export const codigoDeAdjunto = async (id: string): Promise<string | null> => {
 };
 
 /** Datos mínimos (gestor_id) de una carta por id, o null si la carta no existe. */
-export const gestorDeCarta = async (id: string): Promise<{ gestorId: string | null } | null> => {
-  const { data, error } = await client().from('gestion_cartas').select('gestor_id').eq('id', id).limit(1);
+export const gestorDeCarta = async (id: string): Promise<{ gestorId: string | null; codigo: string; pd: string | null } | null> => {
+  const { data, error } = await client().from('gestion_cartas').select('gestor_id, codigo, pd').eq('id', id).limit(1);
   if (error) throw new GestionError(`No se pudo leer la carta: ${error.message}`);
-  const rows = (data ?? []) as Array<{ gestor_id: string | null }>;
-  return rows.length ? { gestorId: rows[0].gestor_id } : null;
+  const rows = (data ?? []) as Array<{ gestor_id: string | null; codigo: string; pd: string | null }>;
+  return rows.length ? { gestorId: rows[0].gestor_id, codigo: rows[0].codigo, pd: rows[0].pd } : null;
 };
 
 /* ===== Tipificación / gestión ===== */
@@ -458,6 +458,10 @@ export const resolverCarta = async (id: string, aprobar: boolean, comentario: st
 export interface ResolverCartasMasivoResultado {
   autorizadas: string[];
   omitidas: Array<{ id: string; motivo: string }>;
+  /** `{id, codigo, gestorId}` de cada carta EFECTIVAMENTE autorizada — para
+   *  que el caller (controller) pueda notificar a cada gestor sin una
+   *  segunda consulta; nunca incluye las omitidas. */
+  detalleAutorizadas: Array<{ id: string; codigo: string; gestorId: string | null }>;
 }
 
 /**
@@ -475,14 +479,14 @@ export const resolverCartasMasivo = async (
   ids: string[], comentario: string | null, actor: string, ctx: ScopeContext
 ): Promise<ResolverCartasMasivoResultado> => {
   const idsUnicos = Array.from(new Set(ids.filter((x) => typeof x === 'string' && x.trim())));
-  if (idsUnicos.length === 0) return { autorizadas: [], omitidas: [] };
+  if (idsUnicos.length === 0) return { autorizadas: [], omitidas: [], detalleAutorizadas: [] };
 
   const firmaPath = await storagePathFirmaSupervisor(actor);
   if (!firmaPath) throw new GestionError(SIN_FIRMA_AUTORIZACION_MSG);
 
-  const { data: filas, error } = await client().from('gestion_cartas').select('id, gestor_id, estado').in('id', idsUnicos);
+  const { data: filas, error } = await client().from('gestion_cartas').select('id, gestor_id, codigo, estado').in('id', idsUnicos);
   if (error) throw new GestionError(`No se pudieron leer las cartas: ${error.message}`);
-  const encontradas = new Map(((filas ?? []) as Array<{ id: string; gestor_id: string | null; estado: string }>).map((f) => [f.id, f]));
+  const encontradas = new Map(((filas ?? []) as Array<{ id: string; gestor_id: string | null; codigo: string; estado: string }>).map((f) => [f.id, f]));
 
   const alcance = await usuariosDelAlcance(ctx);
   const omitidas: Array<{ id: string; motivo: string }> = [];
@@ -495,7 +499,7 @@ export const resolverCartasMasivo = async (
     if (fila.estado !== 'PENDIENTE_APROBACION') { omitidas.push({ id, motivo: `Ya está en estado ${fila.estado}.` }); continue; }
     candidatas.push(id);
   }
-  if (candidatas.length === 0) return { autorizadas: [], omitidas };
+  if (candidatas.length === 0) return { autorizadas: [], omitidas, detalleAutorizadas: [] };
 
   const { data: actualizadas, error: updErr } = await client().from('gestion_cartas')
     .update({
@@ -510,6 +514,10 @@ export const resolverCartasMasivo = async (
   const autorizadas = ((actualizadas ?? []) as Array<{ id: string }>).map((r) => r.id);
   const autorizadasSet = new Set(autorizadas);
   candidatas.forEach((id) => { if (!autorizadasSet.has(id)) omitidas.push({ id, motivo: 'Cambió de estado justo antes de autorizar.' }); });
+  const detalleAutorizadas = autorizadas.map((id) => {
+    const fila = encontradas.get(id)!;
+    return { id, codigo: fila.codigo, gestorId: fila.gestor_id };
+  });
 
-  return { autorizadas, omitidas };
+  return { autorizadas, omitidas, detalleAutorizadas };
 };

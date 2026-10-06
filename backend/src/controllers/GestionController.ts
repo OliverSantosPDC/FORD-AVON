@@ -12,6 +12,7 @@ import {
 } from '../services/GestionService';
 import { registrarAuditoria } from '../services/AuditoriaService';
 import { getTasasPorMoneda, subirFirmaSupervisor, urlFirmaSupervisor } from '../services/ConfigService';
+import { notificarCartaEscalada, notificarCartaResuelta } from '../services/NotificacionesService';
 
 const carteraService = new CarteraService(new CarteraRepository(getCarteraDataSource()));
 
@@ -197,6 +198,14 @@ export class GestionController {
       const tasas = await getTasasPorMoneda();
       const r = await crearCarta(row, tasas, req.body?.comentario ?? null, actor);
       await registrarAuditoria(actor, 'GESTION_CARTA_CREAR', 'gestion', r.id, { codigo: req.params.codigo });
+      // Notificación best-effort: NUNCA debe revertir ni afectar la
+      // respuesta si falla — la carta ya se creó correctamente.
+      try {
+        await notificarCartaEscalada({
+          cartaId: r.id, codigo: req.params.codigo, gestorUsuarioId: actor,
+          pd: (row.pd_actual as string | null) ?? null, nombreCuenta: (row.nombre as string | null) ?? null
+        });
+      } catch (notifErr) { console.error('[NOTIFICACIONES] carta escalada:', notifErr); }
       return res.status(201).json(r);
     } catch (e) { return this.fail(res, e, 'No se pudo crear la carta.'); }
   }
@@ -232,6 +241,9 @@ export class GestionController {
       const actor = req.auth?.userId ?? null;
       await resolverCarta(req.params.id, true, req.body?.comentario ?? null, actor);
       await registrarAuditoria(actor, 'GESTION_CARTA_APROBAR', 'gestion', req.params.id, null);
+      try {
+        await notificarCartaResuelta({ cartaId: req.params.id, codigo: carta.codigo, gestorUsuarioId: carta.gestorId, aprobar: true, aprobadoPor: actor });
+      } catch (notifErr) { console.error('[NOTIFICACIONES] carta autorizada:', notifErr); }
       return res.json({ ok: true });
     } catch (e) { return this.fail(res, e, 'No se pudo aprobar la carta.'); }
   }
@@ -245,6 +257,9 @@ export class GestionController {
       const actor = req.auth?.userId ?? null;
       await resolverCarta(req.params.id, false, req.body?.comentario ?? null, actor);
       await registrarAuditoria(actor, 'GESTION_CARTA_RECHAZAR', 'gestion', req.params.id, null);
+      try {
+        await notificarCartaResuelta({ cartaId: req.params.id, codigo: carta.codigo, gestorUsuarioId: carta.gestorId, aprobar: false, aprobadoPor: actor });
+      } catch (notifErr) { console.error('[NOTIFICACIONES] carta rechazada:', notifErr); }
       return res.json({ ok: true });
     } catch (e) { return this.fail(res, e, 'No se pudo rechazar la carta.'); }
   }
@@ -285,6 +300,11 @@ export class GestionController {
       const comentario = typeof req.body?.comentario === 'string' && req.body.comentario.trim() ? req.body.comentario : null;
       const r = await resolverCartasMasivo(ids, comentario, actor, ctx);
       await registrarAuditoria(actor, 'GESTION_CARTA_APROBAR_MASIVO', 'gestion', null, { solicitadas: ids.length, autorizadas: r.autorizadas.length, omitidas: r.omitidas.length });
+      try {
+        await Promise.all(r.detalleAutorizadas.map((c) =>
+          notificarCartaResuelta({ cartaId: c.id, codigo: c.codigo, gestorUsuarioId: c.gestorId, aprobar: true, aprobadoPor: actor })
+        ));
+      } catch (notifErr) { console.error('[NOTIFICACIONES] autorización masiva:', notifErr); }
       return res.json(r);
     } catch (e) { return this.fail(res, e, 'No se pudieron autorizar las cartas.'); }
   }

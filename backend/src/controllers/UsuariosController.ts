@@ -20,6 +20,7 @@ import {
 } from '../services/UsuariosService';
 import { generarPlantilla, parsearWorkbook } from '../utils/usuariosExcel';
 import { registrarAuditoria } from '../services/AuditoriaService';
+import { notificarPasswordCambiada } from '../services/NotificacionesService';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
@@ -88,6 +89,9 @@ export class UsuariosController {
       await restablecerPassword(req.params.id, String(password ?? ''));
       // Auditoría SIN contraseña.
       await registrarAuditoria(req.auth?.userId ?? null, 'RESET_PASSWORD_USUARIO', 'usuarios', req.params.id, {});
+      try {
+        await notificarPasswordCambiada({ usuarioId: req.params.id, actorId: req.auth?.userId ?? null });
+      } catch (notifErr) { console.error('[NOTIFICACIONES] password cambiada:', notifErr); }
       return res.json({ ok: true });
     } catch (error) {
       return this.fail(res, error, 'No se pudo restablecer la contraseña.');
@@ -107,6 +111,9 @@ export class UsuariosController {
         email,
         expiresAt
       });
+      try {
+        await notificarPasswordCambiada({ usuarioId: req.params.id, actorId: req.auth?.userId ?? null });
+      } catch (notifErr) { console.error('[NOTIFICACIONES] password temporal cambiada:', notifErr); }
       return res.json({ ok: true, email, expiresAt });
     } catch (error) {
       return this.fail(res, error, 'No se pudo restablecer la contraseña temporal.');

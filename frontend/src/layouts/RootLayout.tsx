@@ -24,14 +24,13 @@ import {
   Typography,
   Menu,
   MenuItem,
-  Badge,
   Tooltip
 } from '@mui/material';
-import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone';
 import MenuOpenIcon from '@mui/icons-material/MenuOpen';
 import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
 import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
 import SidebarNav, { type SidebarNavHandle } from '../components/layout/SidebarNav';
+import NotificationBell from '../components/layout/NotificationBell';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import LogoutIcon from '@mui/icons-material/Logout';
@@ -327,23 +326,7 @@ const RootLayout = () => {
                 {mode === 'dark' ? <LightModeIcon fontSize="small" /> : <DarkModeIcon fontSize="small" />}
               </IconButton>
             </Tooltip>
-            <Tooltip title="Notificaciones">
-              <IconButton
-                size="small"
-                aria-label="notificaciones"
-                sx={{
-                  bgcolor: mode === 'light' ? '#FFFFFF' : '#0F172A',
-                  border: '1px solid',
-                  borderColor: mode === 'light' ? '#EEF2F7' : '#334155',
-                  transition: 'all 220ms ease-in-out',
-                  '&:hover': { transform: 'translateY(-1px)', boxShadow: '0 10px 24px rgba(15, 23, 42, 0.12)' }
-                }}
-              >
-                <Badge badgeContent={3} color="secondary">
-                  <NotificationsNoneIcon fontSize="small" />
-                </Badge>
-              </IconButton>
-            </Tooltip>
+            <NotificationBell mode={mode} />
             <Tooltip title="Abrir menú de usuario">
               <IconButton
                 size="small"

@@ -76,7 +76,7 @@ export const resolverSolicitud = async (
   accion: 'aprobar' | 'rechazar',
   observaciones: string | null,
   actorId: string | null
-): Promise<{ estado: string; passwordTemporal?: string }> => {
+): Promise<{ estado: string; passwordTemporal?: string; usuarioId: string | null }> => {
   const cl = c();
   const { data: sol, error: e1 } = await cl
     .from('password_change_requests')
@@ -96,7 +96,7 @@ export const resolverSolicitud = async (
       .eq('id', id);
     if (error) throw new PasswordRequestError('No se pudo rechazar la solicitud.');
     await registrarAuditoria(actorId, 'password_request.rechazar', 'password_change_requests', id, { email: solicitud.email });
-    return { estado: 'RECHAZADA' };
+    return { estado: 'RECHAZADA', usuarioId: solicitud.usuario_id };
   }
 
   // Aprobar: requiere que el correo corresponda a un usuario existente.
@@ -113,7 +113,7 @@ export const resolverSolicitud = async (
     .eq('id', id);
   if (error) throw new PasswordRequestError('Contraseña restablecida pero no se pudo actualizar la solicitud.');
   await registrarAuditoria(actorId, 'password_request.aprobar', 'password_change_requests', id, { email: solicitud.email });
-  return { estado: 'COMPLETADA', passwordTemporal };
+  return { estado: 'COMPLETADA', passwordTemporal, usuarioId: solicitud.usuario_id };
 };
 
 /** Estados que representan HISTORIAL (resueltas). Nunca se borra una solicitud PENDIENTE. */
