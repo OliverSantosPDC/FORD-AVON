@@ -61,10 +61,13 @@ const HEAD_H = ['Nivel', 'Grupo', 'Sub', 'Cuentas', 'Saldo Local', 'Saldo USD', 
 // saldo_actual_usd). El saldo se re-expresa en la moneda elegida localmente
 // aquí (misma fórmula `usd * tasaActual` que Gestión/Dashboard), nunca
 // hardcodeando "$"/"USD".
-const DIST_ROW_H = 30;
-const DIST_PAD_H = 56;
-const DIST_MIN_H = 210;
-const DIST_MAX_VISIBLE_H = 360;
+// Mismo alto que el resto de los gráficos del dashboard (CHART_HEIGHT en
+// DashboardCharts.tsx) — antes 360px, mucho más grande que cualquier otro
+// gráfico del sistema.
+const DIST_ROW_H = 24;
+const DIST_PAD_H = 40;
+const DIST_MIN_H = 180;
+const DIST_MAX_VISIBLE_H = 240;
 const distAxisTick = { fill: '#475569', fontSize: 10.5 };
 const distFormatCompact = (value: number) => {
   if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -125,9 +128,9 @@ const DistribucionCard = ({ titulo, dimLabel, items, simbolo, tasaActual, chartI
               <BarChart data={data} layout="vertical" margin={{ top: 4, right: 28, left: 4, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" horizontal={false} />
                 <XAxis type="number" tickFormatter={distFormatCompact} tick={distAxisTick} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="clave" width={132} tick={distAxisTick} axisLine={false} tickLine={false} interval={0} />
+                <YAxis type="category" dataKey="clave" width={112} tick={distAxisTick} axisLine={false} tickLine={false} interval={0} />
                 <RTooltip content={<DistribTooltip dimLabel={dimLabel} simbolo={simbolo} />} cursor={{ fill: 'rgba(230,0,126,0.06)' }} />
-                <RBar dataKey="valor" name="Saldo actual" fill="#1E3A8A" radius={[0, 6, 6, 0]} barSize={16} />
+                <RBar dataKey="valor" name="Saldo actual" fill="#1E3A8A" radius={[0, 6, 6, 0]} barSize={10} />
               </BarChart>
             </ResponsiveContainer>
           </Box>
