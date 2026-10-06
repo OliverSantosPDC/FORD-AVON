@@ -15,8 +15,9 @@ import {
   getPlantillas, subirPlantilla, descargarPlantilla, subirAsset, obtenerUrlAsset,
   getTasasConversion, actualizarTasaConversion, getMetaGlobal, guardarMetaGlobal,
   getPlantillasCarta, actualizarPlantillaCarta, previsualizarPlantillaCarta, previsualizarBorradorPlantillaCarta,
+  getSupervisoresFirma, subirFirmaSupervisor, obtenerUrlFirmaSupervisor,
   type Catalogo, type Plantilla, type TasaConversion, type MetaGlobal,
-  type PlantillaCarta, type VariableCarta, type CartaPreviewAdmin
+  type PlantillaCarta, type VariableCarta, type CartaPreviewAdmin, type SupervisorFirma
 } from '../../services/configuracionService';
 import { simboloMoneda } from '../../utils/monedaOptions';
 import CartaRenderer from '../../components/common/CartaRenderer';
@@ -136,10 +137,18 @@ const ConfiguracionPage = () => {
   // Plantillas de carta de cobro por PD (PD1-PD3 comparten una; PD0 no tiene carta)
   const [plantillasCarta, setPlantillasCarta] = useState<PlantillaCarta[]>([]);
   const [variablesCarta, setVariablesCarta] = useState<VariableCarta[]>([]);
+  // Supervisores reales disponibles como firma de una plantilla (nunca hardcodeado).
+  const [supervisoresFirma, setSupervisoresFirma] = useState<SupervisorFirma[]>([]);
   const [cartaEditClave, setCartaEditClave] = useState<string | null>(null);
   const [cartaEditContenido, setCartaEditContenido] = useState('');
   const [cartaEditAsunto, setCartaEditAsunto] = useState('');
   const [cartaEditActivo, setCartaEditActivo] = useState(true);
+  // Firma de ESTA plantilla: referencia al supervisor elegido (null = "Sin
+  // firma" explícito) + la URL ya resuelta de su imagen, para la miniatura
+  // "Vista previa de firma" dentro del editor.
+  const [cartaEditFirmaSupervisorId, setCartaEditFirmaSupervisorId] = useState<string | null>(null);
+  const [cartaEditFirmaPreviewUrl, setCartaEditFirmaPreviewUrl] = useState<string | null>(null);
+  const [cartaEditFirmaSubiendo, setCartaEditFirmaSubiendo] = useState(false);
   // Solo relevante al editar carta_pd7 — reutiliza la MISMA clave general
   // 'plazo_pd7_dias' (nunca un campo paralelo); se guarda junto con la
   // plantilla en un solo "Guardar" para que se sienta una sola edición.
@@ -156,7 +165,6 @@ const ConfiguracionPage = () => {
   const [cartaPrevCodigo, setCartaPrevCodigo] = useState('');
   const [cartaPrevResult, setCartaPrevResult] = useState<CartaPreviewAdmin | null>(null);
   const [cartaPrevLogoUrl, setCartaPrevLogoUrl] = useState<string | null>(null);
-  const [cartaPrevFirmaUrl, setCartaPrevFirmaUrl] = useState<string | null>(null);
   const [cartaPrevBusy, setCartaPrevBusy] = useState(false);
   // Tasas de conversión
   const [tasas, setTasas] = useState<TasaConversion[]>([]);
@@ -172,9 +180,12 @@ const ConfiguracionPage = () => {
   useEffect(() => {
     (async () => {
       try {
-        const [g, c, p, tc, mc, pc] = await Promise.all([getGeneral(), getCatalogos(), getPlantillas(), getTasasConversion(), getMetaGlobal(), getPlantillasCarta()]);
+        const [g, c, p, tc, mc, pc, sf] = await Promise.all([
+          getGeneral(), getCatalogos(), getPlantillas(), getTasasConversion(), getMetaGlobal(), getPlantillasCarta(), getSupervisoresFirma()
+        ]);
         setGeneral2(g); setCatalogos(c); setPlantillas(p); setTasas(tc);
         setPlantillasCarta(pc.items); setVariablesCarta(pc.variables);
+        setSupervisoresFirma(sf);
         setMetaCfg(mc);
         setMetaTipo(mc.tipo ?? 'MONTO');
         setMetaDraft(mc.tipo === 'PORCENTAJE' ? String(Math.round((mc.porcentaje ?? 0) * 1e6) / 1e4) : mc.tipo === 'MONTO' ? String(Math.round((mc.montoUsdGlobal ?? 0) * 100) / 100) : '');
@@ -221,18 +232,43 @@ const ConfiguracionPage = () => {
     setCartaEditAsunto(p.asunto ?? '');
     setCartaEditActivo(p.activo);
     setCartaEditPlazo(gv('plazo_pd7_dias'));
+    setCartaEditFirmaSupervisorId(p.firmaSupervisorId);
+    setCartaEditFirmaPreviewUrl(p.firmaUrl);
     setCartaEditTab(0);
     setCartaEditPreview(null);
     obtenerUrlAsset('logo_principal').then(setCartaPrevLogoUrl);
-    obtenerUrlAsset('firma').then(setCartaPrevFirmaUrl);
   };
-  /** Previsualiza el BORRADOR actual del editor (contenido/asunto tal como
-   *  están en el textarea, aún sin guardar) — nunca toca lo persistido. */
+  /** Cambia la firma elegida para la plantilla en edición (aún sin guardar):
+   *  resuelve de inmediato la miniatura "Vista previa de firma" del nuevo
+   *  supervisor elegido (o la limpia si se elige "Sin firma"). */
+  const cambiarFirmaEditor = (id: string | null) => {
+    setCartaEditFirmaSupervisorId(id);
+    if (id) obtenerUrlFirmaSupervisor(id).then(setCartaEditFirmaPreviewUrl);
+    else setCartaEditFirmaPreviewUrl(null);
+  };
+  /** Sube una imagen de firma NUEVA para el supervisor actualmente elegido
+   *  en el selector — no depende de haber guardado la plantilla antes. */
+  const subirFirmaDelSupervisorElegido = async (file: File | null) => {
+    if (!file || !cartaEditFirmaSupervisorId) return;
+    if (!file.type.startsWith('image/')) { setToast('El archivo debe ser una imagen (PNG, JPG, GIF, WEBP, SVG, etc.).'); return; }
+    setCartaEditFirmaSubiendo(true);
+    try {
+      await subirFirmaSupervisor(cartaEditFirmaSupervisorId, file);
+      setCartaEditFirmaPreviewUrl(await obtenerUrlFirmaSupervisor(cartaEditFirmaSupervisorId));
+      setSupervisoresFirma(await getSupervisoresFirma());
+      setToast('Imagen de firma subida.');
+    } catch (e) { setToast(e instanceof Error ? e.message : 'No se pudo subir la firma.'); }
+    finally { setCartaEditFirmaSubiendo(false); }
+  };
+  /** Previsualiza el BORRADOR actual del editor (contenido/asunto/firma tal
+   *  como están en el formulario, aún sin guardar) — nunca toca lo persistido. */
   const previsualizarBorradorActual = async () => {
     if (!cartaEditClave || !cartaEditContenido.trim()) return;
     setCartaEditPreviewBusy(true);
     try {
-      const r = await previsualizarBorradorPlantillaCarta(cartaEditClave, { contenido: cartaEditContenido, asunto: cartaEditAsunto });
+      const r = await previsualizarBorradorPlantillaCarta(cartaEditClave, {
+        contenido: cartaEditContenido, asunto: cartaEditAsunto, firmaSupervisorId: cartaEditFirmaSupervisorId
+      });
       setCartaEditPreview(r);
     } catch (e) { setToast(e instanceof Error ? e.message : 'No se pudo previsualizar.'); }
     finally { setCartaEditPreviewBusy(false); }
@@ -245,7 +281,9 @@ const ConfiguracionPage = () => {
     if (!cartaEditClave) return;
     setCartaEditBusy(true);
     try {
-      await actualizarPlantillaCarta(cartaEditClave, { contenido: cartaEditContenido, asunto: cartaEditAsunto, activo: cartaEditActivo });
+      await actualizarPlantillaCarta(cartaEditClave, {
+        contenido: cartaEditContenido, asunto: cartaEditAsunto, activo: cartaEditActivo, firmaSupervisorId: cartaEditFirmaSupervisorId
+      });
       // Plazo (solo PD7): se persiste aquí mismo, en config_general, EXACTAMENTE
       // la misma clave 'plazo_pd7_dias' que usa el resto del sistema — nunca
       // un valor paralelo.
@@ -266,7 +304,6 @@ const ConfiguracionPage = () => {
   const abrirPreviewCarta = (clave: string) => {
     setCartaPrevClave(clave); setCartaPrevCodigo(''); setCartaPrevResult(null);
     obtenerUrlAsset('logo_principal').then(setCartaPrevLogoUrl);
-    obtenerUrlAsset('firma').then(setCartaPrevFirmaUrl);
     setCartaPrevBusy(true);
     previsualizarPlantillaCarta(clave, {}).then(setCartaPrevResult).catch((e) => setToast(e instanceof Error ? e.message : 'No se pudo previsualizar.')).finally(() => setCartaPrevBusy(false));
   };
@@ -323,7 +360,6 @@ const ConfiguracionPage = () => {
             <AssetUpload label="Logo principal" clave="logo_principal" value={gv('logo_principal')} canEdit={canEdit} onUpload={uploadAsset} />
             <AssetUpload label="Logo Login" clave="logo_login" value={gv('logo_login')} canEdit={canEdit} onUpload={uploadAsset} />
             <AssetUpload label="Favicon" clave="favicon" value={gv('favicon')} canEdit={canEdit} onUpload={uploadAsset} />
-            <AssetUpload label="Firma (cartas de cobro)" clave="firma" value={gv('firma')} canEdit={canEdit} onUpload={uploadAsset} />
             <Divider /><Typography sx={{ fontWeight: 700 }}>Configuración</Typography>
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6}><TextField label="Zona horaria" value={gv('zona_horaria')} onChange={(e) => sgv('zona_horaria', e.target.value)} size="small" fullWidth disabled={!canEdit} /></Grid>
@@ -527,6 +563,51 @@ const ConfiguracionPage = () => {
                   inputProps={{ min: 0, step: 1 }}
                 />
               )}
+
+              {/* Firma: SIEMPRE presente en las 5 plantillas (nunca solo en
+                  PD7), con un selector de supervisores REALES (nunca una
+                  lista hardcodeada) + "Sin firma" explícito. */}
+              <Box>
+                <Typography sx={{ fontSize: 12, fontWeight: 700, mb: 0.5 }}>Firma</Typography>
+                <Stack direction="row" spacing={2} alignItems="flex-start" flexWrap="wrap" useFlexGap>
+                  <TextField
+                    select
+                    size="small"
+                    sx={{ minWidth: 340 }}
+                    label="Supervisor / firma"
+                    value={cartaEditFirmaSupervisorId ?? '__sin_firma__'}
+                    disabled={!canEdit}
+                    onChange={(e) => cambiarFirmaEditor(e.target.value === '__sin_firma__' ? null : e.target.value)}
+                  >
+                    <MenuItem value="__sin_firma__">Sin firma</MenuItem>
+                    {supervisoresFirma.map((s) => (
+                      <MenuItem key={s.id} value={s.id}>
+                        {s.nombre}{s.apellido ? ` ${s.apellido}` : ''} — {s.tieneFirma ? 'Firma configurada' : 'Sin firma configurada'}{!s.activo ? ' · Inactivo' : ''}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <Box>
+                    <Typography sx={{ fontSize: 11, color: 'text.secondary', mb: 0.5 }}>Vista previa de firma</Typography>
+                    {cartaEditFirmaSupervisorId ? (
+                      cartaEditFirmaPreviewUrl
+                        ? <Box component="img" src={cartaEditFirmaPreviewUrl} alt="Firma" sx={{ height: 56, display: 'block', border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 0.5, bgcolor: '#fff' }} />
+                        : <Typography sx={{ fontSize: 12, fontStyle: 'italic', color: 'text.secondary' }}>[Firma no configurada]</Typography>
+                    ) : (
+                      <Typography sx={{ fontSize: 12, fontStyle: 'italic', color: 'text.secondary' }}>Sin firma</Typography>
+                    )}
+                    {canEdit && cartaEditFirmaSupervisorId && (
+                      <Button size="small" component="label" disabled={cartaEditFirmaSubiendo} sx={{ textTransform: 'none', mt: 0.5, px: 0 }}>
+                        {cartaEditFirmaSubiendo ? 'Subiendo...' : (cartaEditFirmaPreviewUrl ? 'Reemplazar imagen de firma' : 'Subir imagen de firma')}
+                        <input
+                          hidden type="file" accept="image/*"
+                          onChange={(e) => { const f = e.target.files?.[0] ?? null; e.target.value = ''; void subirFirmaDelSupervisorElegido(f); }}
+                        />
+                      </Button>
+                    )}
+                  </Box>
+                </Stack>
+              </Box>
+
               <Box>
                 <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 0.5 }}>
                   Variables disponibles — haz clic en una para copiarla, y pégala donde la necesites dentro del texto.
@@ -569,7 +650,12 @@ const ConfiguracionPage = () => {
               )}
               {cartaEditPreview?.contenido && (
                 <Box sx={{ boxShadow: 3, borderRadius: 1, bgcolor: '#fff' }}>
-                  <CartaRenderer contenido={cartaEditPreview.contenido} logoUrl={cartaPrevLogoUrl} firmaUrl={cartaPrevFirmaUrl} />
+                  <CartaRenderer
+                    contenido={cartaEditPreview.contenido}
+                    logoUrl={cartaPrevLogoUrl}
+                    firmaUrl={cartaEditPreview.firmaUrl}
+                    firmaPendienteTexto="[Firma no configurada]"
+                  />
                 </Box>
               )}
               <Button size="small" variant="outlined" disabled={cartaEditPreviewBusy} onClick={previsualizarBorradorActual} sx={{ textTransform: 'none' }}>
@@ -625,7 +711,12 @@ const ConfiguracionPage = () => {
             )}
             {cartaPrevResult?.contenido && (
               <Box sx={{ boxShadow: 3, borderRadius: 1, bgcolor: '#fff' }}>
-                <CartaRenderer contenido={cartaPrevResult.contenido} logoUrl={cartaPrevLogoUrl} firmaUrl={cartaPrevFirmaUrl} />
+                <CartaRenderer
+                  contenido={cartaPrevResult.contenido}
+                  logoUrl={cartaPrevLogoUrl}
+                  firmaUrl={cartaPrevResult.firmaUrl}
+                  firmaPendienteTexto="[Firma no configurada]"
+                />
               </Box>
             )}
           </Stack>

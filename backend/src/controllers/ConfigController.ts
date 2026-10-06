@@ -4,7 +4,8 @@ import {
   getRolesPermisos, setRolPermisos,
   listPlantillas, subirPlantilla, subirAsset, urlAsset, urlPlantilla,
   leerPlantillaCarta, guardarPlantillaCarta, getTasasPorMoneda,
-  listTasasConversion, actualizarTasaConversion, ConfigError
+  listTasasConversion, actualizarTasaConversion, ConfigError,
+  listarSupervisoresFirma, subirFirmaSupervisor, urlFirmaSupervisor, esSupervisor
 } from '../services/ConfigService';
 import { getMetaGlobalComputada, guardarMetaGlobal } from '../services/MetasService';
 import { registrarAuditoria } from '../services/AuditoriaService';
@@ -102,6 +103,8 @@ export class ConfigController {
     try {
       const items = await Promise.all(PLANTILLAS_CARTA_INFO.map(async (info) => {
         const row = await leerPlantillaCarta(info.clave);
+        const firmaSupervisorId = row?.firma_supervisor_id ?? null;
+        const firmaUrl = await urlFirmaSupervisor(firmaSupervisorId);
         return {
           ...info,
           contenido: row?.contenido ?? null,
@@ -109,7 +112,9 @@ export class ConfigController {
           activo: row?.activo ?? true,
           version: row?.version ?? null,
           updatedAt: row?.updated_at ?? null,
-          updatedBy: row?.updated_by ?? null
+          updatedBy: row?.updated_by ?? null,
+          firmaSupervisorId,
+          firmaUrl
         };
       }));
       return res.json({ items, variables: VARIABLES_CARTA });
@@ -129,10 +134,45 @@ export class ConfigController {
       const activo = req.body?.activo !== false;
       if (!contenido.trim()) return res.status(400).json({ error: 'El contenido no puede estar vacío.' });
       if (!asunto.trim()) return res.status(400).json({ error: 'El asunto no puede estar vacío.' });
-      const r = await guardarPlantillaCarta(req.params.clave, { contenido, asunto, activo }, req.auth?.userId ?? null);
+
+      // Firma: referencia a un supervisor REAL, o null ("Sin firma" explícito)
+      // — nunca se confía en el id que manda el cliente sin verificarlo contra
+      // la fuente real de supervisores.
+      const rawFirma = req.body?.firmaSupervisorId;
+      let firmaSupervisorId: string | null = null;
+      if (rawFirma !== undefined && rawFirma !== null && String(rawFirma).trim() !== '') {
+        const candidato = String(rawFirma).trim();
+        if (!(await esSupervisor(candidato))) return res.status(400).json({ error: 'Supervisor no válido.' });
+        firmaSupervisorId = candidato;
+      }
+
+      const r = await guardarPlantillaCarta(req.params.clave, { contenido, asunto, activo, firmaSupervisorId }, req.auth?.userId ?? null);
       await this.audit(req, 'CONFIG_PLANTILLA_CARTA_EDITAR', req.params.clave);
       return res.json(r);
     } catch (e) { return this.fail(res, e); }
+  }
+
+  /** Supervisores REALES disponibles para elegir como firma de una
+   *  plantilla (ver listarSupervisoresFirma: nunca hardcodeado). */
+  async supervisoresFirma(_req: Request, res: Response) {
+    try { return res.json(await listarSupervisoresFirma()); } catch (e) { return this.fail(res, e); }
+  }
+
+  /** Sube/reemplaza la imagen de firma de UN supervisor. */
+  async subirFirmaSupervisor(req: Request, res: Response) {
+    try {
+      if (!req.file?.buffer) return res.status(400).json({ error: 'Adjunta un archivo.' });
+      const r = await subirFirmaSupervisor(req.params.supervisorId, req.file.originalname, req.file.buffer, req.file.mimetype || 'application/octet-stream', req.auth?.userId ?? null);
+      await this.audit(req, 'CONFIG_FIRMA_SUPERVISOR', req.params.supervisorId);
+      return res.status(201).json(r);
+    } catch (e) { return this.fail(res, e); }
+  }
+
+  /** URL firmada de la firma de UN supervisor (o `url: null` si no tiene
+   *  ninguna configurada) — usada por el selector "Firma" del editor para
+   *  mostrar la miniatura del supervisor elegido. */
+  async urlFirmaSupervisor(req: Request, res: Response) {
+    try { return res.json({ url: await urlFirmaSupervisor(req.params.supervisorId) }); } catch (e) { return this.fail(res, e); }
   }
 
   /** Previsualiza una plantilla de carta con una cuenta real (?codigo=) o,
@@ -152,7 +192,9 @@ export class ConfigController {
         datos = fixtureParaBanda(pdQuery && info.bandas.includes(pdQuery) ? pdQuery : info.bandas[0]);
       }
       const tasas = await getTasasPorMoneda();
-      return res.json(await renderizarCarta(datos, tasas));
+      const render = await renderizarCarta(datos, tasas);
+      const firmaUrl = await urlFirmaSupervisor(render.firmaSupervisorId);
+      return res.json({ ...render, firmaUrl });
     } catch (e) { return this.fail(res, e); }
   }
 
@@ -176,7 +218,15 @@ export class ConfigController {
         datos = fixtureParaBanda(pdQuery && info.bandas.includes(pdQuery) ? pdQuery : info.bandas[0]);
       }
       const [general, tasas] = await Promise.all([getGeneral(), getTasasPorMoneda()]);
-      return res.json(previsualizarContenidoCarta(datos.pdActual, contenido, asunto, datos, general, tasas));
+      const render = previsualizarContenidoCarta(datos.pdActual, contenido, asunto, datos, general, tasas);
+
+      // Firma: refleja la selección ACTUAL del editor (aún sin guardar, igual
+      // que el contenido/asunto del borrador) — nunca lo ya persistido.
+      const rawFirma = req.body?.firmaSupervisorId;
+      const firmaSupervisorId = typeof rawFirma === 'string' && rawFirma.trim() ? rawFirma.trim() : null;
+      const firmaUrl = await urlFirmaSupervisor(firmaSupervisorId);
+
+      return res.json({ ...render, firmaUrl });
     } catch (e) { return this.fail(res, e); }
   }
 

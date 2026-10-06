@@ -42,12 +42,19 @@ const CONFIG_GENERAL = [
   { clave: 'firma', valor: 'assets/firma_1.png' }
 ];
 const CONFIG_PLANTILLAS = [
-  { clave: 'carta_pd1', asunto: 'Recordatorio de saldo pendiente', activo: true, version: 1, updated_at: null, updated_by: null, contenido: 'Asunto: «Asunto». Hola «Nombre_Mayusculas», código «Codigo», zona «Zona», saldo «Saldo». «Localizacion» «Fecha_emision» «Campania» «Anio_Campania» «Contacto_Gestor» «Razon_Social» «WhatsApp» «Logo» «Firma»' },
-  { clave: 'carta_pd4', asunto: 'Aviso de cuenta vencida', activo: true, version: 1, updated_at: null, updated_by: null, contenido: 'PD4: «Nombre_Mayusculas» «Saldo»' },
-  { clave: 'carta_pd7', asunto: 'Requerimiento formal de pago', activo: true, version: 1, updated_at: null, updated_by: null, contenido: 'PD7: «Nombre_Mayusculas» «Saldo» plazo de «Plazo_dias» días' },
-  { clave: 'carta_pd6', asunto: 'Urgente', activo: false, version: 1, updated_at: null, updated_by: null, contenido: 'PD6: «Nombre_Mayusculas» «Saldo»' }
+  // carta_pd1: firma configurada (supervisor 'sup-1') -> prueba el camino "con firma".
+  { clave: 'carta_pd1', asunto: 'Recordatorio de saldo pendiente', activo: true, version: 1, updated_at: null, updated_by: null, firma_supervisor_id: 'sup-1', contenido: 'Asunto: «Asunto». Hola «Nombre_Mayusculas», código «Codigo», zona «Zona», saldo «Saldo». «Localizacion» «Fecha_emision» «Campania» «Anio_Campania» «Contacto_Gestor» «Razon_Social» «WhatsApp» «Logo» «Firma»' },
+  // carta_pd4: "Sin firma" EXPLÍCITO (null) -> prueba el camino "sin firma", nunca inventada.
+  { clave: 'carta_pd4', asunto: 'Aviso de cuenta vencida', activo: true, version: 1, updated_at: null, updated_by: null, firma_supervisor_id: null, contenido: 'PD4: «Nombre_Mayusculas» «Saldo»' },
+  { clave: 'carta_pd7', asunto: 'Requerimiento formal de pago', activo: true, version: 1, updated_at: null, updated_by: null, firma_supervisor_id: null, contenido: 'PD7: «Nombre_Mayusculas» «Saldo» plazo de «Plazo_dias» días' },
+  { clave: 'carta_pd6', asunto: 'Urgente', activo: false, version: 1, updated_at: null, updated_by: null, firma_supervisor_id: null, contenido: 'PD6: «Nombre_Mayusculas» «Saldo»' }
   // carta_pd5 deliberadamente SIN fila -> simula "sin contenido todavía".
   // carta_pd6 existe pero activo:false -> simula una plantilla desactivada.
+];
+/** Imagen de firma SOLO para 'sup-1' — 'sup-2' (si se usara) representaría
+ *  un supervisor real sin firma configurada todavía ("Sin firma configurada"). */
+const FIRMAS_SUPERVISOR = [
+  { supervisor_id: 'sup-1', storage_path: 'firmas/sup-1_1_firma.png' }
 ];
 let gestionCartasRows = [];
 let nextCartaId = 1;
@@ -57,6 +64,7 @@ function filasDe(tabla) {
   if (tabla === 'config_general') return CONFIG_GENERAL;
   if (tabla === 'config_plantillas') return CONFIG_PLANTILLAS;
   if (tabla === 'gestion_cartas') return gestionCartasRows;
+  if (tabla === 'firmas_supervisor') return FIRMAS_SUPERVISOR;
   return [];
 }
 
@@ -210,6 +218,14 @@ test('renderizarCarta: PD1 con configuración completa sustituye variables corre
   assert.match(r.contenido, /«Firma»/);
   // Sin fuente de contacto del Gestor: se reporta, nunca se inventa.
   assert.deepEqual(r.variablesFaltantes, ['contacto_gestor']);
+  // carta_pd1 tiene firma_supervisor_id='sup-1' configurado en Configuración.
+  assert.equal(r.firmaSupervisorId, 'sup-1');
+});
+
+test('renderizarCarta: PD4 tiene "Sin firma" EXPLÍCITO (firma_supervisor_id null) — nunca se inventa una firma', async () => {
+  const r = await renderizarCarta(fixtureParaBanda('PD4'), {});
+  assert.equal(r.disponible, true);
+  assert.equal(r.firmaSupervisorId, null);
 });
 
 test('renderizarCarta: PD1/PD2/PD3 generan EXACTAMENTE la misma plantilla (carta_pd1)', async () => {
@@ -290,6 +306,8 @@ test('crearCarta: PD1 genera y guarda la carta con el PD/plantilla que decide el
   assert.equal(guardada.estado, 'PENDIENTE_APROBACION');
   assert.equal(guardada.gestor_id, 'gestor-1');
   assert.match(guardada.contenido, /ANA LÓPEZ/);
+  // Snapshot de la firma configurada en carta_pd1 (sup-1) AL MOMENTO de crear.
+  assert.equal(guardada.firma_supervisor_id, 'sup-1');
 });
 
 /* ============================================================================
@@ -312,12 +330,20 @@ test('obtenerCarta: carta RECHAZADA tampoco expone logo/firma ni permite descarg
   assert.equal(r.descargable, false);
 });
 
-test('obtenerCarta: carta APROBADA expone logo/firma (vía el mismo urlAsset ya existente) y queda descargable', async () => {
-  gestionCartasRows.push({ id: '3', codigo: 'C-3', pd: 'PD4', estado: 'APROBADA', contenido: 'x' });
+test('obtenerCarta: carta APROBADA con firma_supervisor_id configurado (snapshot sup-1) expone logo/firma y queda descargable', async () => {
+  gestionCartasRows.push({ id: '3', codigo: 'C-3', pd: 'PD4', estado: 'APROBADA', contenido: 'x', firma_supervisor_id: 'sup-1' });
   const r = await obtenerCarta('3');
   assert.equal(r.descargable, true);
   assert.match(r.logoUrl, /logo_principal/);
-  assert.match(r.firmaUrl, /firma/);
+  assert.match(r.firmaUrl, /firmas\/sup-1/);
+});
+
+test('obtenerCarta: carta APROBADA con "Sin firma" EXPLÍCITO (firma_supervisor_id null) expone logoUrl pero firmaUrl=null — nunca inventa una firma', async () => {
+  gestionCartasRows.push({ id: '4', codigo: 'C-4', pd: 'PD5', estado: 'APROBADA', contenido: 'x', firma_supervisor_id: null });
+  const r = await obtenerCarta('4');
+  assert.equal(r.descargable, true);
+  assert.match(r.logoUrl, /logo_principal/);
+  assert.equal(r.firmaUrl, null);
 });
 
 test('obtenerCarta: una carta inexistente devuelve null (sin lanzar) para que el controller responda 404, nunca filtra nada', async () => {

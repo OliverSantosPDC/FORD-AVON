@@ -87,6 +87,11 @@ export interface CartaRenderizada {
   plantillaClave: string | null;
   contenido: string | null;
   variablesFaltantes: string[];
+  /** Referencia estable (profiles.id) al supervisor cuya firma usa la
+   *  plantilla YA GUARDADA — null si es "Sin firma" explícito, si el PD no
+   *  tiene carta, o si viene de `previsualizarContenidoCarta` (un borrador
+   *  nunca lee config_plantillas, así que no hay fila de la que leerlo). */
+  firmaSupervisorId: string | null;
 }
 
 /**
@@ -179,12 +184,12 @@ export const renderizarCarta = async (
   const pd = normalizarPd(datos.pdActual);
   const clave = claveParaPd(datos.pdActual);
   if (!pd || !clave) {
-    return { pd, disponible: false, plantillaClave: null, contenido: null, variablesFaltantes: [] };
+    return { pd, disponible: false, plantillaClave: null, contenido: null, variablesFaltantes: [], firmaSupervisorId: null };
   }
 
   const [general, plantillaRow] = await Promise.all([getGeneral(), leerPlantillaCarta(clave)]);
   if (!plantillaRow || !plantillaRow.contenido) {
-    return { pd, disponible: false, plantillaClave: clave, contenido: null, variablesFaltantes: ['plantilla'] };
+    return { pd, disponible: false, plantillaClave: clave, contenido: null, variablesFaltantes: ['plantilla'], firmaSupervisorId: null };
   }
   // Una plantilla desactivada en Configuración no se genera/previsualiza en
   // ningún lado (Gestión ni la vista previa "de tarjeta" de Configuración)
@@ -192,11 +197,11 @@ export const renderizarCarta = async (
   // editor SÍ puede seguir previsualizando su borrador vía
   // previsualizarContenidoCarta, para poder revisarla antes de reactivarla.
   if (!plantillaRow.activo) {
-    return { pd, disponible: false, plantillaClave: clave, contenido: null, variablesFaltantes: ['plantilla_inactiva'] };
+    return { pd, disponible: false, plantillaClave: clave, contenido: null, variablesFaltantes: ['plantilla_inactiva'], firmaSupervisorId: null };
   }
 
   const { contenido, variablesFaltantes } = sustituirVariables(pd, plantillaRow.contenido, plantillaRow.asunto || '', datos, general, tasas, fechaEmision);
-  return { pd, disponible: true, plantillaClave: clave, contenido, variablesFaltantes };
+  return { pd, disponible: true, plantillaClave: clave, contenido, variablesFaltantes, firmaSupervisorId: plantillaRow.firma_supervisor_id ?? null };
 };
 
 /**
@@ -218,11 +223,14 @@ export const previsualizarContenidoCarta = (
 ): CartaRenderizada => {
   const pd = normalizarPd(pdRaw);
   if (!pd) {
-    return { pd: null, disponible: false, plantillaClave: null, contenido: null, variablesFaltantes: [] };
+    return { pd: null, disponible: false, plantillaClave: null, contenido: null, variablesFaltantes: [], firmaSupervisorId: null };
   }
   const clave = claveParaPd(pd);
   const { contenido, variablesFaltantes } = sustituirVariables(pd, contenidoBorrador, asuntoBorrador, datos, general, tasas, fechaEmision);
-  return { pd, disponible: true, plantillaClave: clave, contenido, variablesFaltantes };
+  // Un borrador nunca lee config_plantillas: el supervisor elegido en el
+  // editor (aún sin guardar) lo resuelve el controller directamente desde
+  // el body de la petición, nunca desde aquí.
+  return { pd, disponible: true, plantillaClave: clave, contenido, variablesFaltantes, firmaSupervisorId: null };
 };
 
 export { ALLOWED_COUNTRIES };

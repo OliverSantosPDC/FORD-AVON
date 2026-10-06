@@ -4,7 +4,7 @@ import { applyScope } from './ScopeFilter';
 import { gestoresEnAlcance, gerentesZonaEnAlcance, type ScopeContext } from './ScopeService';
 import { gestorPorPaisZona, overlayIdentidadReal, usdEquivalente } from '../utils/carteraAggregations';
 import { renderizarCarta, type DatosCuentaCarta } from './CartaPdService';
-import { urlAsset } from './ConfigService';
+import { urlAsset, urlFirmaSupervisor } from './ConfigService';
 
 /**
  * Operaciones de gestión de cobranza (tipificación, promesas, adjuntos, cartas).
@@ -222,7 +222,12 @@ export const crearCarta = async (row: Record<string, unknown>, tasas: Record<str
   }
   const { data, error } = await client().from('gestion_cartas').insert({
     codigo: row.codigo, tipo: render.plantillaClave, pd: render.pd, plantilla_clave: render.plantillaClave,
-    contenido: render.contenido, comentario: comentario ?? null, gestor_id: gestorId, estado: 'PENDIENTE_APROBACION'
+    contenido: render.contenido, comentario: comentario ?? null, gestor_id: gestorId, estado: 'PENDIENTE_APROBACION',
+    // Snapshot del supervisor configurado en la plantilla AL MOMENTO de crear
+    // la carta (igual criterio que `contenido`/`plantilla_clave`): si luego
+    // cambia la firma configurada en Configuración, no altera retroactivamente
+    // una carta ya en el flujo de aprobación.
+    firma_supervisor_id: render.firmaSupervisorId
   }).select('id').single();
   if (error) throw new GestionError(`No se pudo crear la carta: ${error.message}`);
   return { id: String((data as { id: string }).id) };
@@ -239,7 +244,7 @@ export const obtenerCarta = async (id: string) => {
   if (!row) return null;
   const autorizada = row.estado === 'APROBADA';
   const [logoUrl, firmaUrl] = autorizada
-    ? await Promise.all([urlAsset('logo_principal'), urlAsset('firma')])
+    ? await Promise.all([urlAsset('logo_principal'), urlFirmaSupervisor((row.firma_supervisor_id as string | null) ?? null)])
     : [null, null];
   return { ...row, logoUrl, firmaUrl, descargable: autorizada };
 };
