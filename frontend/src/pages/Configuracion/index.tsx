@@ -44,6 +44,63 @@ const CAT_LABEL: Record<string, string> = {
 const BRANDING_CLAVES = new Set(['logo_principal', 'logo_login', 'favicon', 'fondo_login', 'fondo_principal', 'fondo_dashboard']);
 
 /**
+ * Configuración > Firmas — ÚNICO lugar donde se sube/reemplaza la imagen de
+ * firma de un supervisor (Configuración > Plantillas solo la SELECCIONA,
+ * nunca la sube). Una fila por supervisor REAL (profiles con rol
+ * supervisor, vía listarSupervisoresFirma — fuente única, la misma que
+ * alimenta el selector de Plantillas). Definido fuera de ConfiguracionPage
+ * para no remontarse -y no perder el <input type="file">- en cada
+ * re-render de la página.
+ */
+export const SupervisorFirmaCard = ({ supervisor, canEdit, onUploaded, onError }: {
+  supervisor: SupervisorFirma; canEdit: boolean; onUploaded: () => void; onError: (mensaje: string) => void;
+}) => {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [subiendo, setSubiendo] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setPreviewUrl(null);
+    if (!supervisor.tieneFirma) return undefined;
+    obtenerUrlFirmaSupervisor(supervisor.id).then((url) => { if (active) setPreviewUrl(url); });
+    return () => { active = false; };
+  }, [supervisor.id, supervisor.tieneFirma]);
+
+  const onFile = async (file: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { onError('El archivo debe ser una imagen (PNG, JPG, GIF, WEBP, SVG, etc.).'); return; }
+    setSubiendo(true);
+    try {
+      await subirFirmaSupervisor(supervisor.id, file);
+      onUploaded();
+    } catch (e) { onError(e instanceof Error ? e.message : 'No se pudo subir la firma.'); }
+    finally { setSubiendo(false); }
+  };
+
+  return (
+    <Paper sx={{ p: 2, borderRadius: 2, border: '1px solid', borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+      <Box sx={{ minWidth: 200 }}>
+        <Typography sx={{ fontWeight: 700 }}>{supervisor.nombre}{supervisor.apellido ? ` ${supervisor.apellido}` : ''}</Typography>
+        <Chip size="small" label={supervisor.activo ? 'Activo' : 'Inactivo'} color={supervisor.activo ? 'success' : 'default'} variant={supervisor.activo ? 'filled' : 'outlined'} sx={{ mt: 0.5 }} />
+      </Box>
+      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 160 }}>
+        {previewUrl ? (
+          <Box component="img" src={previewUrl} alt={`Firma de ${supervisor.nombre}`} sx={{ height: 48, border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 0.5, bgcolor: '#fff' }} />
+        ) : (
+          <Typography sx={{ fontSize: 13, color: 'text.secondary', fontStyle: 'italic' }}>Sin firma configurada</Typography>
+        )}
+      </Box>
+      {canEdit && (
+        <Button variant="outlined" size="small" component="label" disabled={subiendo} sx={{ textTransform: 'none' }}>
+          {subiendo ? 'Subiendo...' : (supervisor.tieneFirma ? 'Reemplazar firma' : 'Subir firma')}
+          <input hidden type="file" accept="image/*" onChange={(e) => { const f = e.target.files?.[0] ?? null; e.target.value = ''; void onFile(f); }} />
+        </Button>
+      )}
+    </Paper>
+  );
+};
+
+/**
  * Subida + previsualización real de un asset de imagen (logo/favicon/fondo).
  * Definido FUERA de ConfiguracionPage (a diferencia de la versión anterior,
  * declarada dentro del render): así no se remonta —y no se destruye el
@@ -114,15 +171,16 @@ const ConfiguracionPage = () => {
     const raw = searchParams.get('tab');
     if (raw === null) return;
     const n = Number(raw);
-    const maxTab = 9;
+    const maxTab = 10;
     if (Number.isInteger(n) && n >= 0 && n <= maxTab) setTab(n);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, canUsuarios]);
-  // Pestañas "Usuarios" y "Metas" usan un índice NUMÉRICO FIJO (prop `value` explícita en
-  // cada <Tab>, no la posición en el arreglo de etiquetas) para que su índice nunca cambie
-  // según si "Usuarios" está presente o no (canUsuarios es condicional; Metas siempre existe).
+  // Pestañas "Usuarios", "Metas" y "Firmas" usan un índice NUMÉRICO FIJO (prop `value`
+  // explícita en cada <Tab>, no la posición en el arreglo de etiquetas) para que su índice
+  // nunca cambie según si "Usuarios" está presente o no (canUsuarios es condicional).
   const TAB_USUARIOS = 8;
   const TAB_METAS = 9;
+  const TAB_FIRMAS = 10;
   const [toast, setToast] = useState<string | null>(null);
 
   // General
@@ -148,7 +206,6 @@ const ConfiguracionPage = () => {
   // "Vista previa de firma" dentro del editor.
   const [cartaEditFirmaSupervisorId, setCartaEditFirmaSupervisorId] = useState<string | null>(null);
   const [cartaEditFirmaPreviewUrl, setCartaEditFirmaPreviewUrl] = useState<string | null>(null);
-  const [cartaEditFirmaSubiendo, setCartaEditFirmaSubiendo] = useState(false);
   // Solo relevante al editar carta_pd7 — reutiliza la MISMA clave general
   // 'plazo_pd7_dias' (nunca un campo paralelo); se guarda junto con la
   // plantilla en un solo "Guardar" para que se sienta una sola edición.
@@ -239,26 +296,14 @@ const ConfiguracionPage = () => {
     obtenerUrlAsset('logo_principal').then(setCartaPrevLogoUrl);
   };
   /** Cambia la firma elegida para la plantilla en edición (aún sin guardar):
-   *  resuelve de inmediato la miniatura "Vista previa de firma" del nuevo
-   *  supervisor elegido (o la limpia si se elige "Sin firma"). */
+   *  resuelve de inmediato la miniatura informativa del nuevo supervisor
+   *  elegido (o la limpia si se elige "Sin firma"). Esto es SOLO un
+   *  selector — subir/reemplazar la imagen de un supervisor se hace
+   *  exclusivamente en Configuración > Firmas, nunca desde aquí. */
   const cambiarFirmaEditor = (id: string | null) => {
     setCartaEditFirmaSupervisorId(id);
     if (id) obtenerUrlFirmaSupervisor(id).then(setCartaEditFirmaPreviewUrl);
     else setCartaEditFirmaPreviewUrl(null);
-  };
-  /** Sube una imagen de firma NUEVA para el supervisor actualmente elegido
-   *  en el selector — no depende de haber guardado la plantilla antes. */
-  const subirFirmaDelSupervisorElegido = async (file: File | null) => {
-    if (!file || !cartaEditFirmaSupervisorId) return;
-    if (!file.type.startsWith('image/')) { setToast('El archivo debe ser una imagen (PNG, JPG, GIF, WEBP, SVG, etc.).'); return; }
-    setCartaEditFirmaSubiendo(true);
-    try {
-      await subirFirmaSupervisor(cartaEditFirmaSupervisorId, file);
-      setCartaEditFirmaPreviewUrl(await obtenerUrlFirmaSupervisor(cartaEditFirmaSupervisorId));
-      setSupervisoresFirma(await getSupervisoresFirma());
-      setToast('Imagen de firma subida.');
-    } catch (e) { setToast(e instanceof Error ? e.message : 'No se pudo subir la firma.'); }
-    finally { setCartaEditFirmaSubiendo(false); }
   };
   /** Previsualiza el BORRADOR actual del editor (contenido/asunto/firma tal
    *  como están en el formulario, aún sin guardar) — nunca toca lo persistido. */
@@ -340,7 +385,7 @@ const ConfiguracionPage = () => {
   return (
     <Box sx={{ p: { xs: 1, md: 2 } }}>
       <Tabs value={tab} onChange={(_e, v) => setTab(v)} variant="scrollable" sx={{ mb: 2 }}>
-        {([[0, 'General'], [1, 'Catálogos'], [4, 'Plantillas'], [7, 'Tasas de Conversión']] as Array<[number, string]>).map(([v, t]) => <Tab key={t} value={v} label={t} sx={{ textTransform: 'none' }} />)}
+        {([[0, 'General'], [1, 'Catálogos'], [TAB_FIRMAS, 'Firmas'], [4, 'Plantillas'], [7, 'Tasas de Conversión']] as Array<[number, string]>).map(([v, t]) => <Tab key={t} value={v} label={t} sx={{ textTransform: 'none' }} />)}
         {canUsuarios && <Tab key="Usuarios" value={TAB_USUARIOS} label="Usuarios" sx={{ textTransform: 'none' }} />}
         <Tab key="Metas" value={TAB_METAS} label="Metas" sx={{ textTransform: 'none' }} />
       </Tabs>
@@ -447,6 +492,38 @@ const ConfiguracionPage = () => {
         </Paper>
           </Grid>
         </Grid>
+      )}
+
+      {/* FIRMAS — administración: ÚNICO lugar donde se sube/reemplaza la
+          imagen de firma de un supervisor real. Configuración > Plantillas
+          solo SELECCIONA entre estos supervisores, nunca sube archivos. */}
+      {tab === TAB_FIRMAS && (
+        <Paper sx={{ p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
+          <Stack spacing={2}>
+            <Box>
+              <Typography sx={{ fontWeight: 700 }}>Firmas</Typography>
+              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                Administra la imagen de firma de cada supervisor real del sistema (perfiles con rol Supervisor —
+                la misma fuente que usa Configuración &gt; Plantillas). Esta es la ÚNICA sección donde se sube o
+                reemplaza una firma; en Plantillas solo se elige cuál de estos supervisores usa cada carta.
+              </Typography>
+            </Box>
+            <Stack spacing={1.5}>
+              {supervisoresFirma.map((s) => (
+                <SupervisorFirmaCard
+                  key={s.id}
+                  supervisor={s}
+                  canEdit={canEdit}
+                  onUploaded={async () => { setSupervisoresFirma(await getSupervisoresFirma()); setToast('Firma actualizada.'); }}
+                  onError={(m) => setToast(m)}
+                />
+              ))}
+              {supervisoresFirma.length === 0 && (
+                <Alert severity="info">No hay supervisores registrados todavía. Créalos en Usuarios con el rol "Supervisor".</Alert>
+              )}
+            </Stack>
+          </Stack>
+        </Paper>
       )}
 
       {/* PLANTILLAS — tabla única de registros. Para las 5 cartas de cobro
@@ -565,16 +642,18 @@ const ConfiguracionPage = () => {
               )}
 
               {/* Firma: SIEMPRE presente en las 5 plantillas (nunca solo en
-                  PD7), con un selector de supervisores REALES (nunca una
-                  lista hardcodeada) + "Sin firma" explícito. */}
+                  PD7) — ÚNICAMENTE un SELECTOR de supervisores REALES
+                  (nunca una lista hardcodeada) + "Sin firma" explícito.
+                  Subir/reemplazar la imagen de un supervisor se hace
+                  exclusivamente en Configuración > Firmas, nunca aquí. */}
               <Box>
                 <Typography sx={{ fontSize: 12, fontWeight: 700, mb: 0.5 }}>Firma</Typography>
-                <Stack direction="row" spacing={2} alignItems="flex-start" flexWrap="wrap" useFlexGap>
+                <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
                   <TextField
                     select
                     size="small"
                     sx={{ minWidth: 340 }}
-                    label="Supervisor / firma"
+                    label="Supervisor"
                     value={cartaEditFirmaSupervisorId ?? '__sin_firma__'}
                     disabled={!canEdit}
                     onChange={(e) => cambiarFirmaEditor(e.target.value === '__sin_firma__' ? null : e.target.value)}
@@ -586,26 +665,20 @@ const ConfiguracionPage = () => {
                       </MenuItem>
                     ))}
                   </TextField>
-                  <Box>
-                    <Typography sx={{ fontSize: 11, color: 'text.secondary', mb: 0.5 }}>Vista previa de firma</Typography>
-                    {cartaEditFirmaSupervisorId ? (
-                      cartaEditFirmaPreviewUrl
-                        ? <Box component="img" src={cartaEditFirmaPreviewUrl} alt="Firma" sx={{ height: 56, display: 'block', border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 0.5, bgcolor: '#fff' }} />
-                        : <Typography sx={{ fontSize: 12, fontStyle: 'italic', color: 'text.secondary' }}>[Firma no configurada]</Typography>
+                  {cartaEditFirmaSupervisorId && (
+                    cartaEditFirmaPreviewUrl ? (
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Box component="img" src={cartaEditFirmaPreviewUrl} alt="Firma" sx={{ height: 44, border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 0.5, bgcolor: '#fff' }} />
+                        <Typography sx={{ fontSize: 12, color: 'success.main', fontWeight: 600 }}>Firma configurada</Typography>
+                      </Stack>
                     ) : (
-                      <Typography sx={{ fontSize: 12, fontStyle: 'italic', color: 'text.secondary' }}>Sin firma</Typography>
-                    )}
-                    {canEdit && cartaEditFirmaSupervisorId && (
-                      <Button size="small" component="label" disabled={cartaEditFirmaSubiendo} sx={{ textTransform: 'none', mt: 0.5, px: 0 }}>
-                        {cartaEditFirmaSubiendo ? 'Subiendo...' : (cartaEditFirmaPreviewUrl ? 'Reemplazar imagen de firma' : 'Subir imagen de firma')}
-                        <input
-                          hidden type="file" accept="image/*"
-                          onChange={(e) => { const f = e.target.files?.[0] ?? null; e.target.value = ''; void subirFirmaDelSupervisorElegido(f); }}
-                        />
-                      </Button>
-                    )}
-                  </Box>
+                      <Typography sx={{ fontSize: 12, fontStyle: 'italic', color: 'text.secondary' }}>Sin firma configurada</Typography>
+                    )
+                  )}
                 </Stack>
+                <Typography sx={{ fontSize: 11, color: 'text.secondary', mt: 0.5 }}>
+                  Para subir o reemplazar la imagen de firma de un supervisor, ve a Configuración → Firmas.
+                </Typography>
               </Box>
 
               <Box>
