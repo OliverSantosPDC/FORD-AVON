@@ -4,16 +4,22 @@ import {
   Divider, FormControlLabel, Grid, IconButton, Menu, MenuItem, Paper, Snackbar, Stack, Tab, Table, TableBody, TableCell,
   TableContainer, TableHead, TablePagination, TableRow, Tabs, TextField, Typography
 } from '@mui/material';
+import {
+  Bar as RBar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis
+} from 'recharts';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import DashboardFilters from '../../components/Dashboard/DashboardFilters';
 import KpiCards from '../../components/Dashboard/KpiCards';
+import ChartCard from '../../components/Dashboard/ChartCard';
 import { exportRowsToCsv, exportRowsToExcel } from '../../utils/tableExport';
 import { useAuth } from '../../context/AuthContext';
 import { useTasasConversion } from '../../hooks/useTasasConversion';
 import { usdEquivalente } from '../../utils/monedaConversion';
+import { MONEDA_OPTIONS, simboloMoneda } from '../../utils/monedaOptions';
+import type { DistribItem } from '../../services/controlService';
 import type { DashboardFilterOptions, DashboardMultiFilterParams } from '../../types/cartera';
 import {
   getControlDashboard, getControlGestores, getControlZonas, getControlPdCampanas, getControlCuentas,
@@ -46,6 +52,90 @@ const exportBarsPng = (title: string, items: Array<{ label: string; value: numbe
   const a = document.createElement('a'); a.href = cv.toDataURL('image/png'); a.download = `${title}.png`; a.click();
 };
 const HEAD_H = ['Nivel', 'Grupo', 'Sub', 'Cuentas', 'Saldo Local', 'Saldo USD', 'Recuperado', '% Rec'];
+
+// ===== Distribución por País/Zona/Sector (Resumen Operativo): gráficos de
+// barras horizontales reales (antes: listado de texto). Reutiliza ChartCard
+// (mismo componente/estilo de título que el resto del dashboard) y el mismo
+// dato que ya alimentaba el listado anterior (resumenOp.distribucion.*,
+// calculado en el backend desde saldo_actual + tasa vigente — nunca
+// saldo_actual_usd). El saldo se re-expresa en la moneda elegida localmente
+// aquí (misma fórmula `usd * tasaActual` que Gestión/Dashboard), nunca
+// hardcodeando "$"/"USD".
+const DIST_ROW_H = 30;
+const DIST_PAD_H = 56;
+const DIST_MIN_H = 210;
+const DIST_MAX_VISIBLE_H = 360;
+const distAxisTick = { fill: '#475569', fontSize: 10.5 };
+const distFormatCompact = (value: number) => {
+  if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(0)}K`;
+  return `${value}`;
+};
+
+interface DistRow { clave: string; cuentas: number; valor: number; pct: number; }
+
+const DistribTooltip = ({ active, payload, dimLabel, simbolo }: {
+  active?: boolean; payload?: Array<{ payload: DistRow }>; dimLabel: string; simbolo: string;
+}) => {
+  if (!active || !payload || !payload.length) return null;
+  const d = payload[0].payload;
+  return (
+    <Box sx={{ borderRadius: 1.5, border: '1px solid #E2E8F0', boxShadow: '0 16px 40px rgba(15, 23, 42, 0.14)', backgroundColor: '#FFFFFF', px: 1.5, py: 1, minWidth: 200 }}>
+      <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#0F172A', mb: 0.25 }}>{dimLabel}: {d.clave}</Typography>
+      <Typography sx={{ fontSize: 12, color: '#475569' }}>Cuentas: {d.cuentas.toLocaleString('en-US')}</Typography>
+      <Typography sx={{ fontSize: 12, color: '#475569' }}>Saldo actual: {simbolo} {d.valor.toLocaleString('en-US', { maximumFractionDigits: 0 })}</Typography>
+      <Typography sx={{ fontSize: 12, color: '#475569' }}>% del total: {d.pct.toFixed(1)}%</Typography>
+    </Box>
+  );
+};
+
+const DistribucionCard = ({ titulo, dimLabel, items, simbolo, tasaActual, chartId }: {
+  titulo: string; dimLabel: string; items: DistribItem[]; simbolo: string; tasaActual: number; chartId: string;
+}) => {
+  const data: DistRow[] = useMemo(() => {
+    const total = items.reduce((a, x) => a + x.saldoUsd, 0);
+    return items.map((x) => ({
+      clave: x.clave, cuentas: x.cuentas,
+      valor: Number((x.saldoUsd * tasaActual).toFixed(2)),
+      pct: total > 0 ? (x.saldoUsd / total) * 100 : 0
+    }));
+  }, [items, tasaActual]);
+
+  const chartHeight = Math.max(DIST_MIN_H, data.length * DIST_ROW_H + DIST_PAD_H);
+  const cardHeight = Math.min(chartHeight, DIST_MAX_VISIBLE_H);
+
+  return (
+    <ChartCard
+      title={titulo}
+      subtitle={`Moneda: ${simbolo}`}
+      chartId={chartId}
+      fileBaseName={chartId}
+      height={cardHeight}
+      csvHeaders={[dimLabel, 'Cuentas', `Saldo Actual ${simbolo}`, '% del total']}
+      csvRows={data.map((d) => [d.clave, d.cuentas, d.valor, Number(d.pct.toFixed(2))])}
+    >
+      {(visibleH) => data.length === 0 ? (
+        <Box sx={{ height: visibleH, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>Sin datos para los filtros seleccionados.</Typography>
+        </Box>
+      ) : (
+        <Box sx={{ height: visibleH, overflowY: 'auto', overflowX: 'hidden' }}>
+          <Box sx={{ height: chartHeight, width: '100%' }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={data} layout="vertical" margin={{ top: 4, right: 28, left: 4, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" horizontal={false} />
+                <XAxis type="number" tickFormatter={distFormatCompact} tick={distAxisTick} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="clave" width={132} tick={distAxisTick} axisLine={false} tickLine={false} interval={0} />
+                <RTooltip content={<DistribTooltip dimLabel={dimLabel} simbolo={simbolo} />} cursor={{ fill: 'rgba(230,0,126,0.06)' }} />
+                <RBar dataKey="valor" name="Saldo actual" fill="#1E3A8A" radius={[0, 6, 6, 0]} barSize={16} />
+              </BarChart>
+            </ResponsiveContainer>
+          </Box>
+        </Box>
+      )}
+    </ChartCard>
+  );
+};
 
 const VisualCard = ({ title, onDir, onMetric, csv, excel, png, children }: {
   title: string; onDir: (d: 'asc' | 'desc') => void; onMetric: (m: Metric) => void; csv: () => void; excel: () => void; png: () => void; children: ReactNode;
@@ -97,6 +187,16 @@ const ControlOperativoPage = () => {
   const canCalidadEdit = hasPermission('control_operativo.calidad.editar');
   const { tasas } = useTasasConversion();
   const nombreAutorizador = user ? (`${user.nombre ?? ''} ${user.apellido ?? ''}`.trim() || user.email) : '';
+
+  // Moneda de "Resumen Operativo" (Distribución por País/Zona/Sector): mismo
+  // mecanismo/útil que ya usan Dashboard y Gestión — useTasasConversion +
+  // MONEDA_OPTIONS + usd * tasaActual — nunca saldo_actual_usd ni un símbolo
+  // fijo. No afecta las demás tarjetas de Control Operativo (Operativa por
+  // gestor/zona/PD siguen mostrando Saldo Local/Saldo USD como antes).
+  const [monedaResumen, setMonedaResumen] = useState<string>('USD');
+  const monedaResumenOption = MONEDA_OPTIONS.find((o) => o.code === monedaResumen) ?? MONEDA_OPTIONS[0];
+  const tasaResumen = tasas[monedaResumenOption.code] ?? 1;
+  const simboloResumen = simboloMoneda(monedaResumenOption.code);
 
   const [filters, setFilters] = useState<DashboardMultiFilterParams>(EMPTY_FILTERS);
   const [dash, setDash] = useState<ControlDashboard | null>(null);
@@ -315,7 +415,16 @@ const ControlOperativoPage = () => {
           {/* Resumen Operativo */}
           {resumenOp && (
             <Paper sx={{ p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
-              <Typography sx={{ fontWeight: 700, mb: 1 }}>Resumen Operativo</Typography>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1, mb: 1 }}>
+                <Typography sx={{ fontWeight: 700 }}>Resumen Operativo</Typography>
+                <TextField
+                  select size="small" label="Moneda de los gráficos" value={monedaResumen}
+                  onChange={(e) => setMonedaResumen(e.target.value)}
+                  sx={{ minWidth: 170, '& .MuiInputBase-input': { fontSize: 12 }, '& .MuiInputLabel-root': { fontSize: 12 } }}
+                >
+                  {MONEDA_OPTIONS.map((o) => <MenuItem key={o.code} value={o.code} sx={{ fontSize: 12.5 }}>{o.label} ({o.symbol})</MenuItem>)}
+                </TextField>
+              </Box>
               <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>
                 <KpiMini l="Cuentas" v={resumenOp.totales.cuentas.toLocaleString('en-US')} />
                 <KpiMini l="Gestiones" v={resumenOp.totales.gestiones.toLocaleString('en-US')} />
@@ -323,9 +432,14 @@ const ControlOperativoPage = () => {
                 <KpiMini l="Con gestión" v={resumenOp.totales.cuentasConGestion.toLocaleString('en-US')} />
                 <KpiMini l="Gestores" v={resumenOp.totales.gestores} />
               </Stack>
+              <Stack spacing={2} sx={{ mb: 2 }}>
+                <DistribucionCard titulo="DISTRIBUCIÓN POR PAÍS" dimLabel="País" items={resumenOp.distribucion.pais} simbolo={simboloResumen} tasaActual={tasaResumen} chartId="chart-resumen-dist-pais" />
+                <DistribucionCard titulo="DISTRIBUCIÓN POR ZONA" dimLabel="Zona" items={resumenOp.distribucion.zona} simbolo={simboloResumen} tasaActual={tasaResumen} chartId="chart-resumen-dist-zona" />
+                <DistribucionCard titulo="DISTRIBUCIÓN POR SECTOR" dimLabel="Sector" items={resumenOp.distribucion.sector} simbolo={simboloResumen} tasaActual={tasaResumen} chartId="chart-resumen-dist-sector" />
+              </Stack>
               <Grid container spacing={2}>
-                {([['País', resumenOp.distribucion.pais], ['Zona', resumenOp.distribucion.zona], ['Sector', resumenOp.distribucion.sector], ['PD', resumenOp.distribucion.pd], ['Riesgo', resumenOp.distribucion.riesgo]] as const).map(([lbl, arr]) => (
-                  <Grid item xs={12} sm={6} md={4} key={lbl}>
+                {([['PD', resumenOp.distribucion.pd], ['Riesgo', resumenOp.distribucion.riesgo]] as const).map(([lbl, arr]) => (
+                  <Grid item xs={12} sm={6} key={lbl}>
                     <Typography sx={{ fontSize: 12, fontWeight: 700, mb: 0.5 }}>Distribución por {lbl}</Typography>
                     <Stack spacing={0.25} sx={{ maxHeight: 160, overflowY: 'auto' }}>
                       {arr.length === 0 ? <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Sin datos.</Typography> : arr.slice(0, 15).map((x) => (
