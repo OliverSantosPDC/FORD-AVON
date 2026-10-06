@@ -171,7 +171,7 @@ const DashboardTable = ({ data, moneda, monedaCode, tasas }: DashboardTableProps
 
   const handleExportExcel = () => {
     const { headers, rows } = buildExportRows();
-    exportRowsToExcel('cuentas.xls', 'Cuentas', headers, rows);
+    exportRowsToExcel('cuentas.xlsx', 'Cuentas', headers, rows);
   };
 
   const handleCopy = () => {

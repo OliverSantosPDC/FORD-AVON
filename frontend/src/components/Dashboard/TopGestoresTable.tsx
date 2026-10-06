@@ -109,7 +109,7 @@ const TopGestoresTable = ({ data, moneda, monedaCode }: TopGestoresTableProps) =
 
   const handleExportExcel = () => {
     const { headers, rows } = buildExportRows();
-    exportRowsToExcel('top-gestores.xls', 'Top Gestores', headers, rows);
+    exportRowsToExcel('top-gestores.xlsx', 'Top Gestores', headers, rows);
   };
 
   const handleCopy = () => {

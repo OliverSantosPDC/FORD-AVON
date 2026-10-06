@@ -96,7 +96,7 @@ const ResumenCampaniaTable = ({ data, moneda, monedaCode }: ResumenCampaniaTable
 
   const handleExportExcel = () => {
     const { headers, rows } = buildExportRows();
-    exportRowsToExcel('resumen-campania.xls', 'Resumen por Campaña', headers, rows);
+    exportRowsToExcel('resumen-campania.xlsx', 'Resumen por Campaña', headers, rows);
   };
 
   const handleCopy = () => {

@@ -127,7 +127,7 @@ const ResumenPdTable = ({ resumenPdInicial, moneda, monedaCode, tasa }: ResumenP
 
   const handleExportExcel = () => {
     const { headers, rows } = buildExportRows();
-    exportRowsToExcel('resumen-pd.xls', 'Resumen PD', headers, rows);
+    exportRowsToExcel('resumen-pd.xlsx', 'Resumen PD', headers, rows);
   };
 
   const handleCopy = () => {

@@ -109,7 +109,7 @@ const TopZonasTable = ({ data, moneda, monedaCode }: TopZonasTableProps) => {
 
   const handleExportExcel = () => {
     const { headers, rows } = buildExportRows();
-    exportRowsToExcel('top-zonas.xls', 'Top Zonas', headers, rows);
+    exportRowsToExcel('top-zonas.xlsx', 'Top Zonas', headers, rows);
   };
 
   const handleCopy = () => {

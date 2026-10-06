@@ -1,3 +1,5 @@
+import * as XLSX from 'xlsx';
+
 export const downloadBlob = (blob: Blob, fileName: string) => {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -16,12 +18,32 @@ export const exportRowsToCsv = (fileName: string, headers: string[], rows: Array
   downloadBlob(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' }), fileName);
 };
 
-const escapeXml = (value: string | number) =>
-  String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+/** Nombre de hoja válido para OOXML: máx. 31 caracteres, sin los caracteres
+ *  que Excel prohíbe en un nombre de hoja ( \ / ? * [ ] : ), nunca vacío. */
+const safeSheetName = (name: string): string => {
+  const cleaned = (name || '').replace(/[\\/?*[\]:]/g, ' ').trim().slice(0, 31);
+  return cleaned || 'Datos';
+};
+
+/** `fileName` normalizado para terminar SIEMPRE en `.xlsx`, sin importar lo
+ *  que pase cada llamador (algunos pasaban `.xls`, que tampoco coincide con
+ *  el contenido real que `buildXlsxWorkbookBytes` genera). */
+export const normalizeXlsxFileName = (fileName: string): string => fileName.replace(/\.(xlsx?|xml)$/i, '') + '.xlsx';
+
+/**
+ * Construye los bytes REALES de un paquete OOXML/ZIP (.xlsx vía SheetJS) —
+ * NUNCA un XML de "SpreadsheetML 2003" disfrazado con extensión .xlsx (lo
+ * que había antes: Excel moderno rechaza esos archivos con "el formato o la
+ * extensión no son válidos", porque valida que el contenido sea realmente
+ * un ZIP). Pura (sin tocar `document`/`URL`): así se puede probar en Node
+ * sin DOM, inspeccionando los bytes exactos que `exportRowsToExcel` empaqueta.
+ */
+export const buildXlsxWorkbookBytes = (sheetName: string, headers: string[], rows: Array<Array<string | number>>): ArrayBuffer => {
+  const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, safeSheetName(sheetName));
+  return XLSX.write(workbook, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer;
+};
 
 export const exportRowsToExcel = (
   fileName: string,
@@ -29,36 +51,11 @@ export const exportRowsToExcel = (
   headers: string[],
   rows: Array<Array<string | number>>
 ) => {
-  const headerRow = `<Row>${headers.map((header) => `<Cell><Data ss:Type="String">${escapeXml(header)}</Data></Cell>`).join('')}</Row>`;
-  const dataRows = rows
-    .map(
-      (row) =>
-        `<Row>${row
-          .map((cell) => {
-            const isNumber = typeof cell === 'number' && Number.isFinite(cell);
-            return `<Cell><Data ss:Type="${isNumber ? 'Number' : 'String'}">${escapeXml(cell)}</Data></Cell>`;
-          })
-          .join('')}</Row>`
-    )
-    .join('');
-
-  const safeSheetName = escapeXml(sheetName).slice(0, 31) || 'Datos';
-
-  const xml = `<?xml version="1.0"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:o="urn:schemas-microsoft-com:office:office"
- xmlns:x="urn:schemas-microsoft-com:office:excel"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
- <Worksheet ss:Name="${safeSheetName}">
-  <Table>
-   ${headerRow}
-   ${dataRows}
-  </Table>
- </Worksheet>
-</Workbook>`;
-
-  downloadBlob(new Blob([xml], { type: 'application/vnd.ms-excel' }), fileName);
+  const bytes = buildXlsxWorkbookBytes(sheetName, headers, rows);
+  downloadBlob(
+    new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+    normalizeXlsxFileName(fileName)
+  );
 };
 
 export const copyRowsToClipboard = async (headers: string[], rows: Array<Array<string | number>>) => {
