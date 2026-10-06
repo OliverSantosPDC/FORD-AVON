@@ -7,7 +7,8 @@ import {
   registrarAdjunto, eliminarAdjunto, subirArchivoStorage,
   crearCarta, listarCartas, resolverCarta, resolverCartasMasivo, previsualizarCarta, obtenerCarta,
   aggregarZonasPd, aggregarPdCampanas, estadoCuentas, infoCuenta, GestionError,
-  filtrarCodigosEnAlcance, codigoDePromesa, codigoDeAdjunto, gestorDeCarta, gestorEnAlcance
+  filtrarCodigosEnAlcance, codigoDePromesa, codigoDeAdjunto, gestorDeCarta, gestorEnAlcance,
+  tipificacionesCuentas
 } from '../services/GestionService';
 import { registrarAuditoria } from '../services/AuditoriaService';
 import { getTasasPorMoneda, subirFirmaSupervisor, urlFirmaSupervisor } from '../services/ConfigService';
@@ -66,6 +67,20 @@ export class GestionController {
       ]);
       return res.json(aggregarPdCampanas(rows, tasas));
     } catch (e) { return this.fail(res, e, 'No se pudieron cargar los PD/campañas.'); }
+  }
+
+  /** Gestión > Tipificaciones: cada cuenta DENTRO DEL ALCANCE/FILTROS del
+   *  actor (misma consulta ya escalada que `cuentas()`), clasificada por su
+   *  última gestión registrada y enriquecida con su promesa más reciente —
+   *  una sola consulta de cartera + dos lecturas completas de
+   *  gestion_log/gestion_promesas, nunca una consulta por tipificación. */
+  async tipificaciones(req: Request, res: Response): Promise<Response | void> {
+    try {
+      const ctx = this.scope(req, res); if (!ctx) return;
+      const limit = Number(req.query.limit) || 1000000;
+      const cuentas = await carteraService.listCartera(extractFilters(req.query), limit, ctx);
+      return res.json(await tipificacionesCuentas(cuentas));
+    } catch (e) { return this.fail(res, e, 'No se pudieron cargar las tipificaciones.'); }
   }
 
   async estado(req: Request, res: Response): Promise<Response | void> {

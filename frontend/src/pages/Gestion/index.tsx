@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle,
   Divider, Grid, IconButton, Menu, MenuItem, Paper, Snackbar, Stack, Tab, Table, TableBody, TableCell, TableContainer,
@@ -19,8 +19,8 @@ import type { DashboardResponse, DashboardFilterOptions, DashboardMultiFilterPar
 import {
   getGestionDashboard, getGestionCuentas, getDetalleCuenta, getInfoCuenta, tipificarCuenta, crearPromesa,
   subirAdjunto, crearCarta, getCartaPreview, getCartaDetalle, getCartas, aprobarCarta, rechazarCarta, getZonasPd, getPdCampanas, getEstadoCuentas,
-  getCatalogo, MONEDA_POR_PAIS, siglaPais, TIPIFICACIONES, TIPO_CONTACTO, CANALES,
-  type CartaGestion, type CartaPreview, type CartaDetalle, type DetalleCuenta, type AggNode, type EstadoCuenta
+  getCatalogo, getTipificaciones, MONEDA_POR_PAIS, siglaPais, TIPIFICACIONES, TIPO_CONTACTO, CANALES,
+  type CartaGestion, type CartaPreview, type CartaDetalle, type DetalleCuenta, type AggNode, type EstadoCuenta, type CuentaTipificada
 } from '../../services/gestionService';
 import CartaRenderer from '../../components/common/CartaRenderer';
 import { descargarCartaPdf } from '../../utils/exportCartaPdf';
@@ -126,6 +126,11 @@ const GestionPage = () => {
   // (crear/aprobar carta) — ningún rol pierde acceso que ya tuviera, solo
   // deja de verse para quien no puede ni crear ni aprobar cartas.
   const canVerCartas = canCarta || canAprobar;
+  // Índice real de la pestaña Tipificaciones: Cartas solo existe cuando
+  // canVerCartas es true, así que su propia posición (y la de todo lo que
+  // va después) depende de esa condición — MUI asigna el value de cada Tab
+  // por su posición entre los hijos efectivamente renderizados.
+  const tabTipificaciones = canVerCartas ? 2 : 1;
 
   const [tab, setTab] = useState(0);
   const [filters, setFilters] = useState<DashboardMultiFilterParams>(EMPTY_FILTERS);
@@ -221,6 +226,96 @@ const GestionPage = () => {
   const tasaActual = tasasConversion[monedaCode] ?? 1;
   const simboloGraficos = simboloMoneda(monedaCode);
   const valorMoneda = (usd: number) => usd * tasaActual;
+
+  // ===== Tipificaciones: cuentas clasificadas por su ÚLTIMA gestión
+  // registrada, dentro de los MISMOS filtros (país/gestor/gerente/zona/pd/
+  // campaña) de las demás pestañas de Gestión — una sola llamada al backend
+  // (getTipificaciones), nunca una consulta por tipificación. Se carga
+  // perezosamente al entrar a la pestaña y se refresca si los filtros
+  // compartidos cambian mientras está activa (mismo patrón que "Cartas").
+  const [tipData, setTipData] = useState<CuentaTipificada[]>([]);
+  const [tipLoading, setTipLoading] = useState(false);
+  const [tipSelTip, setTipSelTip] = useState<string[]>([]);
+  const [tipEstado, setTipEstado] = useState<'TODOS' | 'CON' | 'SIN'>('TODOS');
+  const [expTip, setExpTip] = useState<Set<string>>(new Set());
+  type TipOrderCol = 'tipificacion' | 'cuentas' | 'saldoActual' | 'pctCuentas' | 'saldoPromesa' | 'cuentasConPromesa';
+  const [tipOrderBy, setTipOrderBy] = useState<TipOrderCol>('cuentas');
+  const [tipOrder, setTipOrder] = useState<'asc' | 'desc'>('desc');
+  useEffect(() => {
+    if (tab !== tabTipificaciones) return;
+    setTipLoading(true);
+    getTipificaciones(filters).then(setTipData).catch((e) => setToast(e instanceof Error ? e.message : 'No se pudo cargar Tipificaciones.')).finally(() => setTipLoading(false));
+    // eslint-disable-next-line
+  }, [tab, tabTipificaciones, filters]);
+  const limpiarFiltrosTip = () => { setTipSelTip([]); setTipEstado('TODOS'); };
+
+  // Universo tras el filtro "Estado de gestión" + el selector de Tipificación
+  // (ambos locales a esta pestaña, encima de los filtros compartidos ya
+  // aplicados por el backend). "Sin gestión" ignora el selector de
+  // Tipificación (una cuenta sin gestión no tiene tipificación que filtrar).
+  const tipFiltradas = useMemo(() => {
+    let rows = tipData;
+    if (tipEstado === 'CON') rows = rows.filter((r) => r.tipificacion !== null);
+    else if (tipEstado === 'SIN') rows = rows.filter((r) => r.tipificacion === null);
+    else if (tipSelTip.length > 0) rows = rows.filter((r) => r.tipificacion !== null && tipSelTip.includes(r.tipificacion));
+    return rows;
+  }, [tipData, tipEstado, tipSelTip]);
+  const tipTotal = tipFiltradas.length;
+  const tipCon = useMemo(() => tipFiltradas.filter((r) => r.tipificacion !== null).length, [tipFiltradas]);
+  const tipSin = tipTotal - tipCon;
+  const tipPctCon = tipTotal ? (tipCon / tipTotal) * 100 : 0;
+  const tipPctSin = tipTotal ? (tipSin / tipTotal) * 100 : 0;
+
+  // Tabla resumen: SOLO cuentas CON gestión real, agrupadas por su
+  // tipificación tal cual quedó registrada — nunca se agrega aquí una fila
+  // "SIN GESTIÓN" (esa es una etiqueta puramente visual del listado aparte,
+  // nunca una tipificación real ni algo que se guarde).
+  interface TipGrupo { tipificacion: string; cuentas: number; saldoActual: number; pctCuentas: number; saldoPromesa: number; cuentasConPromesa: number; cuentasSinPromesa: number; filas: CuentaTipificada[]; }
+  const tipTabla: TipGrupo[] = useMemo(() => {
+    const map = new Map<string, CuentaTipificada[]>();
+    tipFiltradas.forEach((r) => {
+      if (!r.tipificacion) return;
+      const arr = map.get(r.tipificacion) ?? [];
+      arr.push(r);
+      map.set(r.tipificacion, arr);
+    });
+    const totalConTip = Array.from(map.values()).reduce((a, arr) => a + arr.length, 0);
+    return Array.from(map.entries()).map(([tip, filas]) => {
+      const saldoActualUsd = filas.reduce((a, f) => a + usdEquivalente(f.saldoActual, f.pais, tasasConversion), 0);
+      const conProm = filas.filter((f) => f.fechaPromesa !== null);
+      const saldoPromesaUsd = conProm.reduce((a, f) => a + usdEquivalente(f.montoPromesa ?? 0, f.pais, tasasConversion), 0);
+      return {
+        tipificacion: tip, cuentas: filas.length,
+        saldoActual: valorMoneda(saldoActualUsd),
+        pctCuentas: totalConTip ? (filas.length / totalConTip) * 100 : 0,
+        saldoPromesa: valorMoneda(saldoPromesaUsd),
+        cuentasConPromesa: conProm.length,
+        cuentasSinPromesa: filas.length - conProm.length,
+        filas
+      };
+    });
+    // eslint-disable-next-line
+  }, [tipFiltradas, tasasConversion, monedaFiltro]);
+  const tipTablaOrdenada = useMemo(() => [...tipTabla].sort((a, b) => {
+    const av = a[tipOrderBy]; const bv = b[tipOrderBy];
+    const r = typeof av === 'number' && typeof bv === 'number' ? av - bv : String(av).localeCompare(String(bv), 'es', { sensitivity: 'base' });
+    return tipOrder === 'asc' ? r : -r;
+  }), [tipTabla, tipOrderBy, tipOrder]);
+  const handleSortTip = (col: TipOrderCol) => { const isAsc = tipOrderBy === col && tipOrder === 'asc'; setTipOrder(isAsc ? 'desc' : 'asc'); setTipOrderBy(col); };
+
+  const TIP_DETALLE_HEAD = ['Código', 'Nombre / Razón Social', 'País', 'Zona', 'Gestor', 'PD', 'Campaña', 'Saldo Actual', 'Tipificación', 'Fecha Gestión', 'Fecha Promesa', 'Monto Promesa', 'Teléfono', 'WhatsApp', 'Observaciones'];
+  // WhatsApp reutiliza el mismo teléfono celular: no existe un campo
+  // distinto de WhatsApp en el modelo de cartera (ver GestionService.tipificacionesCuentas).
+  const filaDetalleExport = (f: CuentaTipificada): Array<string | number> => [
+    f.codigo, f.nombre, f.pais, f.zona, f.gestor, f.pdActual, f.campaniaAdeuda,
+    f.saldoActual, f.tipificacion ?? 'Sin gestión', f.fechaGestion ? f.fechaGestion.slice(0, 16).replace('T', ' ') : '',
+    f.fechaPromesa ?? '', f.montoPromesa ?? '', f.telefono ?? '', f.telefono ?? '', f.comentarioGestion ?? ''
+  ];
+  const descargarDetalle = (filas: CuentaTipificada[], nombreBase: string, formato: 'csv' | 'xlsx') => {
+    const rows = filas.map(filaDetalleExport);
+    if (formato === 'csv') exportRowsToCsv(`${nombreBase}.csv`, TIP_DETALLE_HEAD, rows);
+    else exportRowsToExcel(`${nombreBase}.xlsx`, 'Cuentas', TIP_DETALLE_HEAD, rows);
+  };
 
   const sortNodes = (arr: AggNode[], m: Metric, dir: 'asc' | 'desc') =>
     [...arr].sort((a, b) => (dir === 'desc' ? (b[m] as number) - (a[m] as number) : (a[m] as number) - (b[m] as number)));
@@ -351,6 +446,7 @@ const GestionPage = () => {
       <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ mb: 2 }}>
         <Tab label="Operación" sx={{ textTransform: 'none' }} />
         {canVerCartas && <Tab label="Cartas" sx={{ textTransform: 'none' }} />}
+        <Tab label="Tipificaciones" sx={{ textTransform: 'none' }} />
       </Tabs>
 
       {tab === 0 && dashboard && (
@@ -506,6 +602,161 @@ const GestionPage = () => {
             </Table>
           </TableContainer>
         </Paper>
+      )}
+
+      {tab === tabTipificaciones && (
+        <Stack spacing={2}>
+          <DashboardFilters filters={filters} onChange={setFilters} onClear={() => setFilters(EMPTY_FILTERS)} options={opts} moneda={monedaFiltro} onMonedaChange={setMonedaFiltro} />
+
+          {/* KPIs: cuentas únicas por código, nunca gestiones contadas como cuentas. */}
+          <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(5, minmax(0, 1fr))' } }}>
+            {[
+              { l: 'Total Cuentas', v: tipTotal.toLocaleString('en-US') },
+              { l: 'Cuentas Con Gestión', v: tipCon.toLocaleString('en-US') },
+              { l: 'Cuentas Sin Gestión', v: tipSin.toLocaleString('en-US') },
+              { l: '% Cuentas Con Gestión', v: `${tipPctCon.toFixed(1)}%` },
+              { l: '% Cuentas Sin Gestión', v: `${tipPctSin.toFixed(1)}%` }
+            ].map((k) => (
+              <Paper key={k.l} sx={{ p: 1.25, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
+                <Typography sx={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'text.secondary' }}>{k.l}</Typography>
+                <Typography sx={{ fontSize: 22, fontWeight: 800 }}>{k.v}</Typography>
+              </Paper>
+            ))}
+          </Box>
+
+          <Paper sx={{ borderRadius: 2.5, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
+            <Box sx={{ p: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                <Typography sx={{ fontWeight: 700, mr: 0.5 }}>Tipificaciones</Typography>
+                <TextField
+                  select size="small" label="Tipificación" value={tipSelTip} disabled={tipEstado === 'SIN'}
+                  SelectProps={{ multiple: true, renderValue: (v) => (v as string[]).length ? `${(v as string[]).length} seleccionada(s)` : 'Todas' }}
+                  onChange={(e) => setTipSelTip(typeof e.target.value === 'string' ? e.target.value.split(',') : (e.target.value as unknown as string[]))}
+                  sx={{ minWidth: 190 }}
+                >
+                  {catTip.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
+                </TextField>
+                <TextField select size="small" label="Estado de gestión" value={tipEstado} onChange={(e) => setTipEstado(e.target.value as 'TODOS' | 'CON' | 'SIN')} sx={{ minWidth: 150 }}>
+                  <MenuItem value="TODOS">Todos</MenuItem>
+                  <MenuItem value="CON">Con gestión</MenuItem>
+                  <MenuItem value="SIN">Sin gestión</MenuItem>
+                </TextField>
+                <Button size="small" onClick={limpiarFiltrosTip} sx={{ textTransform: 'none' }}>Limpiar filtros</Button>
+              </Box>
+              <Box sx={{ display: 'flex', gap: 0.5 }}>
+                <Button size="small" startIcon={<FileDownloadOutlinedIcon />} onClick={() => descargarDetalle(tipFiltradas, 'gestion_tipificaciones_cuentas', 'csv')} sx={{ textTransform: 'none' }}>CSV</Button>
+                <Button size="small" startIcon={<FileDownloadOutlinedIcon />} onClick={() => descargarDetalle(tipFiltradas, 'gestion_tipificaciones_cuentas', 'xlsx')} sx={{ textTransform: 'none' }}>Excel</Button>
+              </Box>
+            </Box>
+            <Alert severity="info" sx={{ mx: 1.5, mb: 1.5, py: 0.25, fontSize: 11.5, '& .MuiAlert-message': { fontSize: 11.5 } }}>
+              Clasificación por última gestión registrada dentro del período seleccionado. Gestión no tiene (todavía) un filtro de fecha propio: el período considerado es el historial completo.
+            </Alert>
+
+            {tipLoading && <Box sx={{ p: 2 }}><CircularProgress size={20} /></Box>}
+
+            {!tipLoading && tipEstado !== 'SIN' && (
+              <TableContainer sx={{ maxHeight: '55vh' }}>
+                <Table stickyHeader size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 700, width: 36 }} />
+                      {([
+                        { id: 'tipificacion', label: 'Tipificación' }, { id: 'cuentas', label: 'Cuentas' },
+                        { id: 'saldoActual', label: 'Saldo Actual' }, { id: 'pctCuentas', label: '% Cuentas' },
+                        { id: 'saldoPromesa', label: 'Saldo Promesa' }, { id: 'cuentasConPromesa', label: 'Cuentas Con Promesa' }
+                      ] as const).map((col) => (
+                        <TableCell key={col.id} sx={{ fontWeight: 700, whiteSpace: 'nowrap' }} sortDirection={tipOrderBy === col.id ? tipOrder : false}>
+                          <TableSortLabel active={tipOrderBy === col.id} direction={tipOrderBy === col.id ? tipOrder : 'asc'} onClick={() => handleSortTip(col.id)}>{col.label}</TableSortLabel>
+                        </TableCell>
+                      ))}
+                      <TableCell sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Cuentas Sin Promesa</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }} />
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {tipTablaOrdenada.map((g) => (
+                      <Fragment key={g.tipificacion}>
+                        <TableRow hover sx={{ cursor: 'pointer' }} onClick={() => toggle(expTip, g.tipificacion, setExpTip)}>
+                          <TableCell><IconButton size="small">{expTip.has(g.tipificacion) ? <KeyboardArrowDownIcon fontSize="small" /> : <KeyboardArrowRightIcon fontSize="small" />}</IconButton></TableCell>
+                          <TableCell>{g.tipificacion}</TableCell>
+                          <TableCell align="right">{g.cuentas.toLocaleString('en-US')}</TableCell>
+                          <TableCell align="right">{money(g.saldoActual)}</TableCell>
+                          <TableCell align="right">{g.pctCuentas.toFixed(1)}%</TableCell>
+                          <TableCell align="right">{g.saldoPromesa ? money(g.saldoPromesa) : '0.00'}</TableCell>
+                          <TableCell align="right">{g.cuentasConPromesa}</TableCell>
+                          <TableCell align="right">{g.cuentasSinPromesa}</TableCell>
+                          <TableCell onClick={(e) => e.stopPropagation()}>
+                            <Button size="small" startIcon={<FileDownloadOutlinedIcon />} onClick={() => descargarDetalle(g.filas, `gestion_tipificacion_${g.tipificacion}`, 'xlsx')} sx={{ textTransform: 'none', fontSize: 11 }}>Descargar cuentas</Button>
+                          </TableCell>
+                        </TableRow>
+                        {expTip.has(g.tipificacion) && (
+                          <TableRow>
+                            <TableCell colSpan={9} sx={{ p: 0, borderBottom: 'none' }}>
+                              <Collapse in unmountOnExit>
+                                <Box sx={{ p: 1.5, bgcolor: 'action.hover' }}>
+                                  <TableContainer sx={{ maxHeight: 320 }}>
+                                    <Table size="small" stickyHeader>
+                                      <TableHead><TableRow>{TIP_DETALLE_HEAD.map((h) => <TableCell key={h} sx={{ fontWeight: 700, fontSize: 10.5, whiteSpace: 'nowrap' }}>{h}</TableCell>)}</TableRow></TableHead>
+                                      <TableBody>
+                                        {g.filas.map((f) => (
+                                          <TableRow key={f.codigo}>
+                                            <TableCell sx={{ fontSize: 11 }}>{f.codigo}</TableCell>
+                                            <TableCell sx={{ fontSize: 11 }}>{f.nombre}</TableCell>
+                                            <TableCell sx={{ fontSize: 11 }}>{siglaPais(f.pais)}</TableCell>
+                                            <TableCell sx={{ fontSize: 11 }}>{f.zona}</TableCell>
+                                            <TableCell sx={{ fontSize: 11 }}>{f.gestor}</TableCell>
+                                            <TableCell sx={{ fontSize: 11 }}><Chip size="small" label={f.pdActual} /></TableCell>
+                                            <TableCell sx={{ fontSize: 11 }}>{f.campaniaAdeuda}</TableCell>
+                                            <TableCell align="right" sx={{ fontSize: 11 }}>{money(f.saldoActual)}</TableCell>
+                                            <TableCell sx={{ fontSize: 11 }}>{f.tipificacion ?? 'Sin gestión'}</TableCell>
+                                            <TableCell sx={{ fontSize: 11, whiteSpace: 'nowrap' }}>{f.fechaGestion ? f.fechaGestion.slice(0, 16).replace('T', ' ') : '—'}</TableCell>
+                                            <TableCell sx={{ fontSize: 11 }}>{f.fechaPromesa ?? '—'}</TableCell>
+                                            <TableCell align="right" sx={{ fontSize: 11 }}>{f.montoPromesa !== null ? money(f.montoPromesa) : '—'}</TableCell>
+                                            <TableCell sx={{ fontSize: 11 }}>{f.telefono ?? '—'}</TableCell>
+                                            <TableCell sx={{ fontSize: 11 }}>{f.telefono ?? '—'}</TableCell>
+                                            <TableCell title={f.comentarioGestion ?? undefined} sx={{ fontSize: 11, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.comentarioGestion ?? '—'}</TableCell>
+                                          </TableRow>
+                                        ))}
+                                      </TableBody>
+                                    </Table>
+                                  </TableContainer>
+                                </Box>
+                              </Collapse>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </Fragment>
+                    ))}
+                    {tipTablaOrdenada.length === 0 && <TableRow><TableCell colSpan={9} align="center" sx={{ py: 3, color: 'text.secondary' }}>Sin tipificaciones para los filtros actuales.</TableCell></TableRow>}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+
+            {/* Estado de gestión = "Sin gestión": listado plano de cuentas sin
+                ninguna gestión registrada — "Sin gestión" es aquí SOLO una
+                etiqueta visual de esta vista, nunca una tipificación real ni
+                algo que se guarde en gestion_log. */}
+            {!tipLoading && tipEstado === 'SIN' && (
+              <TableContainer sx={{ maxHeight: '55vh' }}>
+                <Table stickyHeader size="small">
+                  <TableHead><TableRow>{['Código', 'Nombre', 'País', 'Zona', 'Gestor', 'PD', 'Campaña', 'Saldo Actual', 'Teléfono'].map((h) => <TableCell key={h} sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</TableCell>)}</TableRow></TableHead>
+                  <TableBody>
+                    {tipFiltradas.map((f) => (
+                      <TableRow key={f.codigo} hover>
+                        <TableCell>{f.codigo}</TableCell><TableCell>{f.nombre}</TableCell>
+                        <TableCell>{siglaPais(f.pais)}</TableCell><TableCell>{f.zona}</TableCell><TableCell>{f.gestor}</TableCell>
+                        <TableCell><Chip size="small" label={f.pdActual} /></TableCell><TableCell>{f.campaniaAdeuda}</TableCell>
+                        <TableCell align="right">{money(f.saldoActual)}</TableCell><TableCell>{f.telefono ?? '—'}</TableCell>
+                      </TableRow>
+                    ))}
+                    {tipFiltradas.length === 0 && <TableRow><TableCell colSpan={9} align="center" sx={{ py: 3, color: 'text.secondary' }}>Sin cuentas sin gestión para los filtros actuales.</TableCell></TableRow>}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+          </Paper>
+        </Stack>
       )}
 
       {/* Panel único: Información general + Detalle (izquierda), Historial + Gestión (derecha), dos columnas, sin tabs. */}

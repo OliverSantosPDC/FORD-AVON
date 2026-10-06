@@ -74,6 +74,30 @@ export const getGestionCuentas = async (filters?: DashboardFilterParams): Promis
   return res.json();
 };
 
+/** Gestión > Tipificaciones: cada cuenta dentro del alcance/filtros del
+ *  usuario, clasificada por su ÚLTIMA gestión registrada y enriquecida con
+ *  su promesa más reciente (si tiene alguna) — una sola llamada; el backend
+ *  ya aplica el mismo alcance/filtros que el resto de Gestión. */
+export interface CuentaTipificada {
+  codigo: string; nombre: string; pais: string; zona: string; gestor: string;
+  pdActual: string; campaniaAdeuda: string; saldoActual: number;
+  tipificacion: string | null;
+  fechaGestion: string | null;
+  comentarioGestion: string | null;
+  tipoContacto: string | null;
+  canal: string | null;
+  fechaPromesa: string | null;
+  montoPromesa: number | null;
+  monedaPromesa: string | null;
+  estadoPromesa: string | null;
+  telefono: string | null;
+}
+export const getTipificaciones = async (filters?: DashboardFilterParams): Promise<CuentaTipificada[]> => {
+  const res = await apiFetch(`/api/gestion/tipificaciones${qs(filters)}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudieron cargar las tipificaciones.'));
+  return res.json();
+};
+
 export const getDetalleCuenta = async (codigo: string): Promise<DetalleCuenta> => {
   const res = await apiFetch(`/api/gestion/cuentas/${encodeURIComponent(codigo)}/detalle`, { cache: 'no-store' });
   if (!res.ok) throw new Error(await parseError(res, 'No se pudo cargar el detalle.'));

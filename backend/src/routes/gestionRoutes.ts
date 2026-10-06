@@ -14,6 +14,10 @@ router.get('/gestion/cuentas', requireAuth, requirePermission('gestion.ver'), (r
 router.get('/gestion/zonas-pd', requireAuth, requirePermission('gestion.ver'), (req, res) => c.zonasPd(req, res));
 router.get('/gestion/pd-campanas', requireAuth, requirePermission('gestion.ver'), (req, res) => c.pdCampanas(req, res));
 router.post('/gestion/estado', requireAuth, requirePermission('gestion.ver'), (req, res) => c.estado(req, res));
+// Tipificaciones: mismo permiso que el resto de lecturas de Gestión
+// (gestion.ver) — ninguna cuenta fuera del alcance real del actor llega
+// nunca a esta respuesta (ver GestionService.tipificacionesCuentas).
+router.get('/gestion/tipificaciones', requireAuth, requirePermission('gestion.ver'), (req, res) => c.tipificaciones(req, res));
 router.get('/gestion/cuentas/:codigo/detalle', requireAuth, requirePermission('gestion.ver'), (req, res) => c.detalle(req, res));
 router.get('/gestion/cuentas/:codigo/info', requireAuth, requirePermission('gestion.ver'), (req, res) => c.info(req, res));
 // Listado de cartas: exige además una de las dos acciones reales sobre

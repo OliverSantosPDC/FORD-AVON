@@ -345,6 +345,81 @@ export const estadoCuentas = async (codigos: string[]): Promise<Record<string, {
   return map;
 };
 
+export interface CuentaTipificada {
+  codigo: string; nombre: string; pais: string; zona: string; gestor: string;
+  pdActual: string; campaniaAdeuda: string; saldoActual: number;
+  tipificacion: string | null;
+  fechaGestion: string | null;
+  comentarioGestion: string | null;
+  tipoContacto: string | null;
+  canal: string | null;
+  fechaPromesa: string | null;
+  montoPromesa: number | null;
+  monedaPromesa: string | null;
+  estadoPromesa: string | null;
+  telefono: string | null;
+}
+
+/**
+ * Clasifica cada cuenta YA ESCALADA/filtrada (`cuentasScoped`, de
+ * `CarteraService.listCartera`, idéntica a la que ya usa la pestaña
+ * Operación) por su ÚLTIMA gestión registrada (la fila más reciente de
+ * `gestion_log` para ese código) y la enriquece con su promesa más
+ * reciente (`gestion_promesas`), si tiene alguna — fuente para
+ * Gestión > Tipificaciones. `gestion_log`/`gestion_promesas` se leen
+ * COMPLETAS, sin filtrar por código ni por tipificación (son tablas
+ * pequeñas: una sola lectura de cada una en total, nunca N consultas), y
+ * el alcance queda garantizado porque solo se devuelven filas de esas dos
+ * tablas cuyo código coincide con una fila YA presente en `cuentasScoped`
+ * (que llegó aquí ya filtrada por alcance/filtros) — ninguna fila fuera de
+ * alcance se expone, ni siquiera en la respuesta JSON cruda.
+ * Gestión no tiene (todavía) un filtro de fecha/período propio, así que
+ * "el período seleccionado" es, por ahora, el historial completo — ver la
+ * nota equivalente en el frontend (Gestion/index.tsx, pestaña Tipificaciones).
+ */
+export const tipificacionesCuentas = async (cuentasScoped: Row[]): Promise<CuentaTipificada[]> => {
+  const c = client();
+  const [logs, proms] = await Promise.all([
+    c.from('gestion_log').select('codigo, tipificacion, comentario, tipo_contacto, canal, created_at').order('created_at', { ascending: false }),
+    c.from('gestion_promesas').select('codigo, fecha_promesa, monto, moneda, estado, created_at').order('created_at', { ascending: false })
+  ]);
+  if (logs.error) throw new GestionError(`No se pudo leer el historial de gestión: ${logs.error.message}`);
+  if (proms.error) throw new GestionError(`No se pudieron leer las promesas: ${proms.error.message}`);
+
+  type LogRow = { codigo: string; tipificacion: string; comentario: string | null; tipo_contacto: string | null; canal: string | null; created_at: string };
+  type PromRow = { codigo: string; fecha_promesa: string; monto: number | string | null; moneda: string | null; estado: string; created_at: string };
+  // Ambas listas vienen ordenadas por created_at DESC: la primera fila que
+  // se ve por código es, por construcción, la más reciente ("última gestión").
+  const ultimoLog = new Map<string, LogRow>();
+  ((logs.data ?? []) as LogRow[]).forEach((l) => { if (!ultimoLog.has(l.codigo)) ultimoLog.set(l.codigo, l); });
+  const ultimaPromesa = new Map<string, PromRow>();
+  ((proms.data ?? []) as PromRow[]).forEach((p) => { if (!ultimaPromesa.has(p.codigo)) ultimaPromesa.set(p.codigo, p); });
+
+  return cuentasScoped.map((r) => {
+    const codigo = s(r.codigo);
+    const log = ultimoLog.get(codigo);
+    const prom = ultimaPromesa.get(codigo);
+    // No existe un campo distinto de "WhatsApp" en el modelo de cartera:
+    // se reutiliza el mismo teléfono celular (el único contacto móvil real
+    // disponible) — nunca se inventa una columna nueva.
+    const telefono = (s(r.telefono_celular) || s(r.telefono_casa) || s(r.telefono_trabajo)) || null;
+    return {
+      codigo, nombre: s(r.nombre), pais: s(r.pais), zona: s(r.zona), gestor: s(r.gestor),
+      pdActual: s(r.pd_actual), campaniaAdeuda: s(r.campania_adeuda), saldoActual: num(r.saldo_actual),
+      tipificacion: log ? log.tipificacion : null,
+      fechaGestion: log ? log.created_at : null,
+      comentarioGestion: log ? log.comentario : null,
+      tipoContacto: log ? log.tipo_contacto : null,
+      canal: log ? log.canal : null,
+      fechaPromesa: prom ? prom.fecha_promesa : null,
+      montoPromesa: prom ? num(prom.monto) : null,
+      monedaPromesa: prom ? prom.moneda : null,
+      estadoPromesa: prom ? prom.estado : null,
+      telefono
+    };
+  });
+};
+
 /** Mensaje EXACTO cuando quien autoriza no tiene su firma predeterminada
  *  configurada — compartido por resolverCarta y resolverCartasMasivo para
  *  que el bloqueo sea idéntico en el flujo individual y en el masivo. */
