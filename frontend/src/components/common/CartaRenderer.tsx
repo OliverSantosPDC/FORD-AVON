@@ -75,7 +75,7 @@ const CartaRenderer = forwardRef<HTMLDivElement, CartaRendererProps>(({ contenid
         }
         if (parte === '«Firma»') {
           return firmaUrl
-            ? <Box key={i} component="img" src={firmaUrl} alt="Firma" sx={{ height: 64, display: 'block', mt: 2, mb: 1 }} />
+            ? <Box key={i} component="img" src={firmaUrl} alt="Firma" sx={{ height: 96, display: 'block', mt: 2, mb: 1 }} />
             : <Box key={i} sx={{ mt: 2, mb: 1 }}><Placeholder texto={firmaPendienteTexto ?? 'Firma: Pendiente de autorización'} /></Box>;
         }
         return <span key={i}>{parte}</span>;
