@@ -2,11 +2,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Alert, Box, Button, Checkbox, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle,
   Divider, FormControlLabel, Grid, IconButton, Menu, MenuItem, Paper, Snackbar, Stack, Tab, Table, TableBody, TableCell,
-  TableContainer, TableHead, TablePagination, TableRow, Tabs, TextField, Typography
+  TableContainer, TableHead, TablePagination, TableRow, Tabs, TextField, Tooltip, Typography
 } from '@mui/material';
-import {
-  Bar as RBar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis
-} from 'recharts';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
@@ -54,43 +51,21 @@ const exportBarsPng = (title: string, items: Array<{ label: string; value: numbe
 const HEAD_H = ['Nivel', 'Grupo', 'Sub', 'Cuentas', 'Saldo Local', 'Saldo USD', 'Recuperado', '% Rec'];
 
 // ===== Distribución por País/Zona/Sector (Resumen Operativo): gráficos de
-// barras horizontales reales (antes: listado de texto). Reutiliza ChartCard
-// (mismo componente/estilo de título que el resto del dashboard) y el mismo
-// dato que ya alimentaba el listado anterior (resumenOp.distribucion.*,
-// calculado en el backend desde saldo_actual + tasa vigente — nunca
-// saldo_actual_usd). El saldo se re-expresa en la moneda elegida localmente
-// aquí (misma fórmula `usd * tasaActual` que Gestión/Dashboard), nunca
-// hardcodeando "$"/"USD".
-// Mismo alto que el resto de los gráficos del dashboard (CHART_HEIGHT en
-// DashboardCharts.tsx) — antes 360px, mucho más grande que cualquier otro
-// gráfico del sistema.
-const DIST_ROW_H = 24;
-const DIST_PAD_H = 40;
-const DIST_MIN_H = 180;
+// barras horizontales reales (antes: listado de texto). Mismo dato que ya
+// alimentaba el listado anterior (resumenOp.distribucion.*, calculado en el
+// backend desde saldo_actual + tasa vigente — nunca saldo_actual_usd). El
+// saldo se re-expresa en la moneda elegida localmente aquí (misma fórmula
+// `usd * tasaActual` que Gestión/Dashboard), nunca hardcodeando "$"/"USD".
+// Mismo tamaño de fila/tarjeta que "SALDOS ACTUAL POR ZONA Y SECTOR" del
+// Dashboard (DashboardZonaSector.tsx): barra de 16px, fila con spacing 0.75,
+// contenedor con maxHeight 240 — el mismo lenguaje visual de "distribución"
+// que ya usa el resto del sistema, mucho más compacto que un eje X/Y completo.
+const DIST_ROW_H = 26;
+const DIST_MIN_H = 60;
 const DIST_MAX_VISIBLE_H = 240;
-const distAxisTick = { fill: '#475569', fontSize: 10.5 };
-const distFormatCompact = (value: number) => {
-  if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(0)}K`;
-  return `${value}`;
-};
+const distFmt = (value: number) => value.toLocaleString('en-US', { maximumFractionDigits: 0 });
 
 interface DistRow { clave: string; cuentas: number; valor: number; pct: number; }
-
-const DistribTooltip = ({ active, payload, dimLabel, simbolo }: {
-  active?: boolean; payload?: Array<{ payload: DistRow }>; dimLabel: string; simbolo: string;
-}) => {
-  if (!active || !payload || !payload.length) return null;
-  const d = payload[0].payload;
-  return (
-    <Box sx={{ borderRadius: 1.5, border: '1px solid #E2E8F0', boxShadow: '0 16px 40px rgba(15, 23, 42, 0.14)', backgroundColor: '#FFFFFF', px: 1.5, py: 1, minWidth: 200 }}>
-      <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#0F172A', mb: 0.25 }}>{dimLabel}: {d.clave}</Typography>
-      <Typography sx={{ fontSize: 12, color: '#475569' }}>Cuentas: {d.cuentas.toLocaleString('en-US')}</Typography>
-      <Typography sx={{ fontSize: 12, color: '#475569' }}>Saldo actual: {simbolo} {d.valor.toLocaleString('en-US', { maximumFractionDigits: 0 })}</Typography>
-      <Typography sx={{ fontSize: 12, color: '#475569' }}>% del total: {d.pct.toFixed(1)}%</Typography>
-    </Box>
-  );
-};
 
 const DistribucionCard = ({ titulo, dimLabel, items, simbolo, tasaActual, chartId }: {
   titulo: string; dimLabel: string; items: DistribItem[]; simbolo: string; tasaActual: number; chartId: string;
@@ -103,9 +78,9 @@ const DistribucionCard = ({ titulo, dimLabel, items, simbolo, tasaActual, chartI
       pct: total > 0 ? (x.saldoUsd / total) * 100 : 0
     }));
   }, [items, tasaActual]);
+  const maxValor = Math.max(1, ...data.map((d) => d.valor));
 
-  const chartHeight = Math.max(DIST_MIN_H, data.length * DIST_ROW_H + DIST_PAD_H);
-  const cardHeight = Math.min(chartHeight, DIST_MAX_VISIBLE_H);
+  const cardHeight = Math.min(DIST_MAX_VISIBLE_H, Math.max(DIST_MIN_H, data.length * DIST_ROW_H));
 
   return (
     <ChartCard
@@ -122,19 +97,23 @@ const DistribucionCard = ({ titulo, dimLabel, items, simbolo, tasaActual, chartI
           <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>Sin datos para los filtros seleccionados.</Typography>
         </Box>
       ) : (
-        <Box sx={{ height: visibleH, overflowY: 'auto', overflowX: 'hidden' }}>
-          <Box sx={{ height: chartHeight, width: '100%' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data} layout="vertical" margin={{ top: 4, right: 28, left: 4, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" horizontal={false} />
-                <XAxis type="number" tickFormatter={distFormatCompact} tick={distAxisTick} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="clave" width={112} tick={distAxisTick} axisLine={false} tickLine={false} interval={0} />
-                <RTooltip content={<DistribTooltip dimLabel={dimLabel} simbolo={simbolo} />} cursor={{ fill: 'rgba(230,0,126,0.06)' }} />
-                <RBar dataKey="valor" name="Saldo actual" fill="#1E3A8A" radius={[0, 6, 6, 0]} barSize={10} />
-              </BarChart>
-            </ResponsiveContainer>
-          </Box>
-        </Box>
+        <Stack spacing={0.75} sx={{ maxHeight: visibleH, overflowY: 'auto' }}>
+          {data.map((d) => (
+            <Tooltip
+              key={d.clave}
+              arrow
+              title={`${dimLabel}: ${d.clave} · Cuentas: ${d.cuentas.toLocaleString('en-US')} · Saldo actual: ${simbolo} ${distFmt(d.valor)} · % del total: ${d.pct.toFixed(1)}%`}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box sx={{ width: { xs: 90, sm: 140 }, fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.clave}</Box>
+                <Box sx={{ flex: 1, bgcolor: 'action.hover', borderRadius: 1, height: 16, minWidth: 60 }}>
+                  <Box sx={{ width: `${Math.max(2, (d.valor / maxValor) * 100)}%`, bgcolor: '#1E3A8A', height: '100%', borderRadius: 1 }} />
+                </Box>
+                <Box sx={{ width: { xs: 96, sm: 150 }, textAlign: 'right', fontSize: 11, whiteSpace: 'nowrap' }}>{simbolo} {distFmt(d.valor)} · {d.cuentas}</Box>
+              </Box>
+            </Tooltip>
+          ))}
+        </Stack>
       )}
     </ChartCard>
   );
