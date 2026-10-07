@@ -336,13 +336,40 @@ const sincronizarRelaciones = async (
       if (error) throw new UsuariosError(`No se pudo crear el gestor: ${error.message}`);
       gestorIdVinculado = (inserted as { id: string }).id;
     }
+  } else if (roleClave === 'gestor') {
+    // BUG CORREGIDO: Usuarios ya NO envía `nombreCartera` en cada edición (la
+    // asignación de cartera es semimanual, ver comentario arriba de
+    // CrearUsuarioInput), así que antes `gestorIdVinculado` quedaba SIEMPRE
+    // en null al editar — el bloque de abajo (gestor_pais_zona) nunca se
+    // ejecutaba y la selección de País/Zona del formulario se perdía en
+    // silencio, aunque la petición respondiera 200 OK. Se resuelve aquí el
+    // gestor YA vinculado a este usuario (el mismo filtro que usa
+    // limpiarRelacionesAjenas), sin tocar su nombre_cartera.
+    const { data: existente } = await client.from('gestores').select('id').eq('usuario_id', userId).eq('activo', true).limit(1);
+    gestorIdVinculado = ((existente ?? [])[0] as { id?: string } | undefined)?.id ?? null;
   }
 
   // gestor → País/Zona explícitos (narrowing ADICIONAL opcional sobre nombre_cartera)
-  if (roleClave === 'gestor' && input.gestorPaisZona && gestorIdVinculado) {
+  if (roleClave === 'gestor' && input.gestorPaisZona) {
+    if (!gestorIdVinculado) {
+      // El administrador SÍ intentó asignar zonas explícitas, pero este
+      // usuario todavía no tiene un gestor vinculado (nombre_cartera) — nunca
+      // se descarta la selección en silencio, se informa el motivo real.
+      throw new UsuariosError('Este gestor aún no tiene un nombre de cartera vinculado; no se puede asignar País/Zona hasta vincularlo (carga/edición de nombre_cartera).');
+    }
     await client.from('gestor_pais_zona').delete().eq('gestor_id', gestorIdVinculado);
     if (input.gestorPaisZona.length > 0) {
-      const rows = input.gestorPaisZona.map((pz) => ({ gestor_id: gestorIdVinculado, zona_id: pz.zonaId, pais: pz.pais, fecha_inicio: hoy(), fecha_fin: null, activo: true }));
+      // Deduplica (zonaId, pais) por si el cliente envía la misma combinación
+      // más de una vez: nunca debe quedar más de un registro vigente para la
+      // misma relación gestor + zona.
+      const vistos = new Set<string>();
+      const unicos = input.gestorPaisZona.filter((pz) => {
+        const k = `${pz.zonaId}||${pz.pais}`;
+        if (vistos.has(k)) return false;
+        vistos.add(k);
+        return true;
+      });
+      const rows = unicos.map((pz) => ({ gestor_id: gestorIdVinculado, zona_id: pz.zonaId, pais: pz.pais, fecha_inicio: hoy(), fecha_fin: null, activo: true }));
       const { error } = await client.from('gestor_pais_zona').insert(rows);
       if (error) throw new UsuariosError(`No se pudo asignar el País/Zona del gestor: ${error.message}`);
     }
@@ -382,7 +409,16 @@ const sincronizarRelaciones = async (
   if (roleClave === 'gerente_zona' && input.paisZona) {
     await client.from('gerente_zona_zona').delete().eq('usuario_id', userId);
     if (input.paisZona.length > 0) {
-      const rows = input.paisZona.map((pz) => ({ usuario_id: userId, zona_id: pz.zonaId, pais: pz.pais, fecha_inicio: hoy(), fecha_fin: null, activo: true }));
+      // Deduplica (zonaId, pais): nunca más de un registro vigente para la
+      // misma relación gerente + zona, aunque el cliente repita la combinación.
+      const vistos = new Set<string>();
+      const unicos = input.paisZona.filter((pz) => {
+        const k = `${pz.zonaId}||${pz.pais}`;
+        if (vistos.has(k)) return false;
+        vistos.add(k);
+        return true;
+      });
+      const rows = unicos.map((pz) => ({ usuario_id: userId, zona_id: pz.zonaId, pais: pz.pais, fecha_inicio: hoy(), fecha_fin: null, activo: true }));
       const { error } = await client.from('gerente_zona_zona').insert(rows);
       if (error) throw new UsuariosError(`No se pudieron asignar las zonas del gerente: ${error.message}`);
     }
