@@ -172,6 +172,25 @@ export const crearCartasMasivo = async (codigos: string[], comentario: string): 
   return res.json();
 };
 
+/** Detalle descargable de VARIAS cartas a la vez (Cartas: selección múltiple
+ *  -> "Descargar cartas"). `noDescargables` siempre trae el motivo REAL
+ *  devuelto por el backend (no encontrada / fuera de alcance / no
+ *  aprobada) — nunca inventado aquí. */
+export interface CartaDescargable { id: string; codigo: string; pd: string | null; contenido: string; logoUrl: string | null; firmaUrl: string | null; }
+export interface MotivoDescargaLote { id: string; codigo: string; motivo: string; }
+export interface ResultadoDescargaCartasLote { total: number; descargables: CartaDescargable[]; noDescargables: MotivoDescargaLote[]; }
+
+/** Un solo request para TODAS las cartas seleccionadas (nunca una llamada
+ *  por carta). El backend revalida, por carta, el alcance y que esté
+ *  APROBADA — igual que la descarga individual, nunca duplicado aquí. */
+export const obtenerCartasDescargaLote = async (ids: string[]): Promise<ResultadoDescargaCartasLote> => {
+  const res = await apiFetch('/api/gestion/cartas/descargar-lote', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids })
+  });
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudieron recuperar las cartas.'));
+  return res.json();
+};
+
 export const getCartas = async (estado?: string): Promise<CartaGestion[]> => {
   const res = await apiFetch(`/api/gestion/cartas${estado ? `?estado=${encodeURIComponent(estado)}` : ''}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(await parseError(res, 'No se pudieron cargar las cartas.'));

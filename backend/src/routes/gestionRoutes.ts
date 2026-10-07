@@ -30,6 +30,11 @@ router.get('/gestion/cartas', requireAuth, requireAnyPermission('gestion.carta.c
 // Detalle de una carta puntual (logo/firma solo si ya está autorizada): la
 // misma exigencia de permiso que el listado — nunca solo gestion.ver.
 router.get('/gestion/cartas/:id', requireAuth, requireAnyPermission('gestion.carta.crear', 'gestion.carta.aprobar'), (req, res) => c.obtenerCarta(req, res));
+// Descarga masiva (Cartas: selección múltiple -> "Descargar cartas"): MISMA
+// exigencia de permiso que el detalle/descarga individual (nunca un permiso
+// nuevo ni más laxo). El alcance y el estado APROBADA de cada carta recibida
+// se revalidan siempre en el backend (ver GestionController.descargarCartasMasivo).
+router.post('/gestion/cartas/descargar-lote', requireAuth, requireAnyPermission('gestion.carta.crear', 'gestion.carta.aprobar'), (req, res) => c.descargarCartasMasivo(req, res));
 // Vista previa EN VIVO, bloqueada al PD actual de la cuenta — mismo permiso
 // que generar la carta (quien no puede crearla, tampoco previsualiza).
 router.get('/gestion/cuentas/:codigo/carta-preview', requireAuth, requirePermission('gestion.carta.crear'), (req, res) => c.previsualizarCarta(req, res));

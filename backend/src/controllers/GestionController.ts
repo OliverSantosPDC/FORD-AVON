@@ -6,6 +6,7 @@ import {
   registrarTipificacion, detalleCuenta, crearPromesa, actualizarPromesa,
   registrarAdjunto, eliminarAdjunto, subirArchivoStorage,
   crearCarta, crearCartasMasivo, listarCartas, resolverCarta, resolverCartasMasivo, previsualizarCarta, obtenerCarta,
+  obtenerCartasMasivo,
   aggregarZonasPd, aggregarPdCampanas, estadoCuentas, infoCuenta, GestionError,
   filtrarCodigosEnAlcance, codigoDePromesa, codigoDeAdjunto, gestorDeCarta, gestorEnAlcance,
   tipificacionesCuentas
@@ -239,6 +240,23 @@ export class GestionController {
         detalle: { generadas: r.generadas, noGeneradas: r.noGeneradas }
       });
     } catch (e) { return this.fail(res, e, 'No se pudieron generar las cartas.'); }
+  }
+
+  /** Detalle descargable de VARIAS cartas (Cartas: selección múltiple ->
+   *  "Descargar cartas"). Mismo permiso/gate que la descarga individual
+   *  (GET /gestion/cartas/:id): estado APROBADA + alcance real del actor,
+   *  revalidados SIEMPRE en el backend — nunca se confía en la lista de ids
+   *  que manda el cliente. Nunca aborta el lote completo por una carta
+   *  inválida: responde con el detalle de cada una (descargable o el
+   *  motivo real por el que no lo es). */
+  async descargarCartasMasivo(req: Request, res: Response): Promise<Response | void> {
+    try {
+      const ctx = this.scope(req, res); if (!ctx) return;
+      const ids = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]).map((i) => String(i)).filter(Boolean) : [];
+      if (ids.length === 0) return res.status(400).json({ error: 'Debes seleccionar al menos una carta.' });
+      const r = await obtenerCartasMasivo(ids, ctx);
+      return res.json({ total: ids.length, descargables: r.descargables, noDescargables: r.noDescargables });
+    } catch (e) { return this.fail(res, e, 'No se pudieron recuperar las cartas.'); }
   }
 
   async listarCartas(req: Request, res: Response): Promise<Response | void> {

@@ -307,6 +307,64 @@ export const obtenerCarta = async (id: string) => {
   return { ...row, logoUrl, firmaUrl, descargable: autorizada };
 };
 
+export interface CartaDescargable { id: string; codigo: string; pd: string | null; contenido: string; logoUrl: string | null; firmaUrl: string | null; }
+export interface MotivoDescargaLote { id: string; codigo: string; motivo: string; }
+
+/**
+ * Detalle descargable de VARIAS cartas a la vez (Cartas: selección múltiple
+ * -> "Descargar cartas"). Mismo gate que la descarga individual
+ * (`gestorDeCarta` + `gestorEnAlcance` + `obtenerCarta`: estado==='APROBADA'
+ * + alcance del actor), pero resuelto UNA sola vez para todo el lote en vez
+ * de una consulta por carta:
+ *  - una sola lectura de `gestion_cartas` (`.in('id', ...)`),
+ *  - `usuariosDelAlcance(ctx)` UNA vez (gestorEnAlcance la recalcula en cada
+ *    llamada; aquí se evita repetirla por cada carta seleccionada),
+ *  - el logo (mismo asset para todas) y la firma (por cada
+ *    `firma_storage_path` DISTINTO, nunca una resolución por carta).
+ * Nunca descarta el lote completo por una carta inválida: cada motivo de
+ * "no descargable" es real (no encontrada / fuera de alcance / no aprobada).
+ */
+export const obtenerCartasMasivo = async (
+  ids: string[], ctx: ScopeContext
+): Promise<{ descargables: CartaDescargable[]; noDescargables: MotivoDescargaLote[] }> => {
+  const unicos = [...new Set(ids.map((i) => i.trim()).filter(Boolean))];
+  const noDescargables: MotivoDescargaLote[] = [];
+  if (unicos.length === 0) return { descargables: [], noDescargables };
+
+  const { data, error } = await client().from('gestion_cartas').select('*').in('id', unicos);
+  if (error) throw new GestionError(`No se pudieron leer las cartas: ${error.message}`);
+  const porId = new Map<string, Record<string, unknown>>();
+  ((data ?? []) as Array<Record<string, unknown>>).forEach((r) => porId.set(String(r.id), r));
+
+  const alcance = await usuariosDelAlcance(ctx);
+  const aprobadas: Array<Record<string, unknown>> = [];
+  for (const id of unicos) {
+    const row = porId.get(id);
+    if (!row) { noDescargables.push({ id, codigo: '', motivo: 'Carta no encontrada.' }); continue; }
+    const codigo = String(row.codigo ?? '');
+    const gestorId = (row.gestor_id as string | null) ?? null;
+    const enAlcance = alcance.global || (!!gestorId && alcance.ids.has(gestorId));
+    if (!enAlcance) { noDescargables.push({ id, codigo, motivo: 'Carta fuera de tu alcance.' }); continue; }
+    if (row.estado !== 'APROBADA') { noDescargables.push({ id, codigo, motivo: 'La carta no está aprobada.' }); continue; }
+    aprobadas.push(row);
+  }
+  if (aprobadas.length === 0) return { descargables: [], noDescargables };
+
+  const logoUrl = await urlAsset('logo_principal');
+  const rutasUnicas = [...new Set(aprobadas.map((r) => (r.firma_storage_path as string | null) ?? null).filter((p): p is string => !!p))];
+  const firmaPorRuta = new Map<string, string | null>();
+  await Promise.all(rutasUnicas.map(async (ruta) => { firmaPorRuta.set(ruta, await urlFirmaPorPath(ruta)); }));
+
+  const descargables: CartaDescargable[] = aprobadas.map((row) => {
+    const ruta = (row.firma_storage_path as string | null) ?? null;
+    return {
+      id: String(row.id), codigo: String(row.codigo ?? ''), pd: (row.pd as string | null) ?? null,
+      contenido: String(row.contenido ?? ''), logoUrl, firmaUrl: ruta ? (firmaPorRuta.get(ruta) ?? null) : null
+    };
+  });
+  return { descargables, noDescargables };
+};
+
 export const listarCartas = async (ctx: ScopeContext, filtros: { estado?: string; codigo?: string } = {}) => {
   let q = client().from('gestion_cartas').select('*').order('created_at', { ascending: false });
   if (filtros.estado) q = q.eq('estado', filtros.estado);

@@ -1,4 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createRoot } from 'react-dom/client';
+import JSZip from 'jszip';
 import { useSearchParams } from 'react-router-dom';
 import {
   Alert, Box, Button, Checkbox, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle,
@@ -11,7 +13,7 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import DashboardFilters from '../../components/Dashboard/DashboardFilters';
 import KpiCards from '../../components/Dashboard/KpiCards';
-import { exportRowsToCsv, exportRowsToExcel } from '../../utils/tableExport';
+import { downloadBlob, exportRowsToCsv, exportRowsToExcel } from '../../utils/tableExport';
 import { useAuth } from '../../context/AuthContext';
 import { useTasasConversion } from '../../hooks/useTasasConversion';
 import { usdEquivalente } from '../../utils/monedaConversion';
@@ -20,11 +22,11 @@ import type { DashboardResponse, DashboardFilterOptions, DashboardMultiFilterPar
 import {
   getGestionDashboard, getGestionCuentas, getDetalleCuenta, getInfoCuenta, tipificarCuenta, crearPromesa,
   subirAdjunto, crearCarta, crearCartasMasivo, getCartaPreview, getCartaDetalle, getCartas, aprobarCarta, rechazarCarta, getZonasPd, getPdCampanas, getEstadoCuentas,
-  getCatalogo, getTipificaciones, MONEDA_POR_PAIS, siglaPais, TIPIFICACIONES, TIPO_CONTACTO, CANALES,
-  type CartaGestion, type CartaPreview, type CartaDetalle, type DetalleCuenta, type AggNode, type EstadoCuenta, type CuentaTipificada, type ResultadoCartasMasivo
+  getCatalogo, getTipificaciones, obtenerCartasDescargaLote, MONEDA_POR_PAIS, siglaPais, TIPIFICACIONES, TIPO_CONTACTO, CANALES,
+  type CartaGestion, type CartaPreview, type CartaDetalle, type DetalleCuenta, type AggNode, type EstadoCuenta, type CuentaTipificada, type ResultadoCartasMasivo, type MotivoDescargaLote
 } from '../../services/gestionService';
 import CartaRenderer from '../../components/common/CartaRenderer';
-import { descargarCartaPdf } from '../../utils/exportCartaPdf';
+import { descargarCartaPdf, cartaPdfBlob, esperarImagenesCargadas } from '../../utils/exportCartaPdf';
 
 const EMPTY_OPTS: DashboardFilterOptions = { pais: [], gestor: [], gerente: [], zona: [], pd: [], campania: [] };
 const EMPTY_FILTERS: DashboardMultiFilterParams = { pais: [], gestor: [], gerente: [], zona: [], pd: [], campania: [] };
@@ -186,6 +188,14 @@ const GestionPage = () => {
   const [busy, setBusy] = useState(false);
 
   const [cartas, setCartas] = useState<CartaGestion[]>([]);
+  // Selección múltiple de cartas APROBADAS (Cartas: selección múltiple ->
+  // "Descargar cartas"). Clave SIEMPRE `c.id` (identificador real de la
+  // carta, el mismo que usa "Ver"/descarga individual) — nunca índice de
+  // fila ni posición de página.
+  const [selCartas, setSelCartas] = useState<Set<string>>(new Set());
+  const [descargaCartasBusy, setDescargaCartasBusy] = useState(false);
+  const [descargaCartasProgreso, setDescargaCartasProgreso] = useState<{ hecho: number; total: number } | null>(null);
+  const [descargaCartasResultado, setDescargaCartasResultado] = useState<{ total: number; descargadas: number; noDescargadas: Array<{ codigo: string; motivo: string }> } | null>(null);
   const [cartaSel, setCartaSel] = useState<CartaGestion | null>(null);
   const [cartaComent, setCartaComent] = useState('');
   // Vista previa EN VIVO bloqueada al PD actual de la cuenta abierta en el
@@ -224,6 +234,108 @@ const GestionPage = () => {
   };
   useEffect(() => { void load(); /* eslint-disable-next-line */ }, [filters]);
   useEffect(() => { if (tab === 1 && canVerCartas) getCartas().then(setCartas).catch(() => undefined); }, [tab, canVerCartas]);
+
+  // Solo las cartas APROBADAS son seleccionables/descargables en lote —
+  // pendientes/rechazadas/canceladas/cualquier otro estado nunca entran aquí.
+  const cartasAprobadas = useMemo(() => cartas.filter((c) => c.estado === 'APROBADA'), [cartas]);
+  // Cuando `cartas` se recarga (cambia de pestaña, se aprueba/rechaza una
+  // carta), se depura la selección: se quita todo lo que ya no esté entre
+  // las aprobadas vigentes, se conserva lo que siga estándolo.
+  useEffect(() => {
+    setSelCartas((prev) => {
+      if (prev.size === 0) return prev;
+      const validos = new Set(cartasAprobadas.map((c) => c.id));
+      const next = new Set([...prev].filter((id) => validos.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [cartasAprobadas]);
+  const toggleSelCarta = (id: string) => setSelCartas((prev) => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+  const todasAprobadasSeleccionadas = cartasAprobadas.length > 0 && cartasAprobadas.every((c) => selCartas.has(c.id));
+  const algunaAprobadaSeleccionada = cartasAprobadas.some((c) => selCartas.has(c.id));
+  const toggleSeleccionarTodasCartas = () => setSelCartas((prev) => {
+    if (todasAprobadasSeleccionadas) {
+      const fuera = new Set(cartasAprobadas.map((c) => c.id));
+      return new Set([...prev].filter((id) => !fuera.has(id)));
+    }
+    const next = new Set(prev);
+    cartasAprobadas.forEach((c) => next.add(c.id));
+    return next;
+  });
+  const limpiarSeleccionCartas = () => setSelCartas(new Set());
+
+  /** Descarga masiva: UN solo request al backend para todas las
+   *  seleccionadas (obtenerCartasDescargaLote), luego — por cada carta
+   *  descargable — renderiza el MISMO CartaRenderer que usa "Ver"/descarga
+   *  individual fuera de pantalla, espera sus imágenes (logo/firma real ya
+   *  autorizada) y la captura con el MISMO motor (`cartaPdfBlob`, reutiliza
+   *  `descargarCartaPdf`), para empaquetarlas todas en un único ZIP. Nunca
+   *  aborta el lote por una carta inválida: cada motivo (del backend o de un
+   *  fallo de render puntual) se reporta real, nunca inventado. */
+  const descargarCartasSeleccionadas = async () => {
+    if (descargaCartasBusy || selCartas.size === 0) return;
+    const ids = [...selCartas];
+    setDescargaCartasBusy(true);
+    setDescargaCartasProgreso({ hecho: 0, total: ids.length });
+    try {
+      const r = await obtenerCartasDescargaLote(ids);
+      const zip = new JSZip();
+      const nombresUsados = new Set<string>();
+      const fallidasRender: MotivoDescargaLote[] = [];
+      let hecho = 0;
+      for (const carta of r.descargables) {
+        const contenedor = document.createElement('div');
+        contenedor.style.position = 'fixed';
+        contenedor.style.top = '-99999px';
+        contenedor.style.left = '-99999px';
+        document.body.appendChild(contenedor);
+        const root = createRoot(contenedor);
+        try {
+          let nodo: HTMLDivElement | null = null;
+          await new Promise<void>((resolve) => {
+            root.render(
+              <CartaRenderer ref={(el) => { nodo = el; }} contenido={carta.contenido} logoUrl={carta.logoUrl} firmaUrl={carta.firmaUrl} />
+            );
+            setTimeout(resolve, 0);
+          });
+          if (!nodo) throw new Error('No se pudo preparar el documento.');
+          await esperarImagenesCargadas(nodo);
+          const blob = await cartaPdfBlob(nodo);
+          const base = `CARTA_${carta.codigo || carta.id}`;
+          let nombre = base;
+          let n = 2;
+          while (nombresUsados.has(nombre)) { nombre = `${base}_${n}`; n += 1; }
+          nombresUsados.add(nombre);
+          zip.file(`${nombre}.pdf`, blob);
+        } catch (err) {
+          fallidasRender.push({ id: carta.id, codigo: carta.codigo, motivo: err instanceof Error ? err.message : 'No se pudo generar el documento.' });
+        } finally {
+          root.unmount();
+          document.body.removeChild(contenedor);
+          hecho += 1;
+          setDescargaCartasProgreso({ hecho, total: ids.length });
+        }
+      }
+      const descargadas = Object.keys(zip.files).length;
+      if (descargadas > 0) {
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        downloadBlob(zipBlob, 'cartas_aprobadas.zip');
+      }
+      setDescargaCartasResultado({
+        total: r.total, descargadas,
+        noDescargadas: [...r.noDescargables, ...fallidasRender].map((n) => ({ codigo: n.codigo, motivo: n.motivo }))
+      });
+      limpiarSeleccionCartas();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'No se pudieron descargar las cartas.');
+    } finally {
+      setDescargaCartasBusy(false);
+      setDescargaCartasProgreso(null);
+    }
+  };
 
   const opts = dashboard?.filterOptions ?? EMPTY_OPTS;
   const monedaLocal = useMemo(() => {
@@ -690,12 +802,48 @@ const GestionPage = () => {
 
       {tab === 1 && canVerCartas && (
         <Paper sx={{ mt: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
+          {/* Barra de acciones masivas: solo cartas APROBADAS son
+              seleccionables; la descarga queda inactiva/oculta sin selección. */}
+          <Collapse in={selCartas.size > 0} unmountOnExit>
+            <Box sx={{ px: 1.5, py: 1, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', bgcolor: 'action.hover', borderBottom: '1px solid', borderColor: 'divider' }}>
+              <Typography sx={{ fontWeight: 700, fontSize: 13 }}>{selCartas.size.toLocaleString('en-US')} carta{selCartas.size === 1 ? '' : 's'} seleccionada{selCartas.size === 1 ? '' : 's'}</Typography>
+              <Button size="small" variant="contained" disabled={descargaCartasBusy} onClick={() => void descargarCartasSeleccionadas()} sx={{ textTransform: 'none' }}>
+                {descargaCartasBusy
+                  ? `Preparando ${descargaCartasProgreso?.hecho ?? 0}/${descargaCartasProgreso?.total ?? selCartas.size}…`
+                  : 'Descargar cartas'}
+              </Button>
+              <Button size="small" onClick={limpiarSeleccionCartas} disabled={descargaCartasBusy} sx={{ textTransform: 'none' }}>Limpiar selección</Button>
+            </Box>
+          </Collapse>
           <TableContainer sx={{ maxHeight: '65vh' }}>
             <Table stickyHeader size="small">
-              <TableHead><TableRow>{['Código', 'PD', 'Estado', 'Comentario', ''].map((h) => <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>)}</TableRow></TableHead>
+              <TableHead>
+                <TableRow>
+                  <TableCell padding="checkbox">
+                    <Checkbox
+                      size="small"
+                      checked={todasAprobadasSeleccionadas}
+                      indeterminate={!todasAprobadasSeleccionadas && algunaAprobadaSeleccionada}
+                      disabled={cartasAprobadas.length === 0}
+                      onChange={toggleSeleccionarTodasCartas}
+                      inputProps={{ 'aria-label': 'Seleccionar todas las cartas aprobadas' }}
+                    />
+                  </TableCell>
+                  {['Código', 'PD', 'Estado', 'Comentario', ''].map((h) => <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>)}
+                </TableRow>
+              </TableHead>
               <TableBody>
                 {cartas.map((c) => (
-                  <TableRow key={c.id} hover>
+                  <TableRow key={c.id} hover selected={selCartas.has(c.id)}>
+                    <TableCell padding="checkbox">
+                      <Checkbox
+                        size="small"
+                        checked={selCartas.has(c.id)}
+                        disabled={c.estado !== 'APROBADA'}
+                        onChange={() => toggleSelCarta(c.id)}
+                        inputProps={{ 'aria-label': `Seleccionar carta ${c.codigo}` }}
+                      />
+                    </TableCell>
                     <TableCell>{c.codigo}</TableCell><TableCell>{c.pd ?? '—'}</TableCell>
                     <TableCell><Chip size="small" label={c.estado} color={c.estado === 'APROBADA' ? 'success' : c.estado === 'RECHAZADA' ? 'error' : 'warning'} variant="outlined" /></TableCell>
                     <TableCell sx={{ fontSize: 12 }}>{c.comentario}</TableCell>
@@ -707,7 +855,7 @@ const GestionPage = () => {
                     </TableCell>
                   </TableRow>
                 ))}
-                {cartas.length === 0 && <TableRow><TableCell colSpan={5} align="center" sx={{ py: 3, color: 'text.secondary' }}>Sin cartas.</TableCell></TableRow>}
+                {cartas.length === 0 && <TableRow><TableCell colSpan={6} align="center" sx={{ py: 3, color: 'text.secondary' }}>Sin cartas.</TableCell></TableRow>}
               </TableBody>
             </Table>
           </TableContainer>
@@ -1119,6 +1267,39 @@ const GestionPage = () => {
         </DialogContent>
         <DialogActions>
           <Button variant="contained" onClick={() => { setLoteCartaResultado(null); if (tab === 1) getCartas().then(setCartas).catch(() => undefined); }} sx={{ textTransform: 'none' }}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Resultado de la descarga masiva (Cartas: selección múltiple):
+          nunca un éxito falso — siempre indica cuántas se descargaron y,
+          por cada una que no, el motivo REAL (del backend o de un fallo de
+          render puntual), nunca inventado. */}
+      <Dialog open={Boolean(descargaCartasResultado)} onClose={() => setDescargaCartasResultado(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Resultado de la descarga</DialogTitle>
+        <DialogContent dividers>
+          {descargaCartasResultado && (
+            <Stack spacing={1.5}>
+              <Alert severity={descargaCartasResultado.noDescargadas.length === 0 ? 'success' : descargaCartasResultado.descargadas === 0 ? 'error' : 'warning'}>
+                {descargaCartasResultado.total} seleccionada{descargaCartasResultado.total === 1 ? '' : 's'} / {descargaCartasResultado.descargadas} descargada{descargaCartasResultado.descargadas === 1 ? '' : 's'}
+                {descargaCartasResultado.noDescargadas.length > 0 ? ` / ${descargaCartasResultado.noDescargadas.length} no disponible${descargaCartasResultado.noDescargadas.length === 1 ? '' : 's'}` : ''}
+              </Alert>
+              {descargaCartasResultado.noDescargadas.length > 0 && (
+                <Box>
+                  <Typography sx={{ fontWeight: 700, fontSize: 13, mb: 0.5 }}>No disponibles:</Typography>
+                  <Stack spacing={0.5}>
+                    {descargaCartasResultado.noDescargadas.map((n, i) => (
+                      <Typography key={`${n.codigo}-${i}`} sx={{ fontSize: 12.5 }}>
+                        <strong>{n.codigo || '(sin código)'}</strong> — {n.motivo}
+                      </Typography>
+                    ))}
+                  </Stack>
+                </Box>
+              )}
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button variant="contained" onClick={() => setDescargaCartasResultado(null)} sx={{ textTransform: 'none' }}>Cerrar</Button>
         </DialogActions>
       </Dialog>
 
