@@ -2,15 +2,31 @@
 
 /**
  * Pruebas de la asignación de ZONAS en Usuarios (Gestor -> gestor_pais_zona,
- * Gerente de Zona -> gerente_zona_zona): BUG REAL encontrado y corregido en
- * esta ronda — al editar un usuario desde Usuarios, el formulario ya NO envía
- * `nombreCartera` en cada PATCH (la asignación de cartera es semimanual, ver
- * UsuariosService.ts), así que `gestorIdVinculado` quedaba SIEMPRE en null y
- * el bloque que sincroniza `gestor_pais_zona` nunca se ejecutaba: la petición
- * respondía 200 OK pero la selección de País/Zona del Gestor se perdía en
- * silencio. La corrección resuelve el gestor YA vinculado al usuario cuando
- * `nombreCartera` no viene en el payload, y lanza un error explícito (nunca
- * silencioso) si el gestor todavía no tiene ningún nombre_cartera vinculado.
+ * Gerente de Zona -> gerente_zona_zona).
+ *
+ * RONDA 1: BUG REAL — al editar un usuario desde Usuarios, el formulario ya
+ * NO envía `nombreCartera` en cada PATCH (la asignación de cartera es
+ * semimanual, ver UsuariosService.ts), así que `gestorIdVinculado` quedaba
+ * SIEMPRE en null y el bloque que sincroniza `gestor_pais_zona` nunca se
+ * ejecutaba: la petición respondía 200 OK pero la selección de País/Zona del
+ * Gestor se perdía en silencio. Corregido resolviendo el gestor YA vinculado
+ * al usuario cuando `nombreCartera` no viene en el payload.
+ *
+ * RONDA 2: BUG REAL (introducido por la propia corrección de la ronda 1) —
+ * un usuario con rol Gestor creado MANUALMENTE (sin pasar por la carga
+ * masiva) nunca tuvo `nombre_cartera` que ofrecer, así que tampoco tenía
+ * ninguna fila en `gestores`; la ronda 1 lanzaba entonces el error "aún no
+ * tiene un nombre de cartera vinculado", bloqueando por completo la
+ * asignación de zonas a cualquier Gestor manual (caso real reproducido:
+ * Gabriela Chan / Giselle Fernandez, profiles.rol='gestor' sin fila en
+ * `gestores`). Corregido: cuando no existe ningún gestor vinculado, el
+ * backend crea/regulariza el registro de `gestores` (con `nombre_cartera:
+ * null` — columna ahora nullable, ver
+ * sql/2026_gestores_nombre_cartera_nullable.sql) en vez de bloquear. La
+ * identidad real de un Gestor es siempre `gestores.usuario_id`, nunca
+ * `nombre_cartera` (que sigue existiendo solo como puente de texto opcional
+ * hacia `cartera.gestor`, dato operativo — nunca requisito de identidad ni
+ * de autorización).
  *
  * Mismo patrón que test/bulk-import.test.cjs: código YA COMPILADO en dist/,
  * cliente Supabase falso en memoria (datos 100% ficticios), con soporte de
@@ -49,8 +65,9 @@ const db = {
     // usuarios reales de producción (import/alta previa) — el escenario real
     // del bug reportado.
     { id: 'ges-1', email: 'gestor.qatest@example.com', role_id: 'role-ges', activo: true },
-    // Gestor QA SIN ningún gestor vinculado todavía (nunca se le definió
-    // nombre_cartera): debe dar error explícito al intentar asignarle zonas.
+    // Gestor QA creado MANUALMENTE: SIN ningún gestor vinculado todavía (nunca
+    // se le definió nombre_cartera) — el caso real de Gabriela Chan/Giselle
+    // Fernandez; debe poder recibir País/Zona igualmente (ronda 2).
     { id: 'ges-2', email: 'gestor2.qatest@example.com', role_id: 'role-ges', activo: true },
     { id: 'ger-1', email: 'gerente.qatest@example.com', role_id: 'role-ger', activo: true }
   ],
@@ -120,6 +137,7 @@ class Builder {
   update(patch) { this.action = 'update'; this.patch = patch; return this; }
   delete() { this.action = 'delete'; return this; }
   insert(rows) { this.action = 'insert'; this.rows = Array.isArray(rows) ? rows : [rows]; return this; }
+  upsert(row) { this.action = 'upsert'; this.rows = [row]; return this; }
   then(resolve, reject) {
     let result;
     try { result = this._exec(); } catch (e) { result = { data: null, error: { message: String((e && e.message) || e) } }; }
@@ -159,11 +177,20 @@ class Builder {
       if (this.wantSingle) return { data: projected[0] ?? null, error: null };
       return { data: projected, error: null };
     }
+    if (this.action === 'upsert') {
+      const row = this.rows[0];
+      const idx = table.findIndex((r) => r.id === row.id);
+      if (idx >= 0) Object.assign(table[idx], row); else table.push({ ...row });
+      return { data: null, error: null };
+    }
     return { data: null, error: null };
   }
 }
 
-const fakeClient = { from: (t) => new Builder(t), auth: { admin: {} } };
+const fakeClient = {
+  from: (t) => new Builder(t),
+  auth: { admin: { createUser: async () => ({ data: { user: { id: genId('auth') } }, error: null }) } }
+};
 
 const supabaseJsPath = require.resolve('@supabase/supabase-js');
 const fakeModule = new Module(supabaseJsPath);
@@ -253,12 +280,72 @@ test('J. GESTOR — evita duplicados: la misma (zona, país) repetida en el payl
   assert.equal(activas.length, 1, 'nunca debe quedar más de un registro vigente para la misma relación gestor+zona');
 });
 
-test('GESTOR — sin gestor vinculado (nunca se definió nombre_cartera): error explícito, nunca se descarta en silencio', async () => {
-  await assert.rejects(
-    () => actualizarUsuario('ges-2', { roleId: 'role-ges', gestorPaisZona: [{ zonaId: 'zona-107', pais: 'GUATEMALA' }] }),
-    (err) => { assert.ok(err instanceof UsuariosError); assert.match(err.message, /no tiene un nombre de cartera vinculado/); return true; }
-  );
-  assert.equal(db.gestor_pais_zona.some((r) => r.gestor_id === 'gestores-row-2'), false);
+/* ============ GESTOR CREADO MANUALMENTE (sin nombre_cartera) ============
+ * Ronda 2: reproduce el caso real de producción — Gabriela Chan y Giselle
+ * Fernandez (profiles.rol='gestor', activo=true, SIN ninguna fila en
+ * `gestores`) — y prueba que YA NO se bloquea con "aún no tiene un nombre de
+ * cartera vinculado": el backend debe crear/regularizar el registro de
+ * `gestores` (sin nombre_cartera) y permitir la asignación de País/Zona
+ * igual que a un gestor importado. `ges-2` representa este caso: existe en
+ * `profiles` con rol gestor pero NO tiene fila en `db.gestores`. */
+
+test('B/C/D. GESTOR MANUAL (sin fila en gestores, sin nombre_cartera) — abrir Editar usuario ya NO bloquea: el selector de zonas debe poder asignar una zona y guardar', async () => {
+  assert.equal(db.gestores.some((g) => g.usuario_id === 'ges-2'), false, 'precondición: ges-2 no tiene ningún gestor vinculado todavía');
+  await actualizarUsuario('ges-2', { roleId: 'role-ges', gestorPaisZona: [{ zonaId: 'zona-107', pais: 'GUATEMALA' }] });
+  const gestorRow = db.gestores.find((g) => g.usuario_id === 'ges-2' && g.activo);
+  assert.ok(gestorRow, 'debe haberse creado (regularizado) el registro de gestores para este usuario');
+  assert.equal(gestorRow.nombre_cartera, null, 'nunca se inventa un nombre_cartera — queda null hasta que alguien lo complete');
+  const activas = db.gestor_pais_zona.filter((r) => r.gestor_id === gestorRow.id && r.activo);
+  assert.deepEqual(activas.map((r) => `${r.zona_id}|${r.pais}`), ['zona-107|GUATEMALA']);
+});
+
+test('E/F/G/H. GESTOR MANUAL — consultar Supabase (fake), recargar (obtenerUsuario) y confirmar que la zona permanece', async () => {
+  const recargado = await obtenerUsuario('ges-2');
+  assert.deepEqual(recargado.gestorPaisZona.map((p) => `${p.zonaId}|${p.pais}`), ['zona-107|GUATEMALA']);
+  assert.equal(recargado.nombreCartera, null);
+});
+
+test('I. GESTOR MANUAL — agregar otra zona (conserva la existente)', async () => {
+  await actualizarUsuario('ges-2', {
+    roleId: 'role-ges',
+    gestorPaisZona: [{ zonaId: 'zona-107', pais: 'GUATEMALA' }, { zonaId: 'zona-108', pais: 'GUATEMALA' }]
+  });
+  const gestorRow = db.gestores.find((g) => g.usuario_id === 'ges-2' && g.activo);
+  const claves = new Set(db.gestor_pais_zona.filter((r) => r.gestor_id === gestorRow.id && r.activo).map((r) => `${r.zona_id}|${r.pais}`));
+  assert.deepEqual(claves, new Set(['zona-107|GUATEMALA', 'zona-108|GUATEMALA']));
+});
+
+test('J. GESTOR MANUAL — eliminar una zona', async () => {
+  await actualizarUsuario('ges-2', { roleId: 'role-ges', gestorPaisZona: [{ zonaId: 'zona-108', pais: 'GUATEMALA' }] });
+  const gestorRow = db.gestores.find((g) => g.usuario_id === 'ges-2' && g.activo);
+  const activas = db.gestor_pais_zona.filter((r) => r.gestor_id === gestorRow.id && r.activo);
+  assert.deepEqual(activas.map((r) => `${r.zona_id}|${r.pais}`), ['zona-108|GUATEMALA']);
+});
+
+test('K. GESTOR MANUAL — quitar todas las zonas', async () => {
+  await actualizarUsuario('ges-2', { roleId: 'role-ges', gestorPaisZona: [] });
+  const gestorRow = db.gestores.find((g) => g.usuario_id === 'ges-2' && g.activo);
+  assert.deepEqual(db.gestor_pais_zona.filter((r) => r.gestor_id === gestorRow.id && r.activo), []);
+});
+
+test('O. GESTOR MANUAL — guardar varias veces NUNCA crea un segundo registro en gestores (sin duplicar al gestor)', async () => {
+  await actualizarUsuario('ges-2', { roleId: 'role-ges' });
+  await actualizarUsuario('ges-2', { roleId: 'role-ges', gestorPaisZona: [{ zonaId: 'zona-201', pais: 'HONDURAS' }] });
+  await actualizarUsuario('ges-2', { roleId: 'role-ges', nombre: 'Ges Dos QA' });
+  const filasGestor = db.gestores.filter((g) => g.usuario_id === 'ges-2');
+  assert.equal(filasGestor.length, 1, 'nunca debe existir más de una fila de gestores para el mismo usuario_id');
+});
+
+test('A. Crear usuario manual con rol Gestor SIN nombre_cartera: crearUsuario debe dejar `gestores` correctamente relacionado desde el alta', async () => {
+  const { crearUsuario } = require(path.join(distDir, 'services', 'UsuariosService.js'));
+  const { id } = await crearUsuario({ email: 'nuevo.manual@example.com', nombre: 'Nuevo', apellido: 'Manual', roleId: 'role-ges', password: 'password123' });
+  const gestorRow = db.gestores.find((g) => g.usuario_id === id && g.activo);
+  assert.ok(gestorRow, 'crearUsuario debe crear/vincular el registro de gestores igual que actualizarUsuario, sin exigir nombreCartera');
+  assert.equal(gestorRow.nombre_cartera, null);
+  // Y de inmediato puede recibir País/Zona (sin pasar primero por una edición).
+  await actualizarUsuario(id, { roleId: 'role-ges', gestorPaisZona: [{ zonaId: 'zona-107', pais: 'GUATEMALA' }] });
+  const activas = db.gestor_pais_zona.filter((r) => r.gestor_id === gestorRow.id && r.activo);
+  assert.deepEqual(activas.map((r) => `${r.zona_id}|${r.pais}`), ['zona-107|GUATEMALA']);
 });
 
 test('K. GESTOR — recargar (obtenerUsuario) después de guardar devuelve exactamente la misma selección', async () => {

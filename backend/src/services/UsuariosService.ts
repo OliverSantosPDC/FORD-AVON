@@ -337,26 +337,45 @@ const sincronizarRelaciones = async (
       gestorIdVinculado = (inserted as { id: string }).id;
     }
   } else if (roleClave === 'gestor') {
-    // BUG CORREGIDO: Usuarios ya NO envía `nombreCartera` en cada edición (la
-    // asignación de cartera es semimanual, ver comentario arriba de
-    // CrearUsuarioInput), así que antes `gestorIdVinculado` quedaba SIEMPRE
-    // en null al editar — el bloque de abajo (gestor_pais_zona) nunca se
-    // ejecutaba y la selección de País/Zona del formulario se perdía en
-    // silencio, aunque la petición respondiera 200 OK. Se resuelve aquí el
-    // gestor YA vinculado a este usuario (el mismo filtro que usa
-    // limpiarRelacionesAjenas), sin tocar su nombre_cartera.
+    // BUG CORREGIDO (ronda 1): Usuarios ya NO envía `nombreCartera` en cada
+    // edición (la asignación de cartera es semimanual, ver comentario arriba
+    // de CrearUsuarioInput), así que antes `gestorIdVinculado` quedaba
+    // SIEMPRE en null al editar — el bloque de abajo (gestor_pais_zona) nunca
+    // se ejecutaba y la selección de País/Zona se perdía en silencio. Se
+    // resuelve aquí el gestor YA vinculado a este usuario (el mismo filtro
+    // que usa limpiarRelacionesAjenas), sin tocar su nombre_cartera.
     const { data: existente } = await client.from('gestores').select('id').eq('usuario_id', userId).eq('activo', true).limit(1);
     gestorIdVinculado = ((existente ?? [])[0] as { id?: string } | undefined)?.id ?? null;
+
+    if (!gestorIdVinculado) {
+      // BUG CORREGIDO (ronda 2): un usuario con rol Gestor creado
+      // MANUALMENTE (sin pasar por la carga masiva) nunca tuvo
+      // `nombre_cartera` que ofrecer, así que tampoco tenía ninguna fila en
+      // `gestores` — la ronda anterior "corrigió" esto lanzando un error
+      // ("aún no tiene un nombre de cartera vinculado"), que bloqueaba por
+      // completo la asignación de País/Zona para cualquier Gestor manual.
+      // `nombre_cartera` NUNCA debe ser un requisito de identidad: la
+      // identidad real de un Gestor es `gestores.usuario_id` (-> profiles.id).
+      // Se crea aquí el registro de `gestores` que debería haber existido
+      // desde la creación del usuario, SIN nombre_cartera (columna ahora
+      // nullable — ver sql/2026_gestores_nombre_cartera_nullable.sql); el
+      // puente de texto hacia cartera.gestor queda simplemente vacío hasta
+      // que alguien lo complete (import/edición), sin bloquear nada mientras
+      // tanto. ScopeService ya resuelve el alcance de un Gestor exclusivamente
+      // vía gestor_pais_zona (gestores.id) cuando nombre_cartera es null —
+      // ver resolveGestorScope, que ya filtra nombre_cartera vacío de forma
+      // defensiva desde antes de este cambio.
+      const { data: inserted, error } = await client.from('gestores').insert({ usuario_id: userId, nombre_cartera: null, activo: true }).select('id').single();
+      if (error) throw new UsuariosError(`No se pudo crear el registro de gestor: ${error.message}`);
+      gestorIdVinculado = (inserted as { id: string }).id;
+    }
   }
 
   // gestor → País/Zona explícitos (narrowing ADICIONAL opcional sobre nombre_cartera)
   if (roleClave === 'gestor' && input.gestorPaisZona) {
-    if (!gestorIdVinculado) {
-      // El administrador SÍ intentó asignar zonas explícitas, pero este
-      // usuario todavía no tiene un gestor vinculado (nombre_cartera) — nunca
-      // se descarta la selección en silencio, se informa el motivo real.
-      throw new UsuariosError('Este gestor aún no tiene un nombre de cartera vinculado; no se puede asignar País/Zona hasta vincularlo (carga/edición de nombre_cartera).');
-    }
+    // gestorIdVinculado SIEMPRE está resuelto en este punto para roleClave
+    // 'gestor' (encontrado o recién creado arriba) — nunca se llega aquí sin
+    // un gestor_id real.
     await client.from('gestor_pais_zona').delete().eq('gestor_id', gestorIdVinculado);
     if (input.gestorPaisZona.length > 0) {
       // Deduplica (zonaId, pais) por si el cliente envía la misma combinación

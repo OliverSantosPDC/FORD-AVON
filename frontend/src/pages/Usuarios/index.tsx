@@ -1227,7 +1227,9 @@ const UsuariosPage = () => {
                   })}
                 </Select>
                 <Typography sx={{ fontSize: 11, color: 'text.secondary', mt: 0.5 }}>
-                  Opcional: si no seleccionas ninguno, el gestor conserva su alcance actual (por nombre en cartera).
+                  Opcional: si no seleccionas ninguno, no se aplica ninguna restricción adicional de zona (el
+                  alcance dependerá únicamente de su cartera vinculada, si la tiene; un Gestor creado
+                  manualmente sin cartera no verá cuentas hasta que le asignes País/Zona aquí).
                 </Typography>
               </FormControl>
             )}
