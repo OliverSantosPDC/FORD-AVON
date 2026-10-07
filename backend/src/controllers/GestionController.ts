@@ -255,7 +255,10 @@ export class GestionController {
       const ids = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]).map((i) => String(i)).filter(Boolean) : [];
       if (ids.length === 0) return res.status(400).json({ error: 'Debes seleccionar al menos una carta.' });
       const r = await obtenerCartasMasivo(ids, ctx);
-      return res.json({ total: ids.length, descargables: r.descargables, noDescargables: r.noDescargables });
+      // `total` = descargables + noDescargables SIEMPRE (nunca el length
+      // crudo de `ids`, que podría incluir duplicados): así el cliente
+      // puede verificar "nada se ocultó" sin tener que deduplicar él mismo.
+      return res.json({ total: r.descargables.length + r.noDescargables.length, descargables: r.descargables, noDescargables: r.noDescargables });
     } catch (e) { return this.fail(res, e, 'No se pudieron recuperar las cartas.'); }
   }
 

@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { flushSync } from 'react-dom';
 import JSZip from 'jszip';
 import { useSearchParams } from 'react-router-dom';
 import {
@@ -23,7 +24,7 @@ import {
   getGestionDashboard, getGestionCuentas, getDetalleCuenta, getInfoCuenta, tipificarCuenta, crearPromesa,
   subirAdjunto, crearCarta, crearCartasMasivo, getCartaPreview, getCartaDetalle, getCartas, aprobarCarta, rechazarCarta, getZonasPd, getPdCampanas, getEstadoCuentas,
   getCatalogo, getTipificaciones, obtenerCartasDescargaLote, MONEDA_POR_PAIS, siglaPais, TIPIFICACIONES, TIPO_CONTACTO, CANALES,
-  type CartaGestion, type CartaPreview, type CartaDetalle, type DetalleCuenta, type AggNode, type EstadoCuenta, type CuentaTipificada, type ResultadoCartasMasivo, type MotivoDescargaLote
+  type CartaGestion, type CartaPreview, type CartaDetalle, type DetalleCuenta, type AggNode, type EstadoCuenta, type CuentaTipificada, type ResultadoCartasMasivo, type MotivoDescargaLote, type CartaDescargable
 } from '../../services/gestionService';
 import CartaRenderer from '../../components/common/CartaRenderer';
 import { descargarCartaPdf, cartaPdfBlob, esperarImagenesCargadas } from '../../utils/exportCartaPdf';
@@ -176,7 +177,7 @@ const GestionPage = () => {
   // sistema (p.ej. components/Dashboard/DashboardTable.tsx) — TableSortLabel
   // con orderBy/order de 2 estados (asc/desc), sin un tercer estado "sin
   // orden" porque ninguna tabla del sistema lo usa.
-  const [cOrderBy, setCOrderBy] = useState<'codigo' | 'pais' | 'zona' | 'pd' | 'campania' | 'saldoLocal' | 'saldoUsd'>('codigo');
+  const [cOrderBy, setCOrderBy] = useState<'codigo' | 'pais' | 'nombre' | 'zona' | 'sector' | 'pd' | 'campania' | 'saldoLocal' | 'saldoUsd'>('codigo');
   const [cOrder, setCOrder] = useState<'asc' | 'desc'>('asc');
 
   // Panel único por cuenta
@@ -275,6 +276,28 @@ const GestionPage = () => {
    *  `descargarCartaPdf`), para empaquetarlas todas en un único ZIP. Nunca
    *  aborta el lote por una carta inválida: cada motivo (del backend o de un
    *  fallo de render puntual) se reporta real, nunca inventado. */
+  // Cuántas cartas se renderizan/capturan en paralelo. Secuencial (1) era
+  // correcto pero lento; un pool acotado (ni Promise.all sin límite ni todo
+  // secuencial) es el equilibrio pedido — cada carta sigue teniendo su
+  // propio contenedor/root/ref, así que la concurrencia nunca comparte DOM
+  // entre cartas distintas.
+  const CONCURRENCIA_DESCARGA_CARTAS = 4;
+
+  /** Ejecuta `tarea` sobre cada item de `items`, con a lo sumo `limite`
+   *  tareas en vuelo a la vez. `tarea` NUNCA debe rechazar (cada carta
+   *  atrapa sus propios errores) — así un fallo puntual nunca cancela el
+   *  resto del lote (nunca un Promise.all directo sobre las tareas reales). */
+  const conConcurrenciaLimitada = async <T,>(items: T[], limite: number, tarea: (item: T) => Promise<void>): Promise<void> => {
+    let indice = 0;
+    const trabajador = async (): Promise<void> => {
+      while (indice < items.length) {
+        const i = indice++;
+        await tarea(items[i]);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(limite, items.length) }, () => trabajador()));
+  };
+
   const descargarCartasSeleccionadas = async () => {
     if (descargaCartasBusy || selCartas.size === 0) return;
     const ids = [...selCartas];
@@ -282,11 +305,23 @@ const GestionPage = () => {
     setDescargaCartasProgreso({ hecho: 0, total: ids.length });
     try {
       const r = await obtenerCartasDescargaLote(ids);
+      // Instrumentación real (consola): seleccionadas -> enviadas -> recibidas
+      // del backend -> renderizadas/agregadas al ZIP -> archivos finales del
+      // ZIP. Permite diagnosticar exactamente en qué paso se pierde una
+      // carta si algún día SELECCIONADAS !== ZIP.
+      console.info(
+        `[Descarga masiva de cartas] seleccionadas=${ids.length} enviadas=${ids.length} ` +
+        `recibidasDescargables=${r.descargables.length} recibidasNoDisponibles=${r.noDescargables.length}`
+      );
       const zip = new JSZip();
       const nombresUsados = new Set<string>();
       const fallidasRender: MotivoDescargaLote[] = [];
       let hecho = 0;
-      for (const carta of r.descargables) {
+      // Cada carta se procesa de forma TOTALMENTE independiente (su propio
+      // contenedor DOM desconectado, su propio root de React, su propia
+      // ref) — un error en una (render, imagen, captura) nunca afecta a las
+      // demás ni cancela el lote; se reporta con el motivo real.
+      const procesarCarta = async (carta: CartaDescargable): Promise<void> => {
         const contenedor = document.createElement('div');
         contenedor.style.position = 'fixed';
         contenedor.style.top = '-99999px';
@@ -295,15 +330,23 @@ const GestionPage = () => {
         const root = createRoot(contenedor);
         try {
           let nodo: HTMLDivElement | null = null;
-          await new Promise<void>((resolve) => {
+          // CRÍTICO: `flushSync` fuerza a React a confirmar el render de
+          // forma SÍNCRONA antes de continuar. Sin esto, un `setTimeout(…,0)`
+          // después de `root.render(...)` no garantiza que el commit (y por
+          // lo tanto la ref del nodo) ya haya ocurrido — con varias cartas
+          // procesándose, esa carrera podía dejar `nodo` en null para
+          // algunas de ellas de forma intermitente, perdiéndolas en
+          // silencio. `flushSync` elimina la carrera por completo (nunca
+          // "aumentar un timeout": es una primitiva de sincronización real).
+          flushSync(() => {
             root.render(
               <CartaRenderer ref={(el) => { nodo = el; }} contenido={carta.contenido} logoUrl={carta.logoUrl} firmaUrl={carta.firmaUrl} />
             );
-            setTimeout(resolve, 0);
           });
-          if (!nodo) throw new Error('No se pudo preparar el documento.');
+          if (!nodo) throw new Error('No se pudo preparar el documento (referencia DOM vacía tras el render).');
           await esperarImagenesCargadas(nodo);
           const blob = await cartaPdfBlob(nodo);
+          if (!blob || blob.size === 0) throw new Error('El documento generado está vacío.');
           const base = `CARTA_${carta.codigo || carta.id}`;
           let nombre = base;
           let n = 2;
@@ -318,8 +361,22 @@ const GestionPage = () => {
           hecho += 1;
           setDescargaCartasProgreso({ hecho, total: ids.length });
         }
-      }
+      };
+      await conConcurrenciaLimitada(r.descargables, CONCURRENCIA_DESCARGA_CARTAS, procesarCarta);
+      // Fuente de verdad del conteo "generadas": los archivos REALES que
+      // quedaron en el ZIP (no un contador separado que podría desalinearse).
       const descargadas = Object.keys(zip.files).length;
+      console.info(
+        `[Descarga masiva de cartas] renderizadas/agregadasAlZip=${descargadas} ` +
+        `fallidasRender=${fallidasRender.length} archivosFinalesZip=${descargadas}`
+      );
+      if (descargadas !== r.descargables.length - fallidasRender.length) {
+        // Nunca debería ocurrir dado el flujo anterior; si ocurre, nunca se
+        // muestra como éxito silencioso.
+        console.error('[Descarga masiva de cartas] Conteo inconsistente entre ZIP y cartas procesadas.', {
+          descargables: r.descargables.length, fallidas: fallidasRender.length, zip: descargadas
+        });
+      }
       if (descargadas > 0) {
         const zipBlob = await zip.generateAsync({ type: 'blob' });
         downloadBlob(zipBlob, 'cartas_aprobadas.zip');
@@ -490,7 +547,9 @@ const GestionPage = () => {
   const getValorOrdenCuenta = (r: Record<string, unknown>, columnId: typeof cOrderBy): string | number => {
     switch (columnId) {
       case 'pais': return str(r.pais);
+      case 'nombre': return str(r.nombre);
       case 'zona': return str(r.zona);
+      case 'sector': return str(r.sector);
       case 'pd': return str(r.pd_actual);
       case 'campania': return str(r.campania_adeuda);
       case 'saldoLocal': return Number(str(r.saldo_actual)) || 0;
@@ -563,11 +622,15 @@ const GestionPage = () => {
     });
     return out;
   };
-  const CUENTAS_COLS = ['codigo', 'nombre', 'pais', 'zona', 'sector', 'gestor', 'pd_actual', 'campania_adeuda', 'saldo_actual'];
-  const CUENTAS_HEAD = ['Cuenta', 'Representante', 'País', 'Zona', 'Sector', 'Gestor', 'PD', 'Campaña', 'Saldo Inicial USD', 'Saldo Actual USD', 'Saldo Local'];
+  // Orden EXACTO pedido: Código, País, Nombre, Zona, Sector, PD, Campaña,
+  // [Saldo Inicial/Actual USD, Saldo Local — ya existían], Gestor al final
+  // ("demás columnas existentes"). Nunca se elimina ninguna columna, solo
+  // se reordena.
+  const CUENTAS_COLS = ['codigo', 'pais', 'nombre', 'zona', 'sector', 'pd_actual', 'campania_adeuda'];
+  const CUENTAS_HEAD = ['Cuenta', 'País', 'Representante', 'Zona', 'Sector', 'PD', 'Campaña', 'Saldo Inicial USD', 'Saldo Actual USD', 'Saldo Local', 'Gestor'];
   const rowsCuentasDe = (rows: Record<string, unknown>[]) => rows.map((r) => {
-    const base = CUENTAS_COLS.filter((c) => c !== 'saldo_actual').map((c) => str(r[c]));
-    return [...base, money(usdInicialDeFila(r)), money(usdActualDeFila(r)), str(r.saldo_actual)];
+    const base = CUENTAS_COLS.map((c) => str(r[c]));
+    return [...base, money(usdInicialDeFila(r)), money(usdActualDeFila(r)), str(r.saldo_actual), str(r.gestor)];
   });
   const rowsCuentas = () => rowsCuentasDe(cuentasOrdenadas);
   // Exportación de la SELECCIÓN: nunca toda la cartera filtrada, solo las
@@ -765,8 +828,13 @@ const GestionPage = () => {
                     />
                   </TableCell>
                   {canGestionar && <TableCell sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Acciones</TableCell>}
+                  {/* Orden EXACTO pedido: Código, País, Nombre, Zona, Sector, PD,
+                      Campaña, Saldo Local, Saldo USD — Nombre siempre
+                      inmediatamente después de País, Sector siempre
+                      inmediatamente después de Zona. */}
                   {([
-                    { id: 'codigo', label: 'Cuenta' }, { id: 'pais', label: 'País' }, { id: 'zona', label: 'Zona' },
+                    { id: 'codigo', label: 'Cuenta' }, { id: 'pais', label: 'País' }, { id: 'nombre', label: 'Nombre' },
+                    { id: 'zona', label: 'Zona' }, { id: 'sector', label: 'Sector' },
                     { id: 'pd', label: 'PD' }, { id: 'campania', label: 'Campaña' },
                     { id: 'saldoLocal', label: 'Saldo Local' }, { id: 'saldoUsd', label: 'Saldo USD' }
                   ] as const).map((col) => (
@@ -786,7 +854,10 @@ const GestionPage = () => {
                     </TableCell>
                     {canGestionar && <TableCell><Button size="small" variant="outlined" onClick={() => abrirPanel(r)} sx={{ textTransform: 'none', minWidth: 0 }}>Acciones</Button></TableCell>}
                     <TableCell>{str(r.codigo)}</TableCell>
-                    <TableCell><Chip size="small" label={siglaPais(str(r.pais))} /></TableCell><TableCell>{str(r.zona)}</TableCell>
+                    <TableCell><Chip size="small" label={siglaPais(str(r.pais))} /></TableCell>
+                    <TableCell>{str(r.nombre)}</TableCell>
+                    <TableCell>{str(r.zona)}</TableCell>
+                    <TableCell>{str(r.sector)}</TableCell>
                     <TableCell><Chip size="small" label={str(r.pd_actual)} /></TableCell>
                     <TableCell>{str(r.campania_adeuda)}</TableCell>
                     <TableCell align="right">{money(Number(str(r.saldo_actual)))}</TableCell>
