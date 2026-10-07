@@ -232,6 +232,60 @@ export const crearCarta = async (row: Record<string, unknown>, tasas: Record<str
   return { id: String((data as { id: string }).id) };
 };
 
+/**
+ * Filas crudas de cartera para VARIOS códigos a la vez, ya acotadas al
+ * alcance real del actor (mismo criterio que `infoCuenta`/`applyScope`,
+ * UNA sola consulta en vez de N) — para generación masiva de cartas. No
+ * incluye el overlay de identidad real de Gestor/Gerente porque
+ * `crearCarta`/`previsualizarCarta` nunca leen esos campos (solo
+ * pais/nombre/codigo/zona/saldo_actual/campania_adeuda/pd_actual).
+ */
+const infoCuentasMasivo = async (codigos: string[], ctx: ScopeContext): Promise<Map<string, Record<string, unknown>>> => {
+  const map = new Map<string, Record<string, unknown>>();
+  if (codigos.length === 0) return map;
+  const { data, error } = await getSupabaseClient().from(SUPABASE_CARTERA_TABLE).select('*').in('codigo', codigos);
+  if (error) throw new GestionError(`No se pudo leer las cuentas: ${error.message}`);
+  const rows = (data ?? []) as Array<Record<string, unknown>>;
+  const scoped = applyScope(rows, ctx, { zonaField: 'zona', paisField: 'pais' });
+  scoped.forEach((r) => map.set(String(r.codigo), r));
+  return map;
+};
+
+export interface ResultadoCartaLote { codigo: string; id: string; }
+export interface MotivoCartaLote { codigo: string; motivo: string; }
+
+/**
+ * Genera cartas para VARIAS cuentas en un solo request del cliente (nunca
+ * N llamadas HTTP). Reutiliza EXACTAMENTE el mismo motor que la generación
+ * individual (`crearCarta` -> `previsualizarCarta` -> `renderizarCarta`,
+ * sin duplicar reglas de PD/plantilla/moneda) — la única diferencia es que
+ * la lectura de cuentas y de alcance se hace una sola vez para todo el
+ * lote (`infoCuentasMasivo`) en vez de una vez por cuenta.
+ * Nunca aborta el lote completo por una cuenta inválida: cada cuenta se
+ * resuelve de forma independiente y el motivo de cada falla es el error
+ * real devuelto por el motor (p. ej. "No hay plantilla de carta disponible
+ * para PD0."), nunca un motivo inventado.
+ */
+export const crearCartasMasivo = async (
+  codigos: string[], tasas: Record<string, number>, comentario: string | null, actor: string | null, ctx: ScopeContext
+): Promise<{ generadas: ResultadoCartaLote[]; noGeneradas: MotivoCartaLote[] }> => {
+  const unicos = [...new Set(codigos.map((c) => c.trim()).filter(Boolean))];
+  const generadas: ResultadoCartaLote[] = [];
+  const noGeneradas: MotivoCartaLote[] = [];
+  const filas = await infoCuentasMasivo(unicos, ctx);
+  for (const codigo of unicos) {
+    const row = filas.get(codigo);
+    if (!row) { noGeneradas.push({ codigo, motivo: 'Cuenta fuera de tu alcance.' }); continue; }
+    try {
+      const r = await crearCarta(row, tasas, comentario, actor);
+      generadas.push({ codigo, id: r.id });
+    } catch (e) {
+      noGeneradas.push({ codigo, motivo: e instanceof GestionError ? e.message : 'No se pudo crear la carta.' });
+    }
+  }
+  return { generadas, noGeneradas };
+};
+
 /** Detalle de una carta YA guardada, con logo/firma SOLO si estado==='APROBADA'
  *  (nunca por un flag del cliente ni por el rol que consulta — el gate es
  *  exclusivamente el estado real de la carta, así que ni una llamada directa

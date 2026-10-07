@@ -149,6 +149,29 @@ export const crearCarta = async (codigo: string, comentario: string) => {
   if (!res.ok) throw new Error(await parseError(res, 'No se pudo crear la carta.'));
 };
 
+/** Resultado de un lote de "Generar cartas" (Cuentas: selección múltiple).
+ *  `noGeneradas` siempre trae el motivo REAL devuelto por el motor (el
+ *  mismo que la generación individual) — nunca un motivo inventado. */
+export interface ResultadoCartasMasivo {
+  total: number; generadas: number; noGeneradas: number;
+  detalle: {
+    generadas: Array<{ codigo: string; id: string }>;
+    noGeneradas: Array<{ codigo: string; motivo: string }>;
+  };
+}
+
+/** Genera cartas para VARIAS cuentas en UN solo request (nunca una llamada
+ *  por cuenta). El backend decide, por cuenta, la plantilla (por su PD
+ *  actual) y el alcance (revalida cada código recibido) — igual que la
+ *  generación individual, nunca duplicado aquí. */
+export const crearCartasMasivo = async (codigos: string[], comentario: string): Promise<ResultadoCartasMasivo> => {
+  const res = await apiFetch('/api/gestion/cartas/lote', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ codigos, comentario })
+  });
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudieron generar las cartas.'));
+  return res.json();
+};
+
 export const getCartas = async (estado?: string): Promise<CartaGestion[]> => {
   const res = await apiFetch(`/api/gestion/cartas${estado ? `?estado=${encodeURIComponent(estado)}` : ''}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(await parseError(res, 'No se pudieron cargar las cartas.'));

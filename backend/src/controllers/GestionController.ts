@@ -5,7 +5,7 @@ import { getCarteraDataSource } from '../config/dataSource';
 import {
   registrarTipificacion, detalleCuenta, crearPromesa, actualizarPromesa,
   registrarAdjunto, eliminarAdjunto, subirArchivoStorage,
-  crearCarta, listarCartas, resolverCarta, resolverCartasMasivo, previsualizarCarta, obtenerCarta,
+  crearCarta, crearCartasMasivo, listarCartas, resolverCarta, resolverCartasMasivo, previsualizarCarta, obtenerCarta,
   aggregarZonasPd, aggregarPdCampanas, estadoCuentas, infoCuenta, GestionError,
   filtrarCodigosEnAlcance, codigoDePromesa, codigoDeAdjunto, gestorDeCarta, gestorEnAlcance,
   tipificacionesCuentas
@@ -208,6 +208,37 @@ export class GestionController {
       } catch (notifErr) { console.error('[NOTIFICACIONES] carta escalada:', notifErr); }
       return res.status(201).json(r);
     } catch (e) { return this.fail(res, e, 'No se pudo crear la carta.'); }
+  }
+
+  /** Generación masiva de cartas (Operación → Gestión → Cuentas: selección
+   *  múltiple -> "Generar cartas"). Un solo request del cliente para N
+   *  cuentas; el alcance de CADA cuenta recibida se revalida en el backend
+   *  (`crearCartasMasivo` -> `infoCuentasMasivo` -> `applyScope`) — nunca se
+   *  confía en que el cliente sólo haya mandado cuentas de su propio
+   *  alcance/filtro. Nunca aborta el lote completo por una cuenta inválida:
+   *  responde siempre con el detalle generadas/no-generadas por cuenta. */
+  async crearCartasMasivo(req: Request, res: Response): Promise<Response | void> {
+    try {
+      const ctx = this.scope(req, res); if (!ctx) return;
+      const codigos = Array.isArray(req.body?.codigos) ? (req.body.codigos as unknown[]).map((c) => String(c)).filter(Boolean) : [];
+      if (codigos.length === 0) return res.status(400).json({ error: 'Debes seleccionar al menos una cuenta.' });
+      const actor = req.auth?.userId ?? null;
+      const tasas = await getTasasPorMoneda();
+      const r = await crearCartasMasivo(codigos, tasas, req.body?.comentario ?? null, actor, ctx);
+      await Promise.all(r.generadas.map((g) =>
+        registrarAuditoria(actor, 'GESTION_CARTA_CREAR', 'gestion', g.id, { codigo: g.codigo, lote: true }).catch(() => undefined)
+      ));
+      // Notificaciones best-effort: nunca deben revertir ni afectar la
+      // respuesta si fallan — las cartas ya se crearon correctamente.
+      r.generadas.forEach((g) => {
+        notificarCartaEscalada({ cartaId: g.id, codigo: g.codigo, gestorUsuarioId: actor, pd: null, nombreCuenta: null })
+          .catch((notifErr) => console.error('[NOTIFICACIONES] carta escalada (lote):', notifErr));
+      });
+      return res.status(201).json({
+        total: codigos.length, generadas: r.generadas.length, noGeneradas: r.noGeneradas.length,
+        detalle: { generadas: r.generadas, noGeneradas: r.noGeneradas }
+      });
+    } catch (e) { return this.fail(res, e, 'No se pudieron generar las cartas.'); }
   }
 
   async listarCartas(req: Request, res: Response): Promise<Response | void> {

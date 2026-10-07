@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  Alert, Box, Button, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle,
+  Alert, Box, Button, Checkbox, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle,
   Divider, Grid, IconButton, Menu, MenuItem, Paper, Snackbar, Stack, Tab, Table, TableBody, TableCell, TableContainer,
   TableHead, TablePagination, TableRow, TableSortLabel, Tabs, TextField, Typography
 } from '@mui/material';
@@ -19,9 +19,9 @@ import { MONEDA_OPTIONS, simboloMoneda } from '../../utils/monedaOptions';
 import type { DashboardResponse, DashboardFilterOptions, DashboardMultiFilterParams } from '../../types/cartera';
 import {
   getGestionDashboard, getGestionCuentas, getDetalleCuenta, getInfoCuenta, tipificarCuenta, crearPromesa,
-  subirAdjunto, crearCarta, getCartaPreview, getCartaDetalle, getCartas, aprobarCarta, rechazarCarta, getZonasPd, getPdCampanas, getEstadoCuentas,
+  subirAdjunto, crearCarta, crearCartasMasivo, getCartaPreview, getCartaDetalle, getCartas, aprobarCarta, rechazarCarta, getZonasPd, getPdCampanas, getEstadoCuentas,
   getCatalogo, getTipificaciones, MONEDA_POR_PAIS, siglaPais, TIPIFICACIONES, TIPO_CONTACTO, CANALES,
-  type CartaGestion, type CartaPreview, type CartaDetalle, type DetalleCuenta, type AggNode, type EstadoCuenta, type CuentaTipificada
+  type CartaGestion, type CartaPreview, type CartaDetalle, type DetalleCuenta, type AggNode, type EstadoCuenta, type CuentaTipificada, type ResultadoCartasMasivo
 } from '../../services/gestionService';
 import CartaRenderer from '../../components/common/CartaRenderer';
 import { descargarCartaPdf } from '../../utils/exportCartaPdf';
@@ -160,6 +160,16 @@ const GestionPage = () => {
   const [zMetric, setZMetric] = useState<Metric>('saldoLocal'); const [zDir, setZDir] = useState<'asc' | 'desc'>('desc');
   const [pMetric, setPMetric] = useState<Metric>('saldoUsd'); const [pDir, setPDir] = useState<'asc' | 'desc'>('desc');
   const [fPd, setFPd] = useState(''); const [fZona, setFZona] = useState(''); const [fCamp, setFCamp] = useState(''); const [fCodigo, setFCodigo] = useState('');
+  const [fSector, setFSector] = useState('');
+  // Selección múltiple de cuentas (checkbox): clave SIEMPRE el código real
+  // de la cuenta (identificador estable del sistema, nunca índice de fila ni
+  // posición de página — el mismo código que usan getEstadoCuentas/
+  // filtrarCodigosEnAlcance/gestion_cartas.codigo en todo el backend).
+  const [selCuentas, setSelCuentas] = useState<Set<string>>(new Set());
+  const [loteCartaOpen, setLoteCartaOpen] = useState(false);
+  const [loteCartaComent, setLoteCartaComent] = useState('');
+  const [loteCartaBusy, setLoteCartaBusy] = useState(false);
+  const [loteCartaResultado, setLoteCartaResultado] = useState<ResultadoCartasMasivo | null>(null);
   // Ordenamiento de la tabla Cuentas: mismo patrón de las demás tablas del
   // sistema (p.ej. components/Dashboard/DashboardTable.tsx) — TableSortLabel
   // con orderBy/order de 2 estados (asc/desc), sin un tercer estado "sin
@@ -332,20 +342,34 @@ const GestionPage = () => {
 
   const optsTabla = useMemo(() => {
     const uniq = (k: string) => [...new Set(cuentas.map((r) => str(r[k])).filter(Boolean))].sort();
-    return { pd: uniq('pd_actual'), zona: uniq('zona'), campania: uniq('campania_adeuda') };
+    return { pd: uniq('pd_actual'), zona: uniq('zona'), campania: uniq('campania_adeuda'), sector: uniq('sector') };
   }, [cuentas]);
   const cuentasFiltradas = useMemo(() => {
     // Búsqueda por coincidencia (parcial, sin distinguir mayúsculas/minúsculas):
     // la tabla no tenía antes ningún filtro de texto por código, así que se
     // sigue la misma convención de búsqueda por coincidencia ya usada en
     // Cartera (pages/Cartera/index.tsx). Se combina con los filtros
-    // existentes (PD/Zona/Campaña) con AND, igual que entre ellos.
+    // existentes (PD/Zona/Campaña/Sector) con AND, igual que entre ellos.
     const codigoTerm = fCodigo.trim().toLowerCase();
     return cuentas.filter((r) =>
       (!fPd || str(r.pd_actual) === fPd) && (!fZona || str(r.zona) === fZona) && (!fCamp || str(r.campania_adeuda) === fCamp) &&
+      (!fSector || str(r.sector) === fSector) &&
       (!codigoTerm || str(r.codigo).toLowerCase().includes(codigoTerm))
     );
-  }, [cuentas, fPd, fZona, fCamp, fCodigo]);
+  }, [cuentas, fPd, fZona, fCamp, fSector, fCodigo]);
+  // Selección múltiple: cuando el universo filtrado cambia (filtro nuevo,
+  // recarga de datos), se descarta de la selección cualquier código que ya
+  // no esté entre las cuentas filtradas — nunca se deja seleccionada una
+  // cuenta fuera de los filtros vigentes. Los códigos que siguen
+  // coincidiendo se conservan (la selección sobrevive a la paginación).
+  useEffect(() => {
+    setSelCuentas((prev) => {
+      if (prev.size === 0) return prev;
+      const validos = new Set(cuentasFiltradas.map((r) => str(r.codigo)));
+      const next = new Set([...prev].filter((c) => validos.has(c)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [cuentasFiltradas]);
   // "Saldo Inicial/Actual USD" SIEMPRE se derivan de saldo_inicial/saldo_actual
   // (moneda local real) / tasa vigente del país — nunca de las columnas
   // saldo_inicial_usd/saldo_actual_usd (congeladas al importar). Ver utils/monedaConversion.ts.
@@ -385,7 +409,29 @@ const GestionPage = () => {
   // Limpiar filtros no reinicia el orden: ninguna otra tabla del sistema ata
   // el estado de orden al de los filtros, así que se conserva (comportamiento
   // estándar: orden y filtros son independientes entre sí).
-  const limpiarFiltrosTabla = () => { setFPd(''); setFZona(''); setFCamp(''); setFCodigo(''); setPage(0); };
+  const limpiarFiltrosTabla = () => { setFPd(''); setFZona(''); setFCamp(''); setFSector(''); setFCodigo(''); setPage(0); };
+
+  const toggleSeleccionCuenta = (codigo: string) => setSelCuentas((prev) => {
+    const next = new Set(prev);
+    next.has(codigo) ? next.delete(codigo) : next.add(codigo);
+    return next;
+  });
+  // "Seleccionar todas": actúa sobre TODO el universo filtrado
+  // (`cuentasFiltradas`), no solo la página visible — ese universo ya está
+  // completo en memoria (getGestionCuentas no pagina en el backend), así
+  // que no hace falta ninguna consulta adicional para resolverlo.
+  const todasFiltradasSeleccionadas = cuentasFiltradas.length > 0 && cuentasFiltradas.every((r) => selCuentas.has(str(r.codigo)));
+  const algunaFiltradaSeleccionada = cuentasFiltradas.some((r) => selCuentas.has(str(r.codigo)));
+  const toggleSeleccionarTodasFiltradas = () => setSelCuentas((prev) => {
+    if (todasFiltradasSeleccionadas) {
+      const fuera = new Set(cuentasFiltradas.map((r) => str(r.codigo)));
+      return new Set([...prev].filter((c) => !fuera.has(c)));
+    }
+    const next = new Set(prev);
+    cuentasFiltradas.forEach((r) => next.add(str(r.codigo)));
+    return next;
+  });
+  const limpiarSeleccionCuentas = () => setSelCuentas(new Set());
 
   const toggle = (set: Set<string>, key: string, setter: (s: Set<string>) => void) => { const n = new Set(set); n.has(key) ? n.delete(key) : n.add(key); setter(n); };
 
@@ -405,12 +451,39 @@ const GestionPage = () => {
     });
     return out;
   };
-  const CUENTAS_COLS = ['codigo', 'nombre', 'pais', 'zona', 'gestor', 'pd_actual', 'campania_adeuda', 'saldo_actual'];
-  const CUENTAS_HEAD = ['Cuenta', 'Representante', 'País', 'Zona', 'Gestor', 'PD', 'Campaña', 'Saldo Inicial USD', 'Saldo Actual USD', 'Saldo Local'];
-  const rowsCuentas = () => cuentasOrdenadas.map((r) => {
+  const CUENTAS_COLS = ['codigo', 'nombre', 'pais', 'zona', 'sector', 'gestor', 'pd_actual', 'campania_adeuda', 'saldo_actual'];
+  const CUENTAS_HEAD = ['Cuenta', 'Representante', 'País', 'Zona', 'Sector', 'Gestor', 'PD', 'Campaña', 'Saldo Inicial USD', 'Saldo Actual USD', 'Saldo Local'];
+  const rowsCuentasDe = (rows: Record<string, unknown>[]) => rows.map((r) => {
     const base = CUENTAS_COLS.filter((c) => c !== 'saldo_actual').map((c) => str(r[c]));
     return [...base, money(usdInicialDeFila(r)), money(usdActualDeFila(r)), str(r.saldo_actual)];
   });
+  const rowsCuentas = () => rowsCuentasDe(cuentasOrdenadas);
+  // Exportación de la SELECCIÓN: nunca toda la cartera filtrada, solo las
+  // cuentas marcadas (mismas columnas/orden que el export general, mismo
+  // exportador real xlsx/csv — ver utils/tableExport.ts, sin tocarlo).
+  const cuentasSeleccionadas = () => cuentasOrdenadas.filter((r) => selCuentas.has(str(r.codigo)));
+  const rowsCuentasSeleccionadas = () => rowsCuentasDe(cuentasSeleccionadas());
+
+  // Generación masiva de cartas: un solo request con TODOS los códigos
+  // seleccionados (ver gestionService.crearCartasMasivo / POST
+  // /api/gestion/cartas/lote) — nunca una llamada por cuenta. El resultado
+  // nunca es un éxito falso: siempre indica cuántas se generaron y, por
+  // cada una que no, el motivo real devuelto por el backend.
+  const generarCartasMasivo = async () => {
+    if (loteCartaBusy || selCuentas.size === 0) return;
+    setLoteCartaBusy(true);
+    try {
+      const r = await crearCartasMasivo([...selCuentas], loteCartaComent);
+      setLoteCartaOpen(false);
+      setLoteCartaComent('');
+      setLoteCartaResultado(r);
+      limpiarSeleccionCuentas();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'No se pudieron generar las cartas.');
+    } finally {
+      setLoteCartaBusy(false);
+    }
+  };
 
   const abrirPanel = async (row: Record<string, unknown>) => {
     setPanel(row); setDetalle(null); setInfo(null);
@@ -535,6 +608,7 @@ const GestionPage = () => {
               <TextField size="small" label="Código" placeholder="Buscar por código" value={fCodigo} onChange={(e) => { setFCodigo(e.target.value); setPage(0); }} sx={{ minWidth: 150 }} />
               <TextField select size="small" label="PD" value={fPd} onChange={(e) => { setFPd(e.target.value); setPage(0); }} sx={{ minWidth: 100 }}><MenuItem value="">Todos</MenuItem>{optsTabla.pd.map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}</TextField>
               <TextField select size="small" label="Zona" value={fZona} onChange={(e) => { setFZona(e.target.value); setPage(0); }} sx={{ minWidth: 120 }}><MenuItem value="">Todas</MenuItem>{optsTabla.zona.map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}</TextField>
+              <TextField select size="small" label="Sector" value={fSector} onChange={(e) => { setFSector(e.target.value); setPage(0); }} sx={{ minWidth: 120 }}><MenuItem value="">Todos</MenuItem>{optsTabla.sector.map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}</TextField>
               <TextField select size="small" label="Campaña" value={fCamp} onChange={(e) => { setFCamp(e.target.value); setPage(0); }} sx={{ minWidth: 120 }}><MenuItem value="">Todas</MenuItem>{optsTabla.campania.map((v) => <MenuItem key={v} value={v}>{v}</MenuItem>)}</TextField>
               <Button size="small" onClick={limpiarFiltrosTabla} sx={{ textTransform: 'none' }}>Limpiar filtros</Button>
             </Box>
@@ -543,6 +617,24 @@ const GestionPage = () => {
               <Button size="small" startIcon={<FileDownloadOutlinedIcon />} onClick={() => exportRowsToExcel('gestion_cuentas.xlsx', 'Cuentas', CUENTAS_HEAD, rowsCuentas())} sx={{ textTransform: 'none' }}>Excel</Button>
             </Box>
           </Box>
+          {/* Barra de acciones masivas: solo visible con >=1 cuenta
+              seleccionada. Las acciones operan EXCLUSIVAMENTE sobre
+              `selCuentas` (nunca sobre la página visible ni sobre todo lo
+              filtrado), y quedan inactivas mientras no hay selección o
+              mientras un lote está en proceso. */}
+          <Collapse in={selCuentas.size > 0} unmountOnExit>
+            <Box sx={{ px: 1.5, py: 1, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', bgcolor: 'action.hover', borderTop: '1px solid', borderColor: 'divider' }}>
+              <Typography sx={{ fontWeight: 700, fontSize: 13 }}>{selCuentas.size.toLocaleString('en-US')} cuenta{selCuentas.size === 1 ? '' : 's'} seleccionada{selCuentas.size === 1 ? '' : 's'}</Typography>
+              {canCarta && (
+                <Button size="small" variant="contained" disabled={loteCartaBusy} onClick={() => setLoteCartaOpen(true)} sx={{ textTransform: 'none' }}>
+                  {loteCartaBusy ? 'Generando cartas…' : 'Generar cartas'}
+                </Button>
+              )}
+              <Button size="small" variant="outlined" startIcon={<FileDownloadOutlinedIcon />} onClick={() => exportRowsToCsv('gestion_cuentas_seleccionadas.csv', CUENTAS_HEAD, rowsCuentasSeleccionadas())} sx={{ textTransform: 'none' }}>Descargar CSV</Button>
+              <Button size="small" variant="outlined" startIcon={<FileDownloadOutlinedIcon />} onClick={() => exportRowsToExcel('gestion_cuentas_seleccionadas.xlsx', 'Cuentas', CUENTAS_HEAD, rowsCuentasSeleccionadas())} sx={{ textTransform: 'none' }}>Descargar Excel</Button>
+              <Button size="small" onClick={limpiarSeleccionCuentas} sx={{ textTransform: 'none' }}>Limpiar selección</Button>
+            </Box>
+          </Collapse>
           <TableContainer sx={{ maxHeight: '62vh' }}>
             <Table stickyHeader size="small">
               {/* Columna "Acciones" (abre el panel de gestión de la cuenta): visible
@@ -551,6 +643,15 @@ const GestionPage = () => {
                   tiene ninguna acción disponible, así que la columna se omite. */}
               <TableHead>
                 <TableRow>
+                  <TableCell padding="checkbox">
+                    <Checkbox
+                      size="small"
+                      checked={todasFiltradasSeleccionadas}
+                      indeterminate={!todasFiltradasSeleccionadas && algunaFiltradaSeleccionada}
+                      onChange={toggleSeleccionarTodasFiltradas}
+                      inputProps={{ 'aria-label': 'Seleccionar todas las cuentas filtradas' }}
+                    />
+                  </TableCell>
                   {canGestionar && <TableCell sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Acciones</TableCell>}
                   {([
                     { id: 'codigo', label: 'Cuenta' }, { id: 'pais', label: 'País' }, { id: 'zona', label: 'Zona' },
@@ -567,7 +668,10 @@ const GestionPage = () => {
               </TableHead>
               <TableBody>
                 {paged.map((r, i) => (
-                  <TableRow key={str(r.codigo) || i} hover>
+                  <TableRow key={str(r.codigo) || i} hover selected={selCuentas.has(str(r.codigo))}>
+                    <TableCell padding="checkbox">
+                      <Checkbox size="small" checked={selCuentas.has(str(r.codigo))} onChange={() => toggleSeleccionCuenta(str(r.codigo))} inputProps={{ 'aria-label': `Seleccionar cuenta ${str(r.codigo)}` }} />
+                    </TableCell>
                     {canGestionar && <TableCell><Button size="small" variant="outlined" onClick={() => abrirPanel(r)} sx={{ textTransform: 'none', minWidth: 0 }}>Acciones</Button></TableCell>}
                     <TableCell>{str(r.codigo)}</TableCell>
                     <TableCell><Chip size="small" label={siglaPais(str(r.pais))} /></TableCell><TableCell>{str(r.zona)}</TableCell>
@@ -962,6 +1066,59 @@ const GestionPage = () => {
         <DialogActions>
           <Button onClick={() => setCartaPrevOpen(false)} sx={{ textTransform: 'none' }}>Cancelar</Button>
           <Button variant="contained" disabled={busy} onClick={() => { setCartaPrevOpen(false); void accion(() => crearCarta(cod, gForm.cartaCom), 'Carta enviada a aprobación.'); }} sx={{ textTransform: 'none' }}>Confirmar y enviar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Generar cartas por lote (Cuentas: selección múltiple). Sin vista
+          previa EN VIVO (las cuentas seleccionadas pueden tener PD/plantillas
+          distintas) — el backend decide, cuenta por cuenta, la plantilla
+          según su PD actual, exactamente igual que la generación individual. */}
+      <Dialog open={loteCartaOpen} onClose={() => { if (!loteCartaBusy) setLoteCartaOpen(false); }} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Generar cartas · {selCuentas.size} cuenta{selCuentas.size === 1 ? '' : 's'} seleccionada{selCuentas.size === 1 ? '' : 's'}</DialogTitle>
+        <DialogContent dividers>
+          <Typography sx={{ fontSize: 13, mb: 1.5 }}>
+            Se generará una carta para cada cuenta seleccionada que tenga plantilla disponible según su PD actual.
+            Las cuentas sin plantilla, sin alcance, o con una carta no disponible no se generarán, y el motivo de
+            cada una se mostrará al finalizar.
+          </Typography>
+          <TextField label="Comentario (opcional, aplica a todas)" value={loteCartaComent} onChange={(e) => setLoteCartaComent(e.target.value)} size="small" fullWidth multiline minRows={2} />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setLoteCartaOpen(false)} disabled={loteCartaBusy} sx={{ textTransform: 'none' }}>Cancelar</Button>
+          <Button variant="contained" disabled={loteCartaBusy || selCuentas.size === 0} onClick={() => void generarCartasMasivo()} sx={{ textTransform: 'none' }}>
+            {loteCartaBusy ? <><CircularProgress size={14} sx={{ mr: 1 }} />Generando…</> : 'Confirmar y generar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Resultado del lote: nunca un éxito falso — siempre indica cuántas
+          se generaron y, por cada una que no, el motivo REAL devuelto por
+          el backend (nunca inventado aquí). */}
+      <Dialog open={Boolean(loteCartaResultado)} onClose={() => setLoteCartaResultado(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Resultado de la generación</DialogTitle>
+        <DialogContent dividers>
+          {loteCartaResultado && (
+            <Stack spacing={1.5}>
+              <Alert severity={loteCartaResultado.noGeneradas === 0 ? 'success' : loteCartaResultado.generadas === 0 ? 'error' : 'warning'}>
+                {loteCartaResultado.total} seleccionada{loteCartaResultado.total === 1 ? '' : 's'} / {loteCartaResultado.generadas} carta{loteCartaResultado.generadas === 1 ? '' : 's'} generada{loteCartaResultado.generadas === 1 ? '' : 's'} / {loteCartaResultado.noGeneradas} no generada{loteCartaResultado.noGeneradas === 1 ? '' : 's'}
+              </Alert>
+              {loteCartaResultado.detalle.noGeneradas.length > 0 && (
+                <Box>
+                  <Typography sx={{ fontWeight: 700, fontSize: 13, mb: 0.5 }}>No generadas:</Typography>
+                  <Stack spacing={0.5}>
+                    {loteCartaResultado.detalle.noGeneradas.map((n) => (
+                      <Typography key={n.codigo} sx={{ fontSize: 12.5 }}>
+                        <strong>{n.codigo}</strong> — {n.motivo}
+                      </Typography>
+                    ))}
+                  </Stack>
+                </Box>
+              )}
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button variant="contained" onClick={() => { setLoteCartaResultado(null); if (tab === 1) getCartas().then(setCartas).catch(() => undefined); }} sx={{ textTransform: 'none' }}>Cerrar</Button>
         </DialogActions>
       </Dialog>
 

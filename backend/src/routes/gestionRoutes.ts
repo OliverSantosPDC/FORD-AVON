@@ -41,6 +41,11 @@ router.patch('/gestion/promesas/:id', requireAuth, requirePermission('gestion.pr
 router.post('/gestion/cuentas/:codigo/adjuntos', requireAuth, requirePermission('gestion.adjunto.subir'), upload.single('file'), (req, res) => c.subirAdjunto(req, res));
 router.delete('/gestion/adjuntos/:id', requireAuth, requirePermission('gestion.adjunto.subir'), (req, res) => c.eliminarAdjunto(req, res));
 router.post('/gestion/cuentas/:codigo/cartas', requireAuth, requirePermission('gestion.carta.crear'), (req, res) => c.crearCarta(req, res));
+// Generación masiva (Cuentas: selección múltiple -> "Generar cartas"): mismo
+// permiso que la generación individual — quien no puede generar una carta
+// no puede generarlas en lote. El alcance de cada cuenta recibida se
+// revalida siempre en el backend (ver GestionController.crearCartasMasivo).
+router.post('/gestion/cartas/lote', requireAuth, requirePermission('gestion.carta.crear'), (req, res) => c.crearCartasMasivo(req, res));
 router.patch('/gestion/cartas/:id/aprobar', requireAuth, requirePermission('gestion.carta.aprobar'), (req, res) => c.aprobarCarta(req, res));
 router.patch('/gestion/cartas/:id/rechazar', requireAuth, requirePermission('gestion.carta.aprobar'), (req, res) => c.rechazarCarta(req, res));
 router.post('/gestion/cartas/autorizar-masivo', requireAuth, requirePermission('gestion.carta.aprobar'), (req, res) => c.autorizarCartasMasivo(req, res));
