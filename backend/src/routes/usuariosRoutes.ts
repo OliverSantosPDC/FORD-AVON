@@ -25,7 +25,11 @@ const ADMIN = 'usuarios.administrar_global';
 const ALCANCE = 'usuarios.administrar_alcance';
 const lectura = requireAnyPermission(ADMIN, ALCANCE);
 
-router.get('/usuarios/plantilla', requireAuth, requirePermission(ADMIN), (req, res) => controller.plantilla(req, res));
+// Plantillas (Administrativa/Comercial) + importación masiva (nuevo esquema,
+// Configuración > Usuarios — reemplaza el antiguo módulo "Gestión masiva de
+// Usuarios" de Repositorio, eliminado por completo).
+router.get('/usuarios/plantilla/administrativa', requireAuth, requirePermission(ADMIN), (req, res) => controller.plantillaAdministrativa(req, res));
+router.get('/usuarios/plantilla/comercial', requireAuth, requirePermission(ADMIN), (req, res) => controller.plantillaComercial(req, res));
 router.post('/usuarios/importar/validar', requireAuth, requirePermission(ADMIN), upload.single('file'), (req, res) => controller.importarValidar(req, res));
 router.post('/usuarios/importar/aplicar', requireAuth, requirePermission(ADMIN), upload.single('file'), (req, res) => controller.importarAplicar(req, res));
 

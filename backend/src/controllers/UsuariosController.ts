@@ -10,15 +10,15 @@ import {
   eliminarUsuario,
   validarEliminacionMasiva,
   eliminarUsuariosMasivo,
-  validarWorkbook,
-  aplicarWorkbook,
   obtenerResumenAlcance,
+  validarImportacionUsuarios,
+  aplicarImportacionUsuarios,
   UsuariosError,
   UsuariosForbiddenError,
   type CrearUsuarioInput,
   type ActualizarUsuarioInput
 } from '../services/UsuariosService';
-import { generarPlantilla, parsearWorkbook } from '../utils/usuariosExcel';
+import { generarPlantillaAdministrativa, generarPlantillaComercial, parsearWorkbookUsuarios } from '../utils/usuariosImportExcel';
 import { registrarAuditoria } from '../services/AuditoriaService';
 import { notificarPasswordCambiada } from '../services/NotificacionesService';
 
@@ -178,41 +178,59 @@ export class UsuariosController {
     }
   }
 
-  /** GET /api/usuarios/plantilla — descarga la plantilla oficial .xlsx. */
-  async plantilla(_req: Request, res: Response): Promise<void> {
+  /** GET /api/usuarios/plantilla/administrativa — descarga la plantilla Administrativa (.xlsx). */
+  async plantillaAdministrativa(_req: Request, res: Response): Promise<void> {
     try {
       const catalogos = await obtenerCatalogos();
-      const buffer = await generarPlantilla(catalogos.carteraPaisZona);
+      const buffer = await generarPlantillaAdministrativa(catalogos.roles);
       res.setHeader('Content-Type', XLSX_MIME);
-      res.setHeader('Content-Disposition', 'attachment; filename="plantilla_usuarios.xlsx"');
+      res.setHeader('Content-Disposition', 'attachment; filename="plantilla_usuarios_administrativo.xlsx"');
       res.send(buffer);
     } catch (error) {
-      console.error('[USUARIOS] plantilla', error);
+      console.error('[USUARIOS] plantillaAdministrativa', error);
       res.status(500).json({ error: 'No se pudo generar la plantilla.' });
     }
   }
 
-  /** POST /api/usuarios/importar/validar — valida el archivo (todas las hojas) SIN modificar la BD. */
+  /** GET /api/usuarios/plantilla/comercial — descarga la plantilla Comercial (.xlsx). */
+  async plantillaComercial(_req: Request, res: Response): Promise<void> {
+    try {
+      const catalogos = await obtenerCatalogos();
+      const buffer = await generarPlantillaComercial(catalogos.roles);
+      res.setHeader('Content-Type', XLSX_MIME);
+      res.setHeader('Content-Disposition', 'attachment; filename="plantilla_usuarios_comercial.xlsx"');
+      res.send(buffer);
+    } catch (error) {
+      console.error('[USUARIOS] plantillaComercial', error);
+      res.status(500).json({ error: 'No se pudo generar la plantilla.' });
+    }
+  }
+
+  /** POST /api/usuarios/importar/validar — valida el archivo (hojas Administrativo/Comercial) SIN modificar la BD. */
   async importarValidar(req: Request, res: Response): Promise<Response> {
     try {
       if (!req.file?.buffer) return res.status(400).json({ error: 'Debes adjuntar un archivo .xlsx.' });
-      const parsed = await parsearWorkbook(req.file.buffer);
-      if (parsed.usuarios.length === 0) return res.status(400).json({ error: 'El archivo no contiene filas para procesar en la hoja USUARIOS.' });
-      return res.json(await validarWorkbook(parsed));
+      const parsed = await parsearWorkbookUsuarios(req.file.buffer);
+      if (parsed.filas.length === 0) {
+        return res.status(400).json({ error: 'El archivo no contiene filas para procesar (hojas Administrativo/Comercial).' });
+      }
+      return res.json(await validarImportacionUsuarios(parsed));
     } catch (error) {
       return this.fail(res, error, 'No se pudo validar el archivo.');
     }
   }
 
-  /** POST /api/usuarios/importar/aplicar — procesa el workbook completo (usuarios + relaciones). */
+  /** POST /api/usuarios/importar/aplicar — procesa el archivo completo (usuarios + relaciones). */
   async importarAplicar(req: Request, res: Response): Promise<Response> {
     try {
       if (!req.file?.buffer) return res.status(400).json({ error: 'Debes adjuntar un archivo .xlsx.' });
       const soloValidas = String((req.body as { soloValidas?: string } | undefined)?.soloValidas ?? 'true') !== 'false';
-      const parsed = await parsearWorkbook(req.file.buffer);
-      if (parsed.usuarios.length === 0) return res.status(400).json({ error: 'El archivo no contiene filas para procesar en la hoja USUARIOS.' });
+      const parsed = await parsearWorkbookUsuarios(req.file.buffer);
+      if (parsed.filas.length === 0) {
+        return res.status(400).json({ error: 'El archivo no contiene filas para procesar (hojas Administrativo/Comercial).' });
+      }
       const actorId = req.auth?.userId ?? null;
-      return res.json(await aplicarWorkbook(parsed, soloValidas, actorId));
+      return res.json(await aplicarImportacionUsuarios(parsed, soloValidas, actorId));
     } catch (error) {
       return this.fail(res, error, 'No se pudo procesar el archivo.');
     }

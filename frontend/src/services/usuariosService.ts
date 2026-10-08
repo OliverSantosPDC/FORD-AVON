@@ -4,7 +4,7 @@ import { apiFetch } from './apiClient';
 export interface RoleRef {
   clave: string;
   nombre: string;
-  /** Nivel oficial de Grupos y Niveles (1=Administrador ... 5=Gerente de zona). */
+  /** Nivel jerárquico oficial del rol (1=Administrador ... 5=Gerente de zona). */
   nivel: number | null;
 }
 
@@ -19,6 +19,12 @@ export interface UsuarioListItem {
 }
 
 export interface PaisZona { zonaId: string; zona: string; pais: string; }
+/** País/Zona de un Gerente de zona, con su División organizacional (hoja
+ *  Comercial de la plantilla de usuarios: PAIS/DIVISION/ZONA). La división es
+ *  metadata de la asignación (identifica el territorio y resuelve el
+ *  marcador ZONA="GV" al importar) — nunca participa en el cálculo de
+ *  alcance real de ScopeService, que sigue siendo exclusivamente País/Zona. */
+export interface GerenteZonaAsignacion extends PaisZona { division: string | null; }
 
 export interface UsuarioDetalle extends UsuarioListItem {
   nombreCartera: string | null;
@@ -30,9 +36,9 @@ export interface UsuarioDetalle extends UsuarioListItem {
   supervisorIds: string[];
   /** Gerente de zona -> zonas (compat). */
   zonaIds: string[];
-  /** Gerente de zona -> País/Zona explícitos (Nivel 5 -> Nivel 6). */
-  paisZona: PaisZona[];
-  /** Gestor -> País/Zona explícitos, narrowing adicional opcional (Nivel 4 -> Nivel 6). */
+  /** Gerente de zona -> País/División/Zona explícitos. */
+  paisZona: GerenteZonaAsignacion[];
+  /** Gestor -> País/Zona explícitos, narrowing adicional opcional. */
   gestorPaisZona: PaisZona[];
 }
 
@@ -46,6 +52,10 @@ export interface Catalogos {
   gerentesZona: Array<{ id: string; nombre: string; apellido: string | null }>;
   /** Pares País/Zona REALES existentes en cartera (nunca inventados). */
   carteraPaisZona: PaisZona[];
+  /** Combinaciones País/División/Zona YA asignadas a algún Gerente de zona
+   *  (nunca inventadas): catálogo base para el selector de asignación —
+   *  crece con cada importación/edición manual. */
+  gerenteZonaPaisDivisionZona: GerenteZonaAsignacion[];
 }
 
 export interface UsuarioPayload {
@@ -66,8 +76,8 @@ export interface UsuarioPayload {
   supervisorIds?: string[];
   /** Gerente de zona -> zonas (compat; se ignora si viene `paisZona`). */
   zonaIds?: string[];
-  /** Gerente de zona -> País/Zona explícitos (autoritativo). */
-  paisZona?: Array<{ zonaId: string; pais: string }>;
+  /** Gerente de zona -> País/División/Zona explícitos (autoritativo). */
+  paisZona?: Array<{ zonaId: string; pais: string; division?: string | null }>;
   /** Gestor -> País/Zona explícitos (narrowing adicional opcional). */
   gestorPaisZona?: Array<{ zonaId: string; pais: string }>;
 }
@@ -192,7 +202,7 @@ export const resetPasswordTemporalUsuario = async (id: string): Promise<{ email:
   return res.json();
 };
 
-/* ===== Carga masiva de usuarios (módulo Repositorio) ===== */
+/* ===== Plantillas e importación masiva (Configuración > Usuarios) ===== */
 
 export interface PreviewItem {
   hoja: string;
@@ -200,8 +210,6 @@ export interface PreviewItem {
   accion: string;
   email: string;
   rol: string;
-  /** Valor relacionado (relación simple) o "PAIS / ZONA" (hojas País-Zona). Ausente en USUARIOS. */
-  valor?: string;
   /** Columna que originó el error (vacío si estado=VALIDO). */
   columna: string;
   estado: 'VALIDO' | 'ERROR';
@@ -214,11 +222,7 @@ export interface ResumenImport {
   errores: number;
   creaciones: number;
   actualizaciones: number;
-  activaciones: number;
-  desactivaciones: number;
-  relacionesCreadas: number;
-  relacionesVigentes: number;
-  relacionesEliminadas: number;
+  relacionesAsignadas: number;
 }
 
 export interface ResultadoAplicarItem {
@@ -229,21 +233,27 @@ export interface ResultadoAplicarItem {
   nombre?: string;
   apellido?: string;
   rol: string;
-  columna: string;
   resultado: 'OK' | 'ERROR';
   password: string;
   mensaje: string;
 }
 
-/** Descarga la plantilla oficial .xlsx desde el backend. */
-export const descargarPlantilla = async (): Promise<Blob> => {
-  const res = await apiFetch('/api/usuarios/plantilla');
-  if (!res.ok) throw new Error(await parseError(res, 'No se pudo descargar la plantilla.'));
+/** Descarga la plantilla Administrativa (.xlsx) desde el backend. */
+export const descargarPlantillaAdministrativa = async (): Promise<Blob> => {
+  const res = await apiFetch('/api/usuarios/plantilla/administrativa');
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudo descargar la plantilla administrativa.'));
   return res.blob();
 };
 
-/** Etapa 1: valida el archivo sin modificar la base de datos. */
-export const validarImportacion = async (file: File): Promise<{ items: PreviewItem[]; resumen: ResumenImport }> => {
+/** Descarga la plantilla Comercial (.xlsx) desde el backend. */
+export const descargarPlantillaComercial = async (): Promise<Blob> => {
+  const res = await apiFetch('/api/usuarios/plantilla/comercial');
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudo descargar la plantilla comercial.'));
+  return res.blob();
+};
+
+/** Etapa 1: valida el archivo (hojas Administrativo/Comercial) sin modificar la base de datos. */
+export const validarImportacionUsuarios = async (file: File): Promise<{ items: PreviewItem[]; resumen: ResumenImport }> => {
   const form = new FormData();
   form.append('file', file);
   const res = await apiFetch('/api/usuarios/importar/validar', { method: 'POST', body: form });
@@ -252,7 +262,7 @@ export const validarImportacion = async (file: File): Promise<{ items: PreviewIt
 };
 
 /** Etapa 2: aplica las filas (soloValidas por defecto). */
-export const aplicarImportacion = async (
+export const aplicarImportacionUsuarios = async (
   file: File,
   soloValidas: boolean
 ): Promise<{ resultados: ResultadoAplicarItem[]; resumen: ResumenImport }> => {

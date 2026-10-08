@@ -9,7 +9,7 @@
     "dev": "ts-node-dev --respawn --transpile-only src/main.ts",
     "test:supabase": "npm run build && node dist/scripts/testSupabase.js",
     "test:scope": "npm run build && node --test test/scope-fix.test.cjs",
-    "test:usuarios": "npm run build && node --test test/bulk-import.test.cjs",
+    "test:usuarios": "npm run build && node --test test/usuarios-import.test.cjs",
     "test:password-requests": "npm run build && node --test test/password-request-history.test.cjs",
     "test:auth-errors": "npm run build && node --test test/auth-errors.test.cjs",
     "test:eliminar-usuario": "npm run build && node --test test/eliminar-usuario.test.cjs",

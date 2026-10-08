@@ -1,6 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
+  Autocomplete,
   Box,
   Button,
   Checkbox,
@@ -11,17 +15,12 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  FormControl,
   FormControlLabel,
   Grid,
   IconButton,
   InputAdornment,
-  InputLabel,
-  ListItemText,
   MenuItem,
-  OutlinedInput,
   Paper,
-  Select,
   Snackbar,
   Stack,
   Switch,
@@ -46,7 +45,13 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
+import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
+import PlayArrowOutlinedIcon from '@mui/icons-material/PlayArrowOutlined';
+import AddIcon from '@mui/icons-material/Add';
 import { useAuth } from '../../context/AuthContext';
+import { downloadBlob, exportRowsToExcel } from '../../utils/tableExport';
 import {
   listUsuarios,
   getCatalogos,
@@ -62,12 +67,20 @@ import {
   getResumenAlcance,
   validarEliminacionMasivaUsuarios,
   eliminarUsuariosMasivo,
+  descargarPlantillaAdministrativa,
+  descargarPlantillaComercial,
+  validarImportacionUsuarios,
+  aplicarImportacionUsuarios,
   type UsuarioListItem,
   type Catalogos,
   type UsuarioPayload,
   type PasswordRequest,
   type AlcanceResumenItem,
-  type ValidacionEliminacionMasiva
+  type ValidacionEliminacionMasiva,
+  type GerenteZonaAsignacion,
+  type PreviewItem,
+  type ResumenImport,
+  type ResultadoAplicarItem
 } from '../../services/usuariosService';
 import { getRoles, putRolPermisos, type RolesData } from '../../services/configuracionService';
 
@@ -80,14 +93,6 @@ const pzFromKey = (key: string): { zonaId: string; pais: string } => {
   return { zonaId: zonaId ?? '', pais: pais ?? '' };
 };
 
-const NIVEL_LABEL: Record<number, string> = {
-  1: 'Nivel 1 · Administrador',
-  2: 'Nivel 2 · Liderazgo',
-  3: 'Nivel 3 · Supervisor',
-  4: 'Nivel 4 · Gestor',
-  5: 'Nivel 5 · Gerente de zona'
-};
-
 interface FormState {
   id: string | null;
   email: string;
@@ -98,8 +103,11 @@ interface FormState {
   gestorIds: string[];
   gerenteZonaIds: string[];
   supervisorIds: string[];
-  paisZonaKeys: string[];
+  /** Gerente de zona -> asignaciones País/División/Zona (reemplaza por completo al guardar). */
+  gerenteZonaAsignaciones: GerenteZonaAsignacion[];
   gestorPaisZonaKeys: string[];
+  /** Filtro de País (solo UI) para acotar las opciones de Zona del selector del Gestor. */
+  gestorPaisFiltro: string;
   password: string;
   passwordConfirm: string;
 }
@@ -114,14 +122,14 @@ const EMPTY_FORM: FormState = {
   gestorIds: [],
   gerenteZonaIds: [],
   supervisorIds: [],
-  paisZonaKeys: [],
+  gerenteZonaAsignaciones: [],
   gestorPaisZonaKeys: [],
+  gestorPaisFiltro: '',
   password: '',
   passwordConfirm: ''
 };
 
 const TAB_GESTION = 0;
-const TAB_GRUPOS_NIVELES = 1;
 const TAB_ROLES = 2;
 
 /** Orden de agrupación por rol (Sección 11-B): respeta el Nivel jerárquico
@@ -150,6 +158,69 @@ const UsuariosPage = () => {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  // Constructor de asignaciones País/División/Zona para Gerente de zona
+  // (Sección 5): se arma una combinación y se "agrega" a la lista final del
+  // formulario — nunca se envía directamente, evita duplicados.
+  const [nuevaAsigPais, setNuevaAsigPais] = useState('');
+  const [nuevaAsigDivision, setNuevaAsigDivision] = useState('');
+  const [nuevaAsigZonas, setNuevaAsigZonas] = useState<Array<{ zonaId: string; zona: string }>>([]);
+
+  // Importación masiva (plantillas Administrativa/Comercial) — Configuración > Usuarios.
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importPreview, setImportPreview] = useState<{ items: PreviewItem[]; resumen: ResumenImport } | null>(null);
+  const [importResult, setImportResult] = useState<{ resultados: ResultadoAplicarItem[]; resumen: ResumenImport } | null>(null);
+  const [importSoloErrores, setImportSoloErrores] = useState(false);
+  const importItemsMostrados = useMemo(
+    () => (importPreview ? (importSoloErrores ? importPreview.items.filter((it) => it.estado === 'ERROR') : importPreview.items) : []),
+    [importPreview, importSoloErrores]
+  );
+
+  const onDescargarPlantillaAdministrativa = async () => {
+    setImportError(null);
+    try { downloadBlob(await descargarPlantillaAdministrativa(), 'plantilla_usuarios_administrativo.xlsx'); }
+    catch (err) { setImportError(err instanceof Error ? err.message : 'No se pudo descargar la plantilla.'); }
+  };
+  const onDescargarPlantillaComercial = async () => {
+    setImportError(null);
+    try { downloadBlob(await descargarPlantillaComercial(), 'plantilla_usuarios_comercial.xlsx'); }
+    catch (err) { setImportError(err instanceof Error ? err.message : 'No se pudo descargar la plantilla.'); }
+  };
+  const onSeleccionarArchivoImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] ?? null;
+    setImportFile(f);
+    setImportPreview(null);
+    setImportResult(null);
+    setImportError(null);
+  };
+  const onValidarImportacion = async () => {
+    if (!importFile) return;
+    setImportBusy(true); setImportError(null); setImportResult(null);
+    try { setImportPreview(await validarImportacionUsuarios(importFile)); }
+    catch (err) { setImportError(err instanceof Error ? err.message : 'No se pudo validar el archivo.'); }
+    finally { setImportBusy(false); }
+  };
+  const onAplicarImportacion = async (soloValidas: boolean) => {
+    if (!importFile) return;
+    setImportBusy(true); setImportError(null);
+    try {
+      const res = await aplicarImportacionUsuarios(importFile, soloValidas);
+      setImportResult(res);
+      setImportPreview(null);
+      await load();
+    } catch (err) { setImportError(err instanceof Error ? err.message : 'No se pudo procesar el archivo.'); }
+    finally { setImportBusy(false); }
+  };
+  const onDescargarReporteImportacion = () => {
+    if (!importResult) return;
+    const headers = ['HOJA', 'FILA', 'ACCION', 'EMAIL', 'NOMBRE', 'APELLIDO', 'ROL', 'RESULTADO', 'CONTRASEÑA_TEMPORAL', 'MENSAJE'];
+    const rows = importResult.resultados.map((r) => [r.hoja, r.fila, r.accion, r.email, r.nombre ?? '', r.apellido ?? '', r.rol, r.resultado, r.password ?? '', r.mensaje]);
+    exportRowsToExcel('resultado_importacion_usuarios.xlsx', 'Resultado', headers, rows);
+  };
+  const importHayPasswords = Boolean(importResult?.resultados.some((r) => r.password));
+  const importTieneErrores = (importPreview?.resumen.errores ?? 0) > 0;
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -175,25 +246,11 @@ const UsuariosPage = () => {
   const [confirmDeletePw, setConfirmDeletePw] = useState<string[] | null>(null);
   const [deletingPw, setDeletingPw] = useState(false);
 
-  // Selección múltiple + eliminación masiva (Secciones 1-9): una fuente
-  // ("Gestión de usuarios" con selección única global, o "Grupos y Niveles"
-  // con una selección independiente por nivel: Supervisor=3/Gestor=4/
-  // Gerente de zona=5) alimenta el MISMO diálogo/lógica de confirmación —
-  // reutiliza exactamente los mismos endpoints (validarEliminacionMasivaUsuarios/
+  // Selección múltiple + eliminación masiva (Secciones 1-9): "Gestión de
+  // usuarios" alimenta el diálogo/lógica de confirmación — reutiliza
+  // exactamente los mismos endpoints (validarEliminacionMasivaUsuarios/
   // eliminarUsuariosMasivo), sin duplicar backend ni el flujo de confirmación.
-  type BulkDeleteSource = { kind: 'nivel'; nivel: number } | { kind: 'gestion' };
-  const [selNiveles, setSelNiveles] = useState<Record<number, Set<string>>>({});
-  const selNivel = (nivel: number): Set<string> => selNiveles[nivel] ?? new Set<string>();
-  const toggleSelNivel = (nivel: number, id: string) => setSelNiveles((s) => {
-    const cur = new Set(s[nivel] ?? []);
-    cur.has(id) ? cur.delete(id) : cur.add(id);
-    return { ...s, [nivel]: cur };
-  });
-  const toggleSelAllNivel = (nivel: number, ids: string[]) => setSelNiveles((s) => {
-    const cur = s[nivel] ?? new Set<string>();
-    const todos = ids.length > 0 && ids.every((id) => cur.has(id));
-    return { ...s, [nivel]: todos ? new Set<string>() : new Set(ids) };
-  });
+  type BulkDeleteSource = { kind: 'gestion' };
 
   // Selección de "Gestión de usuarios" (Sección 1-3): UNA selección global,
   // independiente de los grupos por rol (un usuario aparece en un solo grupo,
@@ -235,12 +292,7 @@ const UsuariosPage = () => {
       setToast(problemas > 0
         ? `${r.eliminados.length} usuario(s) eliminado(s) correctamente; ${problemas} no se pudieron eliminar.`
         : `${r.eliminados.length} usuario(s) eliminado(s) correctamente.`);
-      if (bulkDeleteTarget.source.kind === 'nivel') {
-        const nivel = bulkDeleteTarget.source.nivel;
-        setSelNiveles((s) => ({ ...s, [nivel]: new Set() }));
-      } else {
-        setSelUsuarios(new Set());
-      }
+      setSelUsuarios(new Set());
       cerrarBulkDelete();
       await load();
     } catch (err) {
@@ -357,20 +409,67 @@ const UsuariosPage = () => {
 
   const selectedRoleClave = roleClaveById.get(form.roleId) ?? '';
 
+  // Países reales disponibles para los selectores de territorio (Gestor/Gerente
+  // de zona): unión de los países con cartera real y los ya usados en
+  // asignaciones de Gerente de zona — nunca una lista inventada.
+  const paisesDisponibles = useMemo(() => {
+    const s = new Set<string>();
+    (catalogos?.carteraPaisZona ?? []).forEach((z) => s.add(z.pais));
+    (catalogos?.gerenteZonaPaisDivisionZona ?? []).forEach((z) => s.add(z.pais));
+    return Array.from(s).sort((a, b) => a.localeCompare(b, 'es'));
+  }, [catalogos]);
+
+  const zonasPorPais = (pais: string): Array<{ zonaId: string; zona: string }> => {
+    const mapa = new Map<string, { zonaId: string; zona: string }>();
+    (catalogos?.carteraPaisZona ?? []).filter((z) => z.pais === pais).forEach((z) => mapa.set(z.zonaId, { zonaId: z.zonaId, zona: z.zona }));
+    (catalogos?.gerenteZonaPaisDivisionZona ?? []).filter((z) => z.pais === pais).forEach((z) => mapa.set(z.zonaId, { zonaId: z.zonaId, zona: z.zona }));
+    return Array.from(mapa.values()).sort((a, b) => a.zona.localeCompare(b.zona, 'es', { numeric: true }));
+  };
+
+  const divisionesPorPais = (pais: string): string[] =>
+    Array.from(new Set((catalogos?.gerenteZonaPaisDivisionZona ?? [])
+      .filter((z) => z.pais === pais && z.division)
+      .map((z) => z.division as string)))
+      .sort((a, b) => a.localeCompare(b, 'es'));
+
+  const agregarAsignacionGerente = () => {
+    if (!nuevaAsigPais || !nuevaAsigDivision.trim() || nuevaAsigZonas.length === 0) return;
+    setForm((f) => {
+      const existentes = new Set(f.gerenteZonaAsignaciones.map((a) => `${a.pais}||${a.zonaId}`));
+      const nuevas: GerenteZonaAsignacion[] = nuevaAsigZonas
+        .filter((z) => !existentes.has(`${nuevaAsigPais}||${z.zonaId}`))
+        .map((z) => ({ zonaId: z.zonaId, zona: z.zona, pais: nuevaAsigPais, division: nuevaAsigDivision.trim() }));
+      return { ...f, gerenteZonaAsignaciones: [...f.gerenteZonaAsignaciones, ...nuevas] };
+    });
+    setNuevaAsigZonas([]);
+  };
+
+  const quitarAsignacionGerente = (zonaId: string, pais: string) => {
+    setForm((f) => ({ ...f, gerenteZonaAsignaciones: f.gerenteZonaAsignaciones.filter((a) => !(a.zonaId === zonaId && a.pais === pais)) }));
+  };
+
   const resumenPorUsuario = useMemo(() => {
     const map = new Map<string, AlcanceResumenItem>();
     (resumen?.items ?? []).forEach((it) => map.set(it.userId, it));
     return map;
   }, [resumen]);
 
+  const resetConstructorAsignacion = () => {
+    setNuevaAsigPais('');
+    setNuevaAsigDivision('');
+    setNuevaAsigZonas([]);
+  };
+
   const openCreate = () => {
     setForm(EMPTY_FORM);
     setFormError(null);
+    resetConstructorAsignacion();
     setDialogOpen(true);
   };
 
   const openEdit = async (id: string) => {
     setFormError(null);
+    resetConstructorAsignacion();
     try {
       const u = await getUsuario(id);
       setForm({
@@ -383,8 +482,9 @@ const UsuariosPage = () => {
         gestorIds: u.gestorIds ?? [],
         gerenteZonaIds: u.gerenteZonaIds ?? [],
         supervisorIds: u.supervisorIds ?? [],
-        paisZonaKeys: (u.paisZona ?? []).map((p) => pzKey(p.zonaId, p.pais)),
+        gerenteZonaAsignaciones: u.paisZona ?? [],
         gestorPaisZonaKeys: (u.gestorPaisZona ?? []).map((p) => pzKey(p.zonaId, p.pais)),
+        gestorPaisFiltro: '',
         password: '',
         passwordConfirm: ''
       });
@@ -419,7 +519,9 @@ const UsuariosPage = () => {
     // nombre_cartera. Grupos y Niveles SÍ define las relaciones de alcance por rol.
     if (selectedRoleClave === 'supervisor') { payload.gestorIds = form.gestorIds; payload.gerenteZonaIds = form.gerenteZonaIds; }
     if (selectedRoleClave === 'liderazgo') payload.supervisorIds = form.supervisorIds;
-    if (selectedRoleClave === 'gerente_zona') payload.paisZona = form.paisZonaKeys.map(pzFromKey);
+    if (selectedRoleClave === 'gerente_zona') {
+      payload.paisZona = form.gerenteZonaAsignaciones.map((a) => ({ zonaId: a.zonaId, pais: a.pais, division: a.division || null }));
+    }
     if (selectedRoleClave === 'gestor') payload.gestorPaisZona = form.gestorPaisZonaKeys.map(pzFromKey);
     return payload;
   };
@@ -589,19 +691,159 @@ const UsuariosPage = () => {
       <Box sx={{ mb: 1 }}>
         <Typography sx={{ fontSize: 20, fontWeight: 700 }}>Usuarios</Typography>
         <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
-          Gestión de usuarios, Grupos y Niveles (jerarquía de alcance) y Roles y Permisos.
+          Gestión de usuarios y Roles y Permisos.
         </Typography>
       </Box>
 
       <Tabs value={tab} onChange={(_e, v) => setTab(v)} variant="scrollable" sx={{ mb: 2 }}>
         <Tab value={TAB_GESTION} label="Gestión de usuarios" sx={{ textTransform: 'none' }} />
-        <Tab value={TAB_GRUPOS_NIVELES} label="Grupos y Niveles" sx={{ textTransform: 'none' }} />
         <Tab value={TAB_ROLES} label="Roles y Permisos" sx={{ textTransform: 'none' }} />
       </Tabs>
 
       {/* ===== GESTIÓN DE USUARIOS ===== */}
       {tab === TAB_GESTION && (
         <>
+          {canAdminGlobal && (
+            <Accordion sx={{ mb: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider', '&:before': { display: 'none' } }}>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Typography sx={{ fontWeight: 700, fontSize: 14 }}>Importar usuarios (plantillas Administrativa / Comercial)</Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Stack spacing={2}>
+                  <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
+                    Descarga la plantilla correspondiente, complétala y súbela (puedes subir un archivo con ambas hojas o solo una).
+                    Primero se valida (sin cambios en la base de datos) y luego confirmas la aplicación.
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <Button variant="outlined" startIcon={<DownloadOutlinedIcon />} onClick={onDescargarPlantillaAdministrativa} sx={{ textTransform: 'none', borderRadius: 2 }}>
+                      Plantilla Administrativa
+                    </Button>
+                    <Button variant="outlined" startIcon={<DownloadOutlinedIcon />} onClick={onDescargarPlantillaComercial} sx={{ textTransform: 'none', borderRadius: 2 }}>
+                      Plantilla Comercial
+                    </Button>
+                    <input ref={importInputRef} type="file" accept=".xlsx" onChange={onSeleccionarArchivoImport} style={{ display: 'none' }} />
+                    <Button variant="outlined" startIcon={<UploadFileOutlinedIcon />} onClick={() => importInputRef.current?.click()} sx={{ textTransform: 'none', borderRadius: 2 }}>
+                      Seleccionar archivo
+                    </Button>
+                    <Typography sx={{ fontSize: 13, color: importFile ? 'text.primary' : 'text.secondary' }}>
+                      {importFile ? importFile.name : 'Ningún archivo seleccionado'}
+                    </Typography>
+                    <Box sx={{ flex: 1 }} />
+                    <Button variant="contained" startIcon={<PlayArrowOutlinedIcon />} onClick={onValidarImportacion} disabled={!importFile || importBusy} sx={{ textTransform: 'none', borderRadius: 2 }}>
+                      {importBusy && !importResult ? <CircularProgress size={20} color="inherit" /> : 'Validar archivo'}
+                    </Button>
+                  </Box>
+
+                  {importError && <Alert severity="error">{importError}</Alert>}
+
+                  {importPreview && (
+                    <>
+                      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                        <Chip label={`Total: ${importPreview.resumen.total}`} />
+                        <Chip color="success" variant="outlined" label={`Válidas: ${importPreview.resumen.validas}`} />
+                        <Chip color="error" variant="outlined" label={`Errores: ${importPreview.resumen.errores}`} />
+                        <Chip variant="outlined" label={`Crear: ${importPreview.resumen.creaciones}`} />
+                        <Chip variant="outlined" label={`Actualizar: ${importPreview.resumen.actualizaciones}`} />
+                        <Chip color="info" variant="outlined" label={`Zonas a asignar: ${importPreview.resumen.relacionesAsignadas}`} />
+                      </Stack>
+                      <FormControlLabel
+                        control={<Checkbox size="small" checked={importSoloErrores} onChange={(e) => setImportSoloErrores(e.target.checked)} disabled={importPreview.resumen.errores === 0} />}
+                        label={<Typography sx={{ fontSize: 13 }}>Mostrar solo errores ({importPreview.resumen.errores})</Typography>}
+                      />
+                      <TableContainer sx={{ maxHeight: 360 }}>
+                        <Table stickyHeader size="small">
+                          <TableHead>
+                            <TableRow>
+                              {['Hoja', 'Fila', 'Estado', 'Error / Motivo', 'Acción', 'Correo', 'Rol', 'Columna'].map((h) => (
+                                <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>
+                              ))}
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {importItemsMostrados.length === 0 ? (
+                              <TableRow><TableCell colSpan={8}><Typography sx={{ fontSize: 13, color: 'text.secondary', textAlign: 'center', py: 2 }}>Sin errores para mostrar.</Typography></TableCell></TableRow>
+                            ) : importItemsMostrados.map((it) => (
+                              <TableRow key={`${it.hoja}-${it.fila}`} hover sx={it.estado === 'ERROR' ? { bgcolor: (t) => t.palette.mode === 'dark' ? 'rgba(244,67,54,0.16)' : 'rgba(244,67,54,0.07)' } : undefined}>
+                                <TableCell sx={{ whiteSpace: 'nowrap' }}>{it.hoja}</TableCell>
+                                <TableCell>{it.fila}</TableCell>
+                                <TableCell><Chip size="small" label={it.estado} color={it.estado === 'VALIDO' ? 'success' : 'error'} variant="outlined" /></TableCell>
+                                <TableCell sx={{ fontSize: 12, fontWeight: it.estado === 'ERROR' ? 600 : 400, minWidth: 260 }}>{it.estado === 'ERROR' ? it.mensaje : '—'}</TableCell>
+                                <TableCell>{it.accion || '—'}</TableCell>
+                                <TableCell sx={{ whiteSpace: 'nowrap' }}>{it.email}</TableCell>
+                                <TableCell>{it.rol || '—'}</TableCell>
+                                <TableCell sx={{ whiteSpace: 'nowrap' }}>{it.columna || '—'}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                      <Stack direction="row" spacing={1.5} justifyContent="flex-end">
+                        <Button onClick={() => { setImportPreview(null); setImportFile(null); }} sx={{ textTransform: 'none' }}>Cancelar</Button>
+                        {importTieneErrores ? (
+                          <Button variant="contained" color="warning" disabled={importBusy || importPreview.resumen.validas === 0} onClick={() => onAplicarImportacion(true)} sx={{ textTransform: 'none' }}>
+                            Procesar solo válidas ({importPreview.resumen.validas})
+                          </Button>
+                        ) : (
+                          <Button variant="contained" disabled={importBusy || importPreview.resumen.validas === 0} onClick={() => onAplicarImportacion(false)} sx={{ textTransform: 'none' }}>
+                            Aplicar cambios
+                          </Button>
+                        )}
+                      </Stack>
+                    </>
+                  )}
+
+                  {importResult && (
+                    <>
+                      <Alert severity="success">Proceso completado.</Alert>
+                      {importHayPasswords && (
+                        <Alert severity="warning">
+                          El reporte contiene contraseñas temporales de usuarios recién creados. Descárgalo, guárdalo de forma segura y elimínalo tras compartir las credenciales.
+                        </Alert>
+                      )}
+                      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                        <Chip label={`Total: ${importResult.resumen.total}`} />
+                        <Chip color="success" variant="outlined" label={`Válidas: ${importResult.resumen.validas}`} />
+                        <Chip color="error" variant="outlined" label={`Errores: ${importResult.resumen.errores}`} />
+                        <Chip variant="outlined" label={`Creados: ${importResult.resumen.creaciones}`} />
+                        <Chip variant="outlined" label={`Actualizados: ${importResult.resumen.actualizaciones}`} />
+                        <Chip color="info" variant="outlined" label={`Zonas asignadas: ${importResult.resumen.relacionesAsignadas}`} />
+                      </Stack>
+                      <TableContainer sx={{ maxHeight: 320 }}>
+                        <Table stickyHeader size="small">
+                          <TableHead>
+                            <TableRow>
+                              {['Hoja', 'Fila', 'Acción', 'Correo', 'Rol', 'Resultado', 'Mensaje'].map((h) => (
+                                <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>
+                              ))}
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {importResult.resultados.map((r) => (
+                              <TableRow key={`${r.hoja}-${r.fila}`} hover>
+                                <TableCell sx={{ whiteSpace: 'nowrap' }}>{r.hoja}</TableCell>
+                                <TableCell>{r.fila}</TableCell>
+                                <TableCell>{r.accion || '—'}</TableCell>
+                                <TableCell sx={{ whiteSpace: 'nowrap' }}>{r.email}</TableCell>
+                                <TableCell>{r.rol || '—'}</TableCell>
+                                <TableCell><Chip size="small" label={r.resultado} color={r.resultado === 'OK' ? 'success' : 'error'} variant="outlined" /></TableCell>
+                                <TableCell sx={{ fontSize: 12 }}>{r.mensaje}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                      <Stack direction="row" justifyContent="flex-end">
+                        <Button variant="outlined" startIcon={<DownloadOutlinedIcon />} onClick={onDescargarReporteImportacion} sx={{ textTransform: 'none' }}>
+                          Descargar reporte
+                        </Button>
+                      </Stack>
+                    </>
+                  )}
+                </Stack>
+              </AccordionDetails>
+            </Accordion>
+          )}
+
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1.5, mb: 2 }}>
             <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
               {usuarios.length.toLocaleString('en-US')} usuario(s).
@@ -842,92 +1084,6 @@ const UsuariosPage = () => {
         </>
       )}
 
-      {/* ===== GRUPOS Y NIVELES ===== */}
-      {tab === TAB_GRUPOS_NIVELES && (
-        <Stack spacing={2}>
-          <Paper sx={{ p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
-            <Typography sx={{ fontWeight: 700, mb: 0.5 }}>Jerarquía oficial</Typography>
-            <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-              Administrador (N1) → Liderazgo (N2) → Supervisor (N3) → Gestor (N4) → Gerente de zona (N5) → Zona (dato de cartera, no es un rol).
-              Cada usuario dependiente queda asociado a su Grupo/Nivel mediante las relaciones configuradas abajo (nunca mediante Asignación).
-            </Typography>
-          </Paper>
-
-          <Grid container spacing={1.5}>
-            <Grid item xs={12} sm={4} md={2.4}>
-              <Paper sx={{ p: 1.5, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
-                <Typography sx={{ fontSize: 10, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase' }}>Nivel 1 · Administrador</Typography>
-                <Typography sx={{ fontSize: 20, fontWeight: 800 }}>{resumen?.totalUsuarios ?? 0}</Typography>
-                <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>usuarios totales en el sistema</Typography>
-              </Paper>
-            </Grid>
-          </Grid>
-
-          {[2, 3, 4, 5].map((nivel) => {
-            const usuariosNivel = usuarios.filter((u) => u.role?.nivel === nivel);
-            // Selección múltiple + eliminación masiva (Secciones 4-6): Supervisor(3)/Gestor(4)/Gerente de zona(5).
-            // Liderazgo (2) no se pidió con selección múltiple; se deja como visual de solo lectura.
-            const seleccionable = nivel !== 2;
-            const sel = selNivel(nivel);
-            const idsVisibles = usuariosNivel.map((u) => u.id);
-            const todosSeleccionados = idsVisibles.length > 0 && idsVisibles.every((id) => sel.has(id));
-            const cols = seleccionable ? 4 : 3;
-            return (
-              <Paper key={nivel} sx={{ borderRadius: 2.5, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
-                <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
-                  <Box>
-                    <Typography sx={{ fontWeight: 700 }}>{NIVEL_LABEL[nivel]}</Typography>
-                    <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{usuariosNivel.length} usuario(s) en este nivel</Typography>
-                  </Box>
-                  {seleccionable && sel.size > 0 && (
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <Chip size="small" label={`${sel.size} seleccionado(s)`} />
-                      <Button size="small" color="error" variant="outlined" startIcon={<DeleteOutlineIcon fontSize="small" />}
-                        onClick={() => abrirConfirmBulkDelete({ kind: 'nivel', nivel }, [...sel])} sx={{ textTransform: 'none' }}>
-                        Eliminar seleccionados
-                      </Button>
-                    </Stack>
-                  )}
-                </Box>
-                <TableContainer sx={{ maxHeight: 320 }}>
-                  <Table size="small" stickyHeader>
-                    <TableHead>
-                      <TableRow>
-                        {seleccionable && (
-                          <TableCell padding="checkbox">
-                            <Checkbox size="small" indeterminate={sel.size > 0 && !todosSeleccionados} checked={todosSeleccionados}
-                              disabled={idsVisibles.length === 0} onChange={() => toggleSelAllNivel(nivel, idsVisibles)} />
-                          </TableCell>
-                        )}
-                        {['Usuario', 'Dependencia', 'Alcance calculado'].map((h) => <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>)}
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {usuariosNivel.length === 0 ? (
-                        <TableRow><TableCell colSpan={cols} align="center" sx={{ py: 2, color: 'text.secondary', fontSize: 12 }}>Sin usuarios en este nivel.</TableCell></TableRow>
-                      ) : usuariosNivel.map((u) => (
-                        <TableRow key={u.id} hover selected={sel.has(u.id)}>
-                          {seleccionable && (
-                            <TableCell padding="checkbox">
-                              <Checkbox size="small" checked={sel.has(u.id)} onChange={() => toggleSelNivel(nivel, u.id)} />
-                            </TableCell>
-                          )}
-                          <TableCell sx={{ fontSize: 12 }}>{[u.nombre, u.apellido].filter(Boolean).join(' ')}</TableCell>
-                          <TableCell sx={{ fontSize: 12, color: 'text.secondary' }}>
-                            {nivel === 2 ? 'Administrador' : nivel === 3 ? 'Liderazgo' : nivel === 4 ? 'Supervisor' : 'Supervisor'}
-                          </TableCell>
-                          <TableCell sx={{ fontSize: 12 }}>{alcanceTexto(u)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </Paper>
-            );
-          })}
-        </Stack>
-      )}
-
       <Dialog open={bulkDeleteTarget !== null} onClose={cerrarBulkDelete} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 700 }}>Eliminar usuarios seleccionados</DialogTitle>
         <DialogContent dividers>
@@ -1064,7 +1220,7 @@ const UsuariosPage = () => {
               select
               label="Rol / Nivel"
               value={form.roleId}
-              onChange={(e) => setForm((f) => ({ ...f, roleId: e.target.value, gestorIds: [], gerenteZonaIds: [], supervisorIds: [], paisZonaKeys: [], gestorPaisZonaKeys: [] }))}
+              onChange={(e) => setForm((f) => ({ ...f, roleId: e.target.value, gestorIds: [], gerenteZonaIds: [], supervisorIds: [], gerenteZonaAsignaciones: [], gestorPaisZonaKeys: [], gestorPaisFiltro: '' }))}
               size="small"
               fullWidth
             >
@@ -1104,134 +1260,151 @@ const UsuariosPage = () => {
             )}
 
             {selectedRoleClave === 'liderazgo' && (
-              <FormControl size="small" fullWidth>
-                <InputLabel id="lid-supervisores">Supervisores asignados</InputLabel>
-                <Select
-                  labelId="lid-supervisores"
-                  multiple
-                  value={form.supervisorIds}
-                  onChange={(e) => setForm((f) => ({ ...f, supervisorIds: e.target.value as string[] }))}
-                  input={<OutlinedInput label="Supervisores asignados" />}
-                  renderValue={(sel) =>
-                    (catalogos?.supervisores ?? [])
-                      .filter((s) => (sel as string[]).includes(s.id))
-                      .map((s) => [s.nombre, s.apellido].filter(Boolean).join(' '))
-                      .join(', ')
-                  }
-                >
-                  {(catalogos?.supervisores ?? []).map((s) => (
-                    <MenuItem key={s.id} value={s.id}>
-                      <Checkbox checked={form.supervisorIds.includes(s.id)} size="small" />
-                      <ListItemText primary={[s.nombre, s.apellido].filter(Boolean).join(' ')} />
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+              <Autocomplete
+                multiple
+                size="small"
+                options={catalogos?.supervisores ?? []}
+                getOptionLabel={(o) => [o.nombre, o.apellido].filter(Boolean).join(' ')}
+                isOptionEqualToValue={(o, v) => o.id === v.id}
+                value={(catalogos?.supervisores ?? []).filter((s) => form.supervisorIds.includes(s.id))}
+                onChange={(_e, val) => setForm((f) => ({ ...f, supervisorIds: val.map((v) => v.id) }))}
+                renderInput={(params) => <TextField {...params} label="Supervisores asignados" placeholder="Buscar por nombre..." />}
+                renderTags={(value, getTagProps) => value.map((option, index) => {
+                  const { key, ...tagProps } = getTagProps({ index });
+                  return <Chip key={key} size="small" label={[option.nombre, option.apellido].filter(Boolean).join(' ')} {...tagProps} />;
+                })}
+              />
             )}
 
             {selectedRoleClave === 'supervisor' && (
-              <FormControl size="small" fullWidth>
-                <InputLabel id="sup-gestores">Gestores supervisados</InputLabel>
-                <Select
-                  labelId="sup-gestores"
-                  multiple
-                  value={form.gestorIds}
-                  onChange={(e) => setForm((f) => ({ ...f, gestorIds: e.target.value as string[] }))}
-                  input={<OutlinedInput label="Gestores supervisados" />}
-                  renderValue={(sel) =>
-                    (catalogos?.gestores ?? [])
-                      .filter((g) => (sel as string[]).includes(g.id))
-                      .map((g) => g.nombreCartera ?? g.id)
-                      .join(', ')
-                  }
-                >
-                  {(catalogos?.gestores ?? []).map((g) => (
-                    <MenuItem key={g.id} value={g.id}>
-                      <Checkbox checked={form.gestorIds.includes(g.id)} size="small" />
-                      <ListItemText primary={g.nombreCartera ?? g.id} />
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+              <Autocomplete
+                multiple
+                size="small"
+                options={catalogos?.gestores ?? []}
+                getOptionLabel={(o) => o.nombreCartera ?? o.id}
+                isOptionEqualToValue={(o, v) => o.id === v.id}
+                value={(catalogos?.gestores ?? []).filter((g) => form.gestorIds.includes(g.id))}
+                onChange={(_e, val) => setForm((f) => ({ ...f, gestorIds: val.map((v) => v.id) }))}
+                renderInput={(params) => <TextField {...params} label="Gestores supervisados" placeholder="Buscar por nombre de cartera..." />}
+                renderTags={(value, getTagProps) => value.map((option, index) => {
+                  const { key, ...tagProps } = getTagProps({ index });
+                  return <Chip key={key} size="small" label={option.nombreCartera ?? option.id} {...tagProps} />;
+                })}
+              />
             )}
 
             {selectedRoleClave === 'supervisor' && (
-              <FormControl size="small" fullWidth>
-                <InputLabel id="sup-gerentes-zona">Gerentes de zona supervisados</InputLabel>
-                <Select
-                  labelId="sup-gerentes-zona"
-                  multiple
-                  value={form.gerenteZonaIds}
-                  onChange={(e) => setForm((f) => ({ ...f, gerenteZonaIds: e.target.value as string[] }))}
-                  input={<OutlinedInput label="Gerentes de zona supervisados" />}
-                  renderValue={(sel) =>
-                    (catalogos?.gerentesZona ?? [])
-                      .filter((g) => (sel as string[]).includes(g.id))
-                      .map((g) => [g.nombre, g.apellido].filter(Boolean).join(' '))
-                      .join(', ')
-                  }
-                >
-                  {(catalogos?.gerentesZona ?? []).map((g) => (
-                    <MenuItem key={g.id} value={g.id}>
-                      <Checkbox checked={form.gerenteZonaIds.includes(g.id)} size="small" />
-                      <ListItemText primary={[g.nombre, g.apellido].filter(Boolean).join(' ')} />
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+              <Autocomplete
+                multiple
+                size="small"
+                options={catalogos?.gerentesZona ?? []}
+                getOptionLabel={(o) => [o.nombre, o.apellido].filter(Boolean).join(' ')}
+                isOptionEqualToValue={(o, v) => o.id === v.id}
+                value={(catalogos?.gerentesZona ?? []).filter((g) => form.gerenteZonaIds.includes(g.id))}
+                onChange={(_e, val) => setForm((f) => ({ ...f, gerenteZonaIds: val.map((v) => v.id) }))}
+                renderInput={(params) => <TextField {...params} label="Gerentes de zona supervisados" placeholder="Buscar por nombre..." />}
+                renderTags={(value, getTagProps) => value.map((option, index) => {
+                  const { key, ...tagProps } = getTagProps({ index });
+                  return <Chip key={key} size="small" label={[option.nombre, option.apellido].filter(Boolean).join(' ')} {...tagProps} />;
+                })}
+              />
             )}
 
             {selectedRoleClave === 'gerente_zona' && (
-              <FormControl size="small" fullWidth>
-                <InputLabel id="ger-paiszona">País - Zona asignados</InputLabel>
-                <Select
-                  labelId="ger-paiszona"
-                  multiple
-                  value={form.paisZonaKeys}
-                  onChange={(e) => setForm((f) => ({ ...f, paisZonaKeys: e.target.value as string[] }))}
-                  input={<OutlinedInput label="País - Zona asignados" />}
-                  renderValue={(sel) => (sel as string[]).length + ' seleccionada(s)'}
-                >
-                  {(catalogos?.carteraPaisZona ?? []).map((pz) => {
-                    const key = pzKey(pz.zonaId, pz.pais);
-                    return (
-                      <MenuItem key={key} value={key}>
-                        <Checkbox checked={form.paisZonaKeys.includes(key)} size="small" />
-                        <ListItemText primary={`${pz.pais} — ${pz.zona}`} />
-                      </MenuItem>
-                    );
-                  })}
-                </Select>
-              </FormControl>
+              <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                <Typography sx={{ fontWeight: 700, fontSize: 13, mb: 1 }}>Asignaciones de territorio (País / División / Zona)</Typography>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1 }}>
+                  <Autocomplete
+                    size="small"
+                    sx={{ minWidth: 160, flex: 1 }}
+                    options={paisesDisponibles}
+                    value={nuevaAsigPais || null}
+                    onChange={(_e, val) => { setNuevaAsigPais(val ?? ''); setNuevaAsigZonas([]); }}
+                    renderInput={(params) => <TextField {...params} label="País" />}
+                  />
+                  <Autocomplete
+                    freeSolo
+                    size="small"
+                    sx={{ minWidth: 160, flex: 1 }}
+                    options={divisionesPorPais(nuevaAsigPais)}
+                    value={nuevaAsigDivision}
+                    inputValue={nuevaAsigDivision}
+                    onInputChange={(_e, val) => setNuevaAsigDivision(val)}
+                    disabled={!nuevaAsigPais}
+                    renderInput={(params) => <TextField {...params} label="División" placeholder="Ej. CONACASTE" />}
+                  />
+                  <Autocomplete
+                    multiple
+                    size="small"
+                    sx={{ minWidth: 220, flex: 1.4 }}
+                    options={zonasPorPais(nuevaAsigPais)}
+                    getOptionLabel={(o) => o.zona}
+                    isOptionEqualToValue={(o, v) => o.zonaId === v.zonaId}
+                    value={nuevaAsigZonas}
+                    onChange={(_e, val) => setNuevaAsigZonas(val)}
+                    disabled={!nuevaAsigPais}
+                    renderInput={(params) => <TextField {...params} label="Zona(s)" placeholder="Buscar código..." />}
+                  />
+                  <Button
+                    variant="outlined" startIcon={<AddIcon />} onClick={agregarAsignacionGerente}
+                    disabled={!nuevaAsigPais || !nuevaAsigDivision.trim() || nuevaAsigZonas.length === 0}
+                    sx={{ textTransform: 'none', whiteSpace: 'nowrap' }}
+                  >
+                    Agregar
+                  </Button>
+                </Stack>
+
+                <Typography sx={{ fontSize: 11, color: 'text.secondary', mb: 0.5 }}>
+                  Alcance final ({form.gerenteZonaAsignaciones.length} zona(s) asignada(s)):
+                </Typography>
+                {form.gerenteZonaAsignaciones.length === 0 ? (
+                  <Alert severity="warning" sx={{ fontSize: 12 }}>
+                    Sin asignaciones: este Gerente de zona no verá ninguna cuenta hasta que agregues al menos una.
+                  </Alert>
+                ) : (
+                  <Stack direction="row" flexWrap="wrap" useFlexGap spacing={1}>
+                    {form.gerenteZonaAsignaciones.map((a) => (
+                      <Chip
+                        key={`${a.pais}__${a.zonaId}`}
+                        size="small"
+                        label={`${a.pais} · ${a.division ?? '—'} · Zona ${a.zona}`}
+                        onDelete={() => quitarAsignacionGerente(a.zonaId, a.pais)}
+                      />
+                    ))}
+                  </Stack>
+                )}
+              </Paper>
             )}
 
             {selectedRoleClave === 'gestor' && (
-              <FormControl size="small" fullWidth>
-                <InputLabel id="ges-paiszona">País - Zona asignados (opcional)</InputLabel>
-                <Select
-                  labelId="ges-paiszona"
+              <Stack spacing={1}>
+                <Autocomplete
+                  size="small"
+                  options={paisesDisponibles}
+                  value={form.gestorPaisFiltro || null}
+                  onChange={(_e, val) => setForm((f) => ({ ...f, gestorPaisFiltro: val ?? '' }))}
+                  renderInput={(params) => <TextField {...params} label="Filtrar zonas por país" placeholder="(opcional, acota la lista de abajo)" />}
+                />
+                <Autocomplete
                   multiple
-                  value={form.gestorPaisZonaKeys}
-                  onChange={(e) => setForm((f) => ({ ...f, gestorPaisZonaKeys: e.target.value as string[] }))}
-                  input={<OutlinedInput label="País - Zona asignados (opcional)" />}
-                  renderValue={(sel) => (sel as string[]).length ? (sel as string[]).length + ' seleccionada(s)' : 'Sin restricción adicional'}
-                >
-                  {(catalogos?.carteraPaisZona ?? []).map((pz) => {
-                    const key = pzKey(pz.zonaId, pz.pais);
-                    return (
-                      <MenuItem key={key} value={key}>
-                        <Checkbox checked={form.gestorPaisZonaKeys.includes(key)} size="small" />
-                        <ListItemText primary={`${pz.pais} — ${pz.zona}`} />
-                      </MenuItem>
-                    );
+                  size="small"
+                  options={(form.gestorPaisFiltro ? (catalogos?.carteraPaisZona ?? []).filter((pz) => pz.pais === form.gestorPaisFiltro) : (catalogos?.carteraPaisZona ?? []))}
+                  getOptionLabel={(o) => `${o.pais} — ${o.zona}`}
+                  isOptionEqualToValue={(o, v) => o.zonaId === v.zonaId && o.pais === v.pais}
+                  value={(catalogos?.carteraPaisZona ?? []).filter((pz) => form.gestorPaisZonaKeys.includes(pzKey(pz.zonaId, pz.pais)))}
+                  onChange={(_e, val) => setForm((f) => ({ ...f, gestorPaisZonaKeys: val.map((v) => pzKey(v.zonaId, v.pais)) }))}
+                  renderInput={(params) => <TextField {...params} label="País - Zona asignados (opcional)" placeholder="Buscar..." />}
+                  renderTags={(value, getTagProps) => value.map((option, index) => {
+                    const { key, ...tagProps } = getTagProps({ index });
+                    return <Chip key={key} size="small" label={`${option.pais} — ${option.zona}`} {...tagProps} />;
                   })}
-                </Select>
-                <Typography sx={{ fontSize: 11, color: 'text.secondary', mt: 0.5 }}>
+                />
+                <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>
                   Opcional: si no seleccionas ninguno, no se aplica ninguna restricción adicional de zona (el
                   alcance dependerá únicamente de su cartera vinculada, si la tiene; un Gestor creado
                   manualmente sin cartera no verá cuentas hasta que le asignes País/Zona aquí).
                 </Typography>
-              </FormControl>
+              </Stack>
             )}
 
             <FormControlLabel

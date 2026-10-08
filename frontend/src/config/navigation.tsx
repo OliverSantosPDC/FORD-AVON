@@ -100,7 +100,6 @@ export const NAVIGATION: NavNode[] = [
         kind: 'node', key: 'repositorio', i18nKey: 'nav.repositorio', label: 'Repositorio', icon: ico(Inventory2Icon),
         children: [
           leaf('repo-cartera', 'nav.repositorio.cartera', 'Gestión de Cartera', '/repositorio?tab=0', 'modulo.repositorio', FolderOpenIcon, true),
-          leaf('repo-usuarios', 'nav.repositorio.usuarios', 'Gestión masiva de Usuarios', '/repositorio?tab=1', 'usuarios.administrar_global', GroupIcon),
           leaf('repo-calendario', 'nav.repositorio.calendario', 'Gestión de Calendario', '/repositorio?tab=2', 'calendario.crear', EventNoteOutlinedIcon)
         ]
       },
