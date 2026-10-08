@@ -8,8 +8,26 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
+import GroupIcon from '@mui/icons-material/Group';
+import SupervisorAccountIcon from '@mui/icons-material/SupervisorAccount';
+import MapIcon from '@mui/icons-material/Map';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
+import PhoneInTalkIcon from '@mui/icons-material/PhoneInTalk';
+import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
+import CallIcon from '@mui/icons-material/Call';
+import SmsIcon from '@mui/icons-material/Sms';
+import WhatsAppIcon from '@mui/icons-material/WhatsApp';
+import MailOutlineIcon from '@mui/icons-material/MailOutline';
+import EventAvailableIcon from '@mui/icons-material/EventAvailable';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import DescriptionIcon from '@mui/icons-material/Description';
+import VerifiedIcon from '@mui/icons-material/Verified';
+import HandshakeIcon from '@mui/icons-material/Handshake';
+import AttachFileIcon from '@mui/icons-material/AttachFile';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import PersonIcon from '@mui/icons-material/Person';
 import DashboardFilters from '../../components/Dashboard/DashboardFilters';
-import KpiCards from '../../components/Dashboard/KpiCards';
+import KpiCards, { KpiCard } from '../../components/Dashboard/KpiCards';
 import ChartCard from '../../components/Dashboard/ChartCard';
 import { exportRowsToCsv, exportRowsToExcel } from '../../utils/tableExport';
 import { useAuth } from '../../context/AuthContext';
@@ -60,8 +78,6 @@ const HEAD_H = ['Nivel', 'Grupo', 'Sub', 'Cuentas', 'Saldo Local', 'Saldo USD', 
 // Dashboard (DashboardZonaSector.tsx): barra de 16px, fila con spacing 0.75,
 // contenedor con maxHeight 240 — el mismo lenguaje visual de "distribución"
 // que ya usa el resto del sistema, mucho más compacto que un eje X/Y completo.
-const DIST_ROW_H = 26;
-const DIST_MIN_H = 60;
 const DIST_MAX_VISIBLE_H = 240;
 const distFmt = (value: number) => value.toLocaleString('en-US', { maximumFractionDigits: 0 });
 
@@ -80,7 +96,11 @@ const DistribucionCard = ({ titulo, dimLabel, items, simbolo, tasaActual, chartI
   }, [items, tasaActual]);
   const maxValor = Math.max(1, ...data.map((d) => d.valor));
 
-  const cardHeight = Math.min(DIST_MAX_VISIBLE_H, Math.max(DIST_MIN_H, data.length * DIST_ROW_H));
+  // Misma altura FIJA que el resto de gráficos de Dashboard > Plan y
+  // Proyección (ChartCard/DashboardZonaSector: maxHeight 240) — nunca una
+  // tarjeta que se comprime según la cantidad de filas, para mantener la
+  // misma proporción/jerarquía visual en el grid.
+  const cardHeight = DIST_MAX_VISIBLE_H;
 
   return (
     <ChartCard
@@ -119,30 +139,54 @@ const DistribucionCard = ({ titulo, dimLabel, items, simbolo, tasaActual, chartI
   );
 };
 
+// Mismo lenguaje visual que los gráficos de Dashboard > Plan y Proyección
+// (ChartCard.tsx / DashboardZonaSector.tsx): Paper con sombra + hover, título
+// 12.5px/700/ellipsis, botón "Opciones" de 26x26 con borde, y una altura fija
+// de 240 para el contenido (igual que DIST_MAX_VISIBLE_H de DistribucionCard)
+// — la misma tarjeta, solo que con su propio menú (ordenar/métrica/Excel) que
+// ChartCard no ofrece, así que no se reemplaza por ChartCard, se le iguala
+// la presentación.
+const VISUAL_CARD_HEIGHT = 240;
 const VisualCard = ({ title, onDir, onMetric, csv, excel, png, children }: {
   title: string; onDir: (d: 'asc' | 'desc') => void; onMetric: (m: Metric) => void; csv: () => void; excel: () => void; png: () => void; children: ReactNode;
 }) => {
   const [an, setAn] = useState<null | HTMLElement>(null); const [full, setFull] = useState(false); const close = () => setAn(null);
   return (
-    <Paper sx={{ borderRadius: 2.5, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
-      <Box sx={{ p: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography sx={{ fontWeight: 700 }}>{title}</Typography>
-        <IconButton size="small" onClick={(e) => setAn(e.currentTarget)}><MoreVertIcon fontSize="small" /></IconButton>
-        <Menu anchorEl={an} open={Boolean(an)} onClose={close}>
-          <MenuItem onClick={() => { onDir('desc'); close(); }}>Ordenar descendente</MenuItem>
-          <MenuItem onClick={() => { onDir('asc'); close(); }}>Ordenar ascendente</MenuItem>
+    <Paper
+      sx={{
+        px: 2, py: 1.5, borderRadius: 2.5, height: '100%', display: 'flex', flexDirection: 'column',
+        border: '1px solid', borderColor: 'divider',
+        boxShadow: '0 10px 26px rgba(15, 23, 42, 0.06)',
+        transition: 'box-shadow 220ms ease, border-color 220ms ease',
+        '&:hover': { boxShadow: '0 14px 32px rgba(15, 23, 42, 0.1)' }
+      }}
+    >
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 1, minHeight: 30 }}>
+        <Typography sx={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.25, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</Typography>
+        <Tooltip title="Opciones del gráfico">
+          <IconButton
+            size="small"
+            onClick={(e) => setAn(e.currentTarget)}
+            sx={{ width: 26, height: 26, border: '1px solid', borderColor: 'divider', transition: 'all 200ms ease', '&:hover': { borderColor: '#E6007E' } }}
+          >
+            <MoreVertIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Tooltip>
+        <Menu anchorEl={an} open={Boolean(an)} onClose={close} PaperProps={{ sx: { minWidth: 200, borderRadius: 2.5 } }}>
+          <MenuItem dense onClick={() => { onDir('desc'); close(); }}>Ordenar descendente</MenuItem>
+          <MenuItem dense onClick={() => { onDir('asc'); close(); }}>Ordenar ascendente</MenuItem>
           <Divider />
-          <MenuItem onClick={() => { onMetric('saldoLocal'); close(); }}>Por saldo local</MenuItem>
-          <MenuItem onClick={() => { onMetric('saldoUsd'); close(); }}>Por saldo USD</MenuItem>
-          <MenuItem onClick={() => { onMetric('cuentas'); close(); }}>Por cuentas</MenuItem>
+          <MenuItem dense onClick={() => { onMetric('saldoLocal'); close(); }}>Por saldo local</MenuItem>
+          <MenuItem dense onClick={() => { onMetric('saldoUsd'); close(); }}>Por saldo USD</MenuItem>
+          <MenuItem dense onClick={() => { onMetric('cuentas'); close(); }}>Por cuentas</MenuItem>
           <Divider />
-          <MenuItem onClick={() => { setFull(true); close(); }}>Pantalla completa</MenuItem>
-          <MenuItem onClick={() => { png(); close(); }}>Exportar PNG</MenuItem>
-          <MenuItem onClick={() => { csv(); close(); }}>Exportar CSV</MenuItem>
-          <MenuItem onClick={() => { excel(); close(); }}>Descargar Excel</MenuItem>
+          <MenuItem dense onClick={() => { setFull(true); close(); }}>Pantalla completa</MenuItem>
+          <MenuItem dense onClick={() => { png(); close(); }}>Exportar PNG</MenuItem>
+          <MenuItem dense onClick={() => { csv(); close(); }}>Exportar CSV</MenuItem>
+          <MenuItem dense onClick={() => { excel(); close(); }}>Descargar Excel</MenuItem>
         </Menu>
       </Box>
-      <Box sx={{ px: 1.5, pb: 1.5, maxHeight: 260, overflowY: 'auto' }}>{children}</Box>
+      <Box sx={{ height: VISUAL_CARD_HEIGHT, flexGrow: 1, minHeight: 0, overflowY: 'auto' }}>{children}</Box>
       <Dialog fullScreen open={full} onClose={() => setFull(false)}>
         <DialogTitle sx={{ fontWeight: 700, display: 'flex', justifyContent: 'space-between' }}>{title}<Button onClick={() => setFull(false)} sx={{ textTransform: 'none' }}>Cerrar</Button></DialogTitle>
         <DialogContent dividers>{children}</DialogContent>
@@ -153,12 +197,20 @@ const VisualCard = ({ title, onDir, onMetric, csv, excel, png, children }: {
 const Bar = ({ value, max, color = '#1E3A8A' }: { value: number; max: number; color?: string }) => (
   <Box sx={{ flex: 1, bgcolor: 'action.hover', borderRadius: 1, height: 14, minWidth: 70 }}><Box sx={{ width: `${max > 0 ? Math.max(2, (value / max) * 100) : 0}%`, bgcolor: color, height: '100%', borderRadius: 1 }} /></Box>
 );
-const KpiMini = ({ l, v }: { l: string; v: string | number }) => (
-  <Paper sx={{ p: 1.25, borderRadius: 2, border: '1px solid', borderColor: 'divider', minWidth: 120 }}>
-    <Typography sx={{ fontSize: 10, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase' }}>{l}</Typography>
-    <Typography sx={{ fontSize: 18, fontWeight: 800 }}>{v}</Typography>
-  </Paper>
+// Misma presentación que los KPI de Dashboard > Plan y Proyección: reutiliza
+// la tarjeta compartida KpiCard (components/Dashboard/KpiCards.tsx) en vez de
+// un Paper propio — misma altura/padding/tipografía/acento que el resto del
+// sistema, nunca una recreación aproximada.
+const KpiMini = ({ l, v, icon, accent }: { l: string; v: string | number; icon: ReactNode; accent: string }) => (
+  <KpiCard title={l} value={String(v)} icon={icon} accent={accent} />
 );
+/** Grid responsivo de tarjetas KPI, idéntico al de KpiCards.tsx (gap 2,
+ *  1/2/3/5 columnas según el ancho) — mismo lenguaje visual para cualquier
+ *  fila de indicadores de Control Operativo. */
+const kpiGridSx = {
+  display: 'grid', gap: 2,
+  gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', md: 'repeat(3, minmax(0, 1fr))', lg: 'repeat(5, minmax(0, 1fr))' }
+} as const;
 
 const ControlOperativoPage = () => {
   const { hasPermission, user } = useAuth();
@@ -374,24 +426,31 @@ const ControlOperativoPage = () => {
           <DashboardFilters filters={filters} onChange={setFilters} onClear={() => setFilters(EMPTY_FILTERS)} options={opts} />
           {monedaLocal && <Alert severity="info" sx={{ py: 0.5 }}>Moneda local: <strong>{monedaLocal.pais.toUpperCase()} · {monedaLocal.moneda}</strong></Alert>}
           <KpiCards kpis={dash.kpis} />
-          <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
-            <KpiMini l="Total Gestores" v={dash.contadores.gestores} />
-            <KpiMini l="Total Gerentes" v={dash.contadores.gerentes} />
-            <KpiMini l="Total Zonas" v={dash.contadores.zonas} />
+          <Box sx={kpiGridSx}>
+            <KpiMini l="Total Gestores" v={dash.contadores.gestores} icon={<PersonIcon />} accent="#1E3A8A" />
+            <KpiMini l="Total Gerentes" v={dash.contadores.gerentes} icon={<SupervisorAccountIcon />} accent="#0EA5E9" />
+            <KpiMini l="Total Zonas" v={dash.contadores.zonas} icon={<MapIcon />} accent="#22C55E" />
             {monedaLocal && dash.countrySummary?.[0] && <>
-              <KpiMini l={`Saldo Actual ${monedaLocal.moneda}`} v={money(dash.topZonasDetalle.reduce((s2, z) => s2 + z.saldoActualLocal, 0))} />
+              <KpiMini l={`Saldo Actual ${monedaLocal.moneda}`} v={money(dash.topZonasDetalle.reduce((s2, z) => s2 + z.saldoActualLocal, 0))} icon={<AccountBalanceWalletIcon />} accent="#7C3AED" />
             </>}
-          </Stack>
+          </Box>
 
           {/* Indicadores operativos */}
           {ind && (
-            <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
-              <KpiMini l="Contactabilidad" v={ind.contactabilidad} /><KpiMini l="Gestiones" v={ind.gestiones} />
-              <KpiMini l="Llamadas" v={ind.llamadas} /><KpiMini l="SMS" v={ind.sms} /><KpiMini l="WhatsApp" v={ind.whatsapp} /><KpiMini l="Correos" v={ind.correos} />
-              <KpiMini l="Promesas" v={ind.promesas} /><KpiMini l="Cumpl. Promesas" v={ind.cumplimientoPromesas} />
-              <KpiMini l="Cartas emitidas" v={ind.cartasEmitidas} /><KpiMini l="Cartas aprobadas" v={ind.cartasAprobadas} />
-              <KpiMini l="Acuerdos" v={ind.acuerdos} /><KpiMini l="Adjuntos" v={ind.adjuntos} />
-            </Stack>
+            <Box sx={kpiGridSx}>
+              <KpiMini l="Contactabilidad" v={ind.contactabilidad} icon={<PhoneInTalkIcon />} accent="#1E3A8A" />
+              <KpiMini l="Gestiones" v={ind.gestiones} icon={<AssignmentTurnedInIcon />} accent="#0EA5E9" />
+              <KpiMini l="Llamadas" v={ind.llamadas} icon={<CallIcon />} accent="#22C55E" />
+              <KpiMini l="SMS" v={ind.sms} icon={<SmsIcon />} accent="#E6007E" />
+              <KpiMini l="WhatsApp" v={ind.whatsapp} icon={<WhatsAppIcon />} accent="#16A34A" />
+              <KpiMini l="Correos" v={ind.correos} icon={<MailOutlineIcon />} accent="#7C3AED" />
+              <KpiMini l="Promesas" v={ind.promesas} icon={<EventAvailableIcon />} accent="#F59E0B" />
+              <KpiMini l="Cumpl. Promesas" v={ind.cumplimientoPromesas} icon={<CheckCircleIcon />} accent="#22C55E" />
+              <KpiMini l="Cartas emitidas" v={ind.cartasEmitidas} icon={<DescriptionIcon />} accent="#1E3A8A" />
+              <KpiMini l="Cartas aprobadas" v={ind.cartasAprobadas} icon={<VerifiedIcon />} accent="#0EA5E9" />
+              <KpiMini l="Acuerdos" v={ind.acuerdos} icon={<HandshakeIcon />} accent="#E6007E" />
+              <KpiMini l="Adjuntos" v={ind.adjuntos} icon={<AttachFileIcon />} accent="#7C3AED" />
+            </Box>
           )}
 
           {/* Resumen Operativo */}
@@ -407,18 +466,21 @@ const ControlOperativoPage = () => {
                   {MONEDA_OPTIONS.map((o) => <MenuItem key={o.code} value={o.code} sx={{ fontSize: 12.5 }}>{o.label} ({o.symbol})</MenuItem>)}
                 </TextField>
               </Box>
-              <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>
-                <KpiMini l="Cuentas" v={resumenOp.totales.cuentas.toLocaleString('en-US')} />
-                <KpiMini l="Gestiones" v={resumenOp.totales.gestiones.toLocaleString('en-US')} />
-                <KpiMini l="Sin gestión" v={`${resumenOp.totales.cuentasSinGestion.toLocaleString('en-US')} (${resumenOp.totales.pctSinGestion}%)`} />
-                <KpiMini l="Con gestión" v={resumenOp.totales.cuentasConGestion.toLocaleString('en-US')} />
-                <KpiMini l="Gestores" v={resumenOp.totales.gestores} />
-              </Stack>
-              <Stack spacing={2} sx={{ mb: 2 }}>
+              <Box sx={{ ...kpiGridSx, mb: 1.5 }}>
+                <KpiMini l="Cuentas" v={resumenOp.totales.cuentas.toLocaleString('en-US')} icon={<PersonIcon />} accent="#1E3A8A" />
+                <KpiMini l="Gestiones" v={resumenOp.totales.gestiones.toLocaleString('en-US')} icon={<AssignmentTurnedInIcon />} accent="#0EA5E9" />
+                <KpiMini l="Sin gestión" v={`${resumenOp.totales.cuentasSinGestion.toLocaleString('en-US')} (${resumenOp.totales.pctSinGestion}%)`} icon={<ErrorOutlineIcon />} accent="#EF4444" />
+                <KpiMini l="Con gestión" v={resumenOp.totales.cuentasConGestion.toLocaleString('en-US')} icon={<CheckCircleIcon />} accent="#22C55E" />
+                <KpiMini l="Gestores" v={resumenOp.totales.gestores} icon={<GroupIcon />} accent="#7C3AED" />
+              </Box>
+              {/* Mismo grid de 2 columnas / mismo gap que Dashboard > Plan y
+                  Proyección (DashboardCharts.tsx): gridAutoRows:'1fr' iguala
+                  la altura de las tarjetas de una misma fila. */}
+              <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gridAutoRows: '1fr', mb: 2 }}>
                 <DistribucionCard titulo="DISTRIBUCIÓN POR PAÍS" dimLabel="País" items={resumenOp.distribucion.pais} simbolo={simboloResumen} tasaActual={tasaResumen} chartId="chart-resumen-dist-pais" />
                 <DistribucionCard titulo="DISTRIBUCIÓN POR ZONA" dimLabel="Zona" items={resumenOp.distribucion.zona} simbolo={simboloResumen} tasaActual={tasaResumen} chartId="chart-resumen-dist-zona" />
                 <DistribucionCard titulo="DISTRIBUCIÓN POR SECTOR" dimLabel="Sector" items={resumenOp.distribucion.sector} simbolo={simboloResumen} tasaActual={tasaResumen} chartId="chart-resumen-dist-sector" />
-              </Stack>
+              </Box>
               <Grid container spacing={2}>
                 {([['PD', resumenOp.distribucion.pd], ['Riesgo', resumenOp.distribucion.riesgo]] as const).map(([lbl, arr]) => (
                   <Grid item xs={12} sm={6} key={lbl}>
@@ -478,9 +540,14 @@ const ControlOperativoPage = () => {
             </Paper>
           )}
 
-          <Grid container spacing={2}>
+          {/* Mismo grid de 2 columnas / mismo gap / misma igualación de
+              altura por fila que Dashboard > Plan y Proyección
+              (DashboardCharts.tsx: gridTemplateColumns 2 cols, gap 2,
+              gridAutoRows 1fr) — reemplaza el MUI Grid anterior, que no
+              igualaba la altura de las tarjetas de una misma fila. */}
+          <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gridAutoRows: '1fr' }}>
             {/* Gestores */}
-            <Grid item xs={12} md={6}>
+            <Box>
               <VisualCard title="Operativa por gestor" onDir={setGDir} onMetric={setGMetric}
                 csv={() => exportRowsToCsv('control_gestores.csv', HEAD_H, rowsAgg(gS, 'pds', 'pd'))} excel={() => exportRowsToExcel('control_gestores.xlsx', 'Gestores', HEAD_H, rowsAgg(gS, 'pds', 'pd'))}
                 png={() => exportBarsPng('Gestores', gS.map((x) => ({ label: str(x.gestor), value: x[gMetric] as number })))}>
@@ -497,9 +564,9 @@ const ControlOperativoPage = () => {
                   </Box>);
                 })}</Stack>
               </VisualCard>
-            </Grid>
+            </Box>
             {/* Zonas */}
-            <Grid item xs={12} md={6}>
+            <Box>
               <VisualCard title="Operativa por zona" onDir={setZDir} onMetric={setZMetric}
                 csv={() => exportRowsToCsv('control_zonas.csv', HEAD_H, rowsAgg(zS, 'gestores', 'gestor'))} excel={() => exportRowsToExcel('control_zonas.xlsx', 'Zonas', HEAD_H, rowsAgg(zS, 'gestores', 'gestor'))}
                 png={() => exportBarsPng('Zonas', zS.map((x) => ({ label: str(x.zona), value: x[zMetric] as number })))}>
@@ -516,9 +583,9 @@ const ControlOperativoPage = () => {
                   </Box>);
                 })}</Stack>
               </VisualCard>
-            </Grid>
+            </Box>
             {/* PD */}
-            <Grid item xs={12}>
+            <Box sx={{ gridColumn: '1 / -1' }}>
               <VisualCard title="PD por campañas" onDir={setPDir} onMetric={setPMetric}
                 csv={() => exportRowsToCsv('control_pd.csv', HEAD_H, rowsAgg(pS, 'campanas', 'campania'))} excel={() => exportRowsToExcel('control_pd.xlsx', 'PD', HEAD_H, rowsAgg(pS, 'campanas', 'campania'))}
                 png={() => exportBarsPng('PD', pS.map((x) => ({ label: str(x.pd), value: x[pMetric] as number })))}>
@@ -535,8 +602,8 @@ const ControlOperativoPage = () => {
                   </Box>);
                 })}</Stack>
               </VisualCard>
-            </Grid>
-          </Grid>
+            </Box>
+          </Box>
 
           {/* "Mi firma de autorización": SOLO visible/accesible para quien puede
               aprobar cartas (gestion.carta.aprobar) — es la firma que el

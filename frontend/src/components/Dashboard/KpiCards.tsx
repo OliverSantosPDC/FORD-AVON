@@ -7,14 +7,18 @@ import PersonIcon from '@mui/icons-material/Person';
 import PercentIcon from '@mui/icons-material/Percent';
 import type { DashboardKpi } from '../../types/cartera';
 
-interface KpiCardProps {
+export interface KpiCardProps {
   title: string;
   value: string;
   icon: React.ReactNode;
   accent: string;
 }
 
-const KpiCard = ({ title, value, icon, accent }: KpiCardProps) => {
+/** Tarjeta individual de KPI (Paper con franja de acento, icono, título y
+ *  valor destacado) — exportada para que otras pantallas (p. ej. Operación >
+ *  Control Operativo) puedan construir sus propias filas de indicadores con
+ *  EXACTAMENTE la misma presentación que el Dashboard, sin duplicar el CSS. */
+export const KpiCard = ({ title, value, icon, accent }: KpiCardProps) => {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
 
