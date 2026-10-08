@@ -51,6 +51,7 @@ import {
   type DetalleCuenta, type EstadoCuenta, type CartaPreview, type FirmaAutorizacion
 } from '../../services/gestionService';
 import CartaRenderer from '../../components/common/CartaRenderer';
+import { Bar as RBar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from 'recharts';
 
 const EMPTY_OPTS: DashboardFilterOptions = { pais: [], gestor: [], gerente: [], zona: [], pd: [], campania: [] };
 const EMPTY_FILTERS: DashboardMultiFilterParams = { pais: [], gestor: [], gerente: [], zona: [], pd: [], campania: [] };
@@ -204,13 +205,132 @@ const Bar = ({ value, max, color = '#1E3A8A' }: { value: number; max: number; co
 const KpiMini = ({ l, v, icon, accent }: { l: string; v: string | number; icon: ReactNode; accent: string }) => (
   <KpiCard title={l} value={String(v)} icon={icon} accent={accent} />
 );
-/** Grid responsivo de tarjetas KPI, idéntico al de KpiCards.tsx (gap 2,
- *  1/2/3/5 columnas según el ancho) — mismo lenguaje visual para cualquier
- *  fila de indicadores de Control Operativo. */
+/** Grid responsivo de tarjetas KPI — `auto-fit` adapta el NÚMERO de columnas
+ *  al ancho real disponible y a la cantidad real de tarjetas (nunca una
+ *  cantidad fija de columnas): con 4 tarjetas ocupa 4 columnas completas,
+ *  con 12 ocupa tantas como quepan por fila sin dejar ninguna columna vacía
+ *  al final. Mismo gap que KpiCards.tsx (Dashboard > Plan y Proyección). */
 const kpiGridSx = {
   display: 'grid', gap: 2,
-  gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', md: 'repeat(3, minmax(0, 1fr))', lg: 'repeat(5, minmax(0, 1fr))' }
+  gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))'
 } as const;
+/** Mismo criterio para grupos de gráficos de tamaño variable (p. ej. los 3
+ *  rankings de gestiones): se adapta al número real de tarjetas en vez de
+ *  forzar 2 o 3 columnas fijas. */
+const chartGridSx = {
+  display: 'grid', gap: 2,
+  gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gridAutoRows: '1fr'
+} as const;
+
+const rankingAxisTick = { fill: '#475569', fontSize: 10.5 };
+const rankingTooltipStyle = { borderRadius: 12, border: '1px solid #E2E8F0', boxShadow: '0 16px 40px rgba(15, 23, 42, 0.14)', background: '#FFFFFF', padding: '8px 12px', fontSize: 12 };
+const rankingLabelStyle = { color: '#0F172A', fontWeight: 700, marginBottom: 2, fontSize: 12 };
+interface RankingRow { label: string; value: number; extra?: string; }
+
+/** Gráfico horizontal de ranking (reemplaza listados/tablas de "Gestores
+ *  más/menos gestiones" y "Cuentas con más gestiones"): mismo `ChartCard`,
+ *  mismos estilos de ejes/tooltip que el resto de gráficos del Dashboard
+ *  (DashboardCharts.tsx/PDMigrationChart.tsx) — barras horizontales para que
+ *  nombres largos (gestores) o códigos nunca queden cortados. Nunca pierde
+ *  información de la tabla original: mismo dato (label + cantidad de
+ *  gestiones), con el dato adicional (si lo hay, p. ej. el gestor de una
+ *  cuenta) disponible en el tooltip. */
+const RankingBarChart = ({ titulo, subtitle, chartId, data, barColor, valueLabel, csvHeaders, csvRows }: {
+  titulo: string; subtitle?: string; chartId: string; data: RankingRow[]; barColor: string; valueLabel: string;
+  csvHeaders: string[]; csvRows: Array<Array<string | number>>;
+}) => {
+  const anchoEje = Math.min(180, Math.max(90, ...data.map((d) => d.label.length * 6)));
+  return (
+    <ChartCard title={titulo} subtitle={subtitle} chartId={chartId} fileBaseName={chartId} height={240} csvHeaders={csvHeaders} csvRows={csvRows}>
+      {(height) => data.length === 0 ? (
+        <Box sx={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>Sin datos para los filtros seleccionados.</Typography>
+        </Box>
+      ) : (
+        <ResponsiveContainer width="100%" height={height}>
+          <BarChart data={data} layout="vertical" margin={{ top: 4, right: 20, left: 4, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" horizontal={false} />
+            <XAxis type="number" allowDecimals={false} tick={rankingAxisTick} axisLine={false} tickLine={false} />
+            <YAxis type="category" dataKey="label" width={anchoEje} tick={rankingAxisTick} axisLine={false} tickLine={false} />
+            <RTooltip
+              formatter={(value: number) => value.toLocaleString('en-US')}
+              labelFormatter={(label: string, payload) => {
+                const extra = (payload?.[0]?.payload as RankingRow | undefined)?.extra;
+                return extra ? `${label} · ${extra}` : label;
+              }}
+              contentStyle={rankingTooltipStyle}
+              labelStyle={rankingLabelStyle}
+            />
+            <RBar dataKey="value" name={valueLabel} fill={barColor} radius={[0, 6, 6, 0]} barSize={14} />
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </ChartCard>
+  );
+};
+
+const DIAS_SEMANA = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+/** "Calendario del mes": antes dos listas de chips sin ningún calendario
+ *  real. Ahora una grilla real del mes actual (encabezados de día, celdas
+ *  separadas, día de hoy destacado) con el MISMO dato agregado que ya
+ *  mostraba la sección (países con más asuetos / gestores con más
+ *  incapacidades) como resumen debajo — nunca se inventa en qué día
+ *  exacto cae cada asueto/incapacidad porque ese dato no existe en
+ *  `resumenOp` (solo viene como total agregado del mes), así que ningún
+ *  indicador se dibuja sobre un día concreto sin evidencia real. */
+const MesCalendario = ({ paisesAsuetos, gestoresIncapacidades }: {
+  paisesAsuetos: Array<{ clave: string; total: number }>; gestoresIncapacidades: Array<{ clave: string; total: number }>;
+}) => {
+  const hoy = new Date();
+  const nombreMesCrudo = hoy.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+  const nombreMes = nombreMesCrudo.charAt(0).toUpperCase() + nombreMesCrudo.slice(1);
+  const primerDiaSemana = new Date(hoy.getFullYear(), hoy.getMonth(), 1).getDay();
+  const diasEnMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).getDate();
+  const celdas: Array<number | null> = [...Array(primerDiaSemana).fill(null), ...Array.from({ length: diasEnMes }, (_, i) => i + 1)];
+  while (celdas.length % 7 !== 0) celdas.push(null);
+
+  return (
+    <Paper sx={{ p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider', boxShadow: '0 10px 26px rgba(15, 23, 42, 0.06)' }}>
+      <Typography sx={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.25, mb: 1.5 }}>Calendario del mes · {nombreMes}</Typography>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 0.75, mb: 2 }}>
+        {DIAS_SEMANA.map((d) => (
+          <Box key={d} sx={{ textAlign: 'center', fontSize: 10.5, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase' }}>{d}</Box>
+        ))}
+        {celdas.map((dia, i) => {
+          const esHoy = dia === hoy.getDate();
+          return (
+            <Box
+              key={i}
+              sx={{
+                height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 1.5,
+                fontSize: 12.5, fontWeight: esHoy ? 800 : 500,
+                bgcolor: esHoy ? '#E6007E' : dia ? 'action.hover' : 'transparent',
+                color: esHoy ? '#fff' : 'text.primary',
+                border: dia && !esHoy ? '1px solid' : 'none', borderColor: 'divider'
+              }}
+            >
+              {dia ?? ''}
+            </Box>
+          );
+        })}
+      </Box>
+      <Divider sx={{ mb: 1.5 }} />
+      <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', mb: 0.5 }}>Asuetos este mes · por país</Typography>
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>
+        {paisesAsuetos.length === 0
+          ? <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Sin asuetos registrados.</Typography>
+          : paisesAsuetos.map((p) => <Chip key={p.clave} size="small" icon={<EventAvailableIcon sx={{ fontSize: 14 }} />} label={`${p.clave}: ${p.total}`} />)}
+      </Stack>
+      <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', mb: 0.5 }}>Incapacidades este mes · por gestor</Typography>
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+        {gestoresIncapacidades.length === 0
+          ? <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Sin incapacidades registradas.</Typography>
+          : gestoresIncapacidades.map((g) => <Chip key={g.clave} size="small" color="warning" variant="outlined" label={`${g.clave}: ${g.total}`} />)}
+      </Stack>
+    </Paper>
+  );
+};
 
 const ControlOperativoPage = () => {
   const { hasPermission, user } = useAuth();
@@ -473,70 +593,49 @@ const ControlOperativoPage = () => {
                 <KpiMini l="Con gestión" v={resumenOp.totales.cuentasConGestion.toLocaleString('en-US')} icon={<CheckCircleIcon />} accent="#22C55E" />
                 <KpiMini l="Gestores" v={resumenOp.totales.gestores} icon={<GroupIcon />} accent="#7C3AED" />
               </Box>
-              {/* Mismo grid de 2 columnas / mismo gap que Dashboard > Plan y
-                  Proyección (DashboardCharts.tsx): gridAutoRows:'1fr' iguala
-                  la altura de las tarjetas de una misma fila. */}
+              {/* Distribución (País/Zona/Sector/PD): 4 tarjetas, mismo grid
+                  de 2 columnas/gap/gridAutoRows que Dashboard > Plan y
+                  Proyección (DashboardCharts.tsx) — "Distribución por
+                  Riesgos" se elimina por completo (sin dejar un contenedor
+                  vacío) y "Distribución por PD" pasa a ser el mismo gráfico
+                  de barras real que País/Zona/Sector (antes, un listado de
+                  texto aparte). */}
               <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gridAutoRows: '1fr', mb: 2 }}>
                 <DistribucionCard titulo="DISTRIBUCIÓN POR PAÍS" dimLabel="País" items={resumenOp.distribucion.pais} simbolo={simboloResumen} tasaActual={tasaResumen} chartId="chart-resumen-dist-pais" />
                 <DistribucionCard titulo="DISTRIBUCIÓN POR ZONA" dimLabel="Zona" items={resumenOp.distribucion.zona} simbolo={simboloResumen} tasaActual={tasaResumen} chartId="chart-resumen-dist-zona" />
                 <DistribucionCard titulo="DISTRIBUCIÓN POR SECTOR" dimLabel="Sector" items={resumenOp.distribucion.sector} simbolo={simboloResumen} tasaActual={tasaResumen} chartId="chart-resumen-dist-sector" />
+                <DistribucionCard titulo="DISTRIBUCIÓN POR PD" dimLabel="PD" items={resumenOp.distribucion.pd} simbolo={simboloResumen} tasaActual={tasaResumen} chartId="chart-resumen-dist-pd" />
               </Box>
-              <Grid container spacing={2}>
-                {([['PD', resumenOp.distribucion.pd], ['Riesgo', resumenOp.distribucion.riesgo]] as const).map(([lbl, arr]) => (
-                  <Grid item xs={12} sm={6} key={lbl}>
-                    <Typography sx={{ fontSize: 12, fontWeight: 700, mb: 0.5 }}>Distribución por {lbl}</Typography>
-                    <Stack spacing={0.25} sx={{ maxHeight: 160, overflowY: 'auto' }}>
-                      {arr.length === 0 ? <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Sin datos.</Typography> : arr.slice(0, 15).map((x) => (
-                        <Box key={x.clave} sx={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>{x.clave}</span>
-                          <span>{x.cuentas} · {money(x.saldoUsd)}</span>
-                        </Box>
-                      ))}
-                    </Stack>
-                  </Grid>
-                ))}
-              </Grid>
-              <Grid container spacing={2} sx={{ mt: 0.5 }}>
-                {([['Gestores · más gestiones', resumenOp.gestoresMasGestiones], ['Gestores · menos gestiones', resumenOp.gestoresMenosGestiones]] as const).map(([lbl, arr]) => (
-                  <Grid item xs={12} md={6} key={lbl}>
-                    <Typography sx={{ fontSize: 12, fontWeight: 700, mb: 0.5 }}>{lbl}</Typography>
-                    <TableContainer sx={{ maxHeight: 200 }}>
-                      <Table size="small" stickyHeader>
-                        <TableHead><TableRow>{['Gestor', 'Gestiones', 'Cuentas', 'Prod.'].map((h) => <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>)}</TableRow></TableHead>
-                        <TableBody>
-                          {arr.length === 0 ? <TableRow><TableCell colSpan={4} align="center" sx={{ py: 1, color: 'text.secondary' }}>Sin datos.</TableCell></TableRow> : arr.map((g) => (
-                            <TableRow key={g.gestor} hover><TableCell>{g.gestor}</TableCell><TableCell align="right">{g.gestiones}</TableCell><TableCell align="right">{g.cuentas}</TableCell><TableCell align="right">{g.productividad}</TableCell></TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </TableContainer>
-                  </Grid>
-                ))}
-                <Grid item xs={12} md={6}>
-                  <Typography sx={{ fontSize: 12, fontWeight: 700, mb: 0.5 }}>Cuentas con más gestiones</Typography>
-                  <TableContainer sx={{ maxHeight: 200 }}>
-                    <Table size="small" stickyHeader>
-                      <TableHead><TableRow>{['Cuenta', 'Gestor', 'Gestiones'].map((h) => <TableCell key={h} sx={{ fontWeight: 700 }}>{h}</TableCell>)}</TableRow></TableHead>
-                      <TableBody>
-                        {resumenOp.cuentasMasGestionadas.length === 0 ? <TableRow><TableCell colSpan={3} align="center" sx={{ py: 1, color: 'text.secondary' }}>Sin datos.</TableCell></TableRow> : resumenOp.cuentasMasGestionadas.map((cta) => (
-                          <TableRow key={cta.codigo} hover><TableCell>{cta.codigo}</TableCell><TableCell>{cta.gestor}</TableCell><TableCell align="right">{cta.gestiones}</TableCell></TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <Typography sx={{ fontSize: 12, fontWeight: 700, mb: 0.5 }}>Calendario del mes</Typography>
-                  <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', mt: 0.5 }}>Países con más asuetos</Typography>
-                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
-                    {resumenOp.paisesMasAsuetos.length === 0 ? <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Sin asuetos registrados.</Typography> : resumenOp.paisesMasAsuetos.map((p) => <Chip key={p.clave} size="small" label={`${p.clave}: ${p.total}`} />)}
-                  </Stack>
-                  <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary' }}>Gestores con más incapacidades</Typography>
-                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                    {resumenOp.gestoresMasIncapacidades.length === 0 ? <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Sin incapacidades registradas.</Typography> : resumenOp.gestoresMasIncapacidades.map((g) => <Chip key={g.clave} size="small" color="warning" variant="outlined" label={`${g.clave}: ${g.total}`} />)}
-                  </Stack>
-                </Grid>
-              </Grid>
+              {/* Rankings de gestiones: antes tablas/listados, ahora gráficos
+                  de barras horizontales reales (mismos datos exactos que las
+                  tablas — nunca se pierde información, el gestor de cada
+                  cuenta queda disponible en el tooltip). Grid auto-fit: se
+                  adapta a las 3 tarjetas reales sin dejar espacio vacío. */}
+              <Box sx={{ ...chartGridSx, mb: 2 }}>
+                <RankingBarChart
+                  titulo="GESTORES · MÁS GESTIONES" chartId="chart-gestores-mas-gestiones" barColor="#22C55E" valueLabel="Gestiones"
+                  data={resumenOp.gestoresMasGestiones.map((g) => ({ label: g.gestor, value: g.gestiones, extra: `${g.cuentas} cuentas · prod. ${g.productividad}` }))}
+                  csvHeaders={['Gestor', 'Gestiones', 'Cuentas', 'Productividad']}
+                  csvRows={resumenOp.gestoresMasGestiones.map((g) => [g.gestor, g.gestiones, g.cuentas, g.productividad])}
+                />
+                <RankingBarChart
+                  titulo="GESTORES · MENOS GESTIONES" chartId="chart-gestores-menos-gestiones" barColor="#EF4444" valueLabel="Gestiones"
+                  data={resumenOp.gestoresMenosGestiones.map((g) => ({ label: g.gestor, value: g.gestiones, extra: `${g.cuentas} cuentas · prod. ${g.productividad}` }))}
+                  csvHeaders={['Gestor', 'Gestiones', 'Cuentas', 'Productividad']}
+                  csvRows={resumenOp.gestoresMenosGestiones.map((g) => [g.gestor, g.gestiones, g.cuentas, g.productividad])}
+                />
+                <RankingBarChart
+                  titulo="CUENTAS CON MÁS GESTIONES" chartId="chart-cuentas-mas-gestiones" barColor="#1E3A8A" valueLabel="Gestiones"
+                  data={resumenOp.cuentasMasGestionadas.map((c) => ({ label: c.codigo, value: c.gestiones, extra: c.gestor }))}
+                  csvHeaders={['Cuenta', 'Gestor', 'Gestiones']}
+                  csvRows={resumenOp.cuentasMasGestionadas.map((c) => [c.codigo, c.gestor, c.gestiones])}
+                />
+              </Box>
+              {/* Calendario del mes: bloque propio, más amplio, con grilla
+                  real del mes y el mismo dato agregado (países con más
+                  asuetos / gestores con más incapacidades) que ya mostraba
+                  esta sección — ver MesCalendario. */}
+              <MesCalendario paisesAsuetos={resumenOp.paisesMasAsuetos} gestoresIncapacidades={resumenOp.gestoresMasIncapacidades} />
             </Paper>
           )}
 
