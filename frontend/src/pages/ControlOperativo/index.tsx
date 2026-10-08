@@ -205,14 +205,17 @@ const Bar = ({ value, max, color = '#1E3A8A' }: { value: number; max: number; co
 const KpiMini = ({ l, v, icon, accent }: { l: string; v: string | number; icon: ReactNode; accent: string }) => (
   <KpiCard title={l} value={String(v)} icon={icon} accent={accent} />
 );
-/** Grid responsivo de tarjetas KPI — `auto-fit` adapta el NÚMERO de columnas
- *  al ancho real disponible y a la cantidad real de tarjetas (nunca una
- *  cantidad fija de columnas): con 4 tarjetas ocupa 4 columnas completas,
- *  con 12 ocupa tantas como quepan por fila sin dejar ninguna columna vacía
- *  al final. Mismo gap que KpiCards.tsx (Dashboard > Plan y Proyección). */
+/** Grid de tarjetas KPI con ancho de columna FIJO (sin `1fr`): `auto-fit`
+ *  calcula cuántas columnas de 200px caben y coloca ahí las tarjetas reales,
+ *  pero ninguna columna puede crecer para rellenar el sobrante — así 3, 4 o
+ *  12 tarjetas se ven siempre con el mismo tamaño, nunca estiradas. El
+ *  espacio restante de la fila se reparte centrado (`justifyContent`) en vez
+ *  de agrandar una tarjeta o dejar un hueco a un solo lado. Mismo gap que
+ *  KpiCards.tsx (Dashboard > Plan y Proyección). */
 const kpiGridSx = {
   display: 'grid', gap: 2,
-  gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))'
+  gridTemplateColumns: 'repeat(auto-fit, 200px)',
+  justifyContent: 'center'
 } as const;
 /** Mismo criterio para grupos de gráficos de tamaño variable (p. ej. los 3
  *  rankings de gestiones): se adapta al número real de tarjetas en vez de
