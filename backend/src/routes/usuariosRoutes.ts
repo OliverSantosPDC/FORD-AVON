@@ -43,6 +43,7 @@ router.post('/usuarios/eliminar-masivo/validar', requireAuth, requirePermission(
 router.delete('/usuarios/eliminar-masivo', requireAuth, requirePermission(ADMIN), (req, res) => controller.eliminarMasivo(req, res));
 
 router.get('/usuarios/resumen-alcance', requireAuth, lectura, (req, res) => controller.resumenAlcance(req, res));
+router.get('/usuarios/arbol', requireAuth, lectura, (req, res) => controller.arbol(req, res));
 router.get('/usuarios/catalogos', requireAuth, lectura, (req, res) => controller.catalogos(req, res));
 router.get('/usuarios', requireAuth, lectura, (req, res) => controller.list(req, res));
 router.get('/usuarios/:id', requireAuth, lectura, (req, res) => controller.detail(req, res));

@@ -11,6 +11,7 @@ import {
   validarEliminacionMasiva,
   eliminarUsuariosMasivo,
   obtenerResumenAlcance,
+  obtenerArbolUsuarios,
   validarImportacionUsuarios,
   aplicarImportacionUsuarios,
   UsuariosError,
@@ -44,6 +45,19 @@ export class UsuariosController {
       return res.json(await obtenerResumenAlcance());
     } catch (error) {
       return this.fail(res, error, 'No se pudo calcular el resumen de alcance.');
+    }
+  }
+
+  /** GET /api/usuarios/arbol — vista jerárquica (Configuración > Usuarios):
+   *  usuarios + relaciones oficiales normalizadas (liderazgo_supervisor,
+   *  supervisor_gestor, supervisor_gerente_zona, gestor_pais_zona,
+   *  gerente_zona_zona), indexadas por profiles.id. El armado del árbol en sí
+   *  (anidado, filtros, búsqueda) es responsabilidad del frontend. */
+  async arbol(_req: Request, res: Response): Promise<Response> {
+    try {
+      return res.json(await obtenerArbolUsuarios());
+    } catch (error) {
+      return this.fail(res, error, 'No se pudo construir el árbol de usuarios.');
     }
   }
 

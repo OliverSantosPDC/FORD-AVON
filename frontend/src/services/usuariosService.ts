@@ -108,6 +108,31 @@ export interface AlcanceResumenItem {
   zonas: string[];
 }
 
+/** Árbol jerárquico de Usuarios (vista principal de Configuración > Usuarios):
+ *  usuarios + relaciones oficiales normalizadas, indexadas por `profiles.id`.
+ *  Contrato alineado con backend `ArbolUsuarios`/`obtenerArbolUsuarios`. */
+export interface ArbolUsuarioInfo {
+  id: string;
+  nombre: string;
+  apellido: string | null;
+  nombreCompleto: string | null;
+  email: string;
+  contacto: string | null;
+  pais: string | null;
+  activo: boolean;
+  roleClave: string | null;
+  roleNombre: string | null;
+  nivel: number | null;
+}
+export interface ArbolUsuarios {
+  usuarios: ArbolUsuarioInfo[];
+  liderazgoSupervisor: Array<{ liderazgoId: string; supervisorId: string }>;
+  supervisorGestor: Array<{ supervisorId: string; gestorUsuarioId: string }>;
+  supervisorGerenteZona: Array<{ supervisorId: string; gerenteZonaId: string }>;
+  gestorPaisZona: Array<{ gestorUsuarioId: string; zonaId: string; zona: string; pais: string }>;
+  gerenteZonaZona: Array<{ usuarioId: string; zonaId: string; zona: string; pais: string; division: string | null }>;
+}
+
 /** Traducción de errores reutilizando el patrón de mensajes de la app. */
 const parseError = async (res: Response, fallback: string): Promise<string> => {
   if (res.status === 401) return 'Tu sesión ha expirado. Inicia sesión nuevamente.';
@@ -138,6 +163,13 @@ export const getUsuario = async (id: string): Promise<UsuarioDetalle> => {
 export const getResumenAlcance = async (): Promise<{ totalUsuarios: number; items: AlcanceResumenItem[] }> => {
   const res = await apiFetch('/api/usuarios/resumen-alcance', { cache: 'no-store' });
   if (!res.ok) throw new Error(await parseError(res, 'No se pudo calcular el resumen de alcance.'));
+  return res.json();
+};
+
+/** Árbol jerárquico de Usuarios (vista principal): una sola llamada, sin N+1. */
+export const getArbolUsuarios = async (): Promise<ArbolUsuarios> => {
+  const res = await apiFetch('/api/usuarios/arbol', { cache: 'no-store' });
+  if (!res.ok) throw new Error(await parseError(res, 'No se pudo cargar el árbol de usuarios.'));
   return res.json();
 };
 

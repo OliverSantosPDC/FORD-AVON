@@ -1353,19 +1353,52 @@ const cargarCarteraResumen = async (): Promise<CarteraFila[]> => {
   return out;
 };
 
-export const obtenerResumenAlcance = async (): Promise<{ totalUsuarios: number; items: AlcanceResumenItem[] }> => {
+interface PerfilAlcanceRow {
+  id: string; activo: boolean; role_id: string | null;
+  nombre: string; apellido: string | null; email: string;
+  contacto: string | null; pais: string | null; nombre_completo: string | null;
+  roles: { clave?: string; nombre?: string; nivel?: number | null } | Array<{ clave?: string; nombre?: string; nivel?: number | null }> | null;
+}
+
+interface RelacionesAlcance {
+  perfilRows: PerfilAlcanceRow[];
+  /** usuario_id (profiles.id) -> gestores.id. */
+  gestorIdPorUsuario: Map<string, string>;
+  /** Inverso del anterior: gestores.id -> usuario_id (profiles.id). Nunca
+   *  incluye filas huérfanas de `gestores` (sin usuario_id vinculado). */
+  usuarioIdPorGestorId: Map<string, string>;
+  /** supervisor_id (profiles.id) -> gestores.id[]. */
+  gestoresPorSupervisor: Map<string, string[]>;
+  /** liderazgo_id (profiles.id) -> supervisor_id[] (profiles.id). */
+  supervisoresPorLiderazgo: Map<string, string[]>;
+  /** usuario_id de Gerente de zona (profiles.id) -> sus asignaciones País/División/Zona. */
+  zonasPorGerente: Map<string, Array<{ pais: string; zona: string; zonaId: string; division: string | null }>>;
+  /** gestores.id -> sus asignaciones País/Zona explícitas. */
+  zonasPorGestorId: Map<string, Array<{ pais: string; zona: string; zonaId: string }>>;
+  /** supervisor_id (profiles.id) -> gerente_zona usuario_id[] (profiles.id). */
+  gerentesPorSupervisor: Map<string, string[]>;
+  cartera: CarteraFila[];
+}
+
+/** Única fuente de las 7 consultas en bloque (perfiles + las 5 tablas de
+ *  relaciones oficiales + cartera) que necesita cualquier vista agregada de
+ *  alcance/jerarquía — compartida por `obtenerResumenAlcance` (Grupos y
+ *  Niveles) y `obtenerArbolUsuarios` (vista jerárquica de Usuarios). Nunca se
+ *  duplica esta ronda de queries: evita exactamente el mismo N+1 que ya
+ *  evitaba `obtenerResumenAlcance` antes de este refactor. */
+const cargarRelacionesAlcance = async (): Promise<RelacionesAlcance> => {
   const client = getSupabaseClient();
 
   const [{ data: perfiles, error: pErr }, { data: gestores, error: gErr }, { data: supGes, error: sgErr },
     { data: lidSup, error: lsErr }, { data: gerZona, error: gzErr }, { data: gesPZ, error: gpzErr },
     { data: supGerZona, error: sgzErr }, cartera] =
     await Promise.all([
-      client.from('profiles').select('id, activo, role_id, roles ( clave, nivel )'),
+      client.from('profiles').select('id, activo, role_id, nombre, apellido, email, contacto, pais, nombre_completo, roles ( clave, nombre, nivel )'),
       client.from('gestores').select('id, usuario_id, nombre_cartera').eq('activo', true),
       client.from('supervisor_gestor').select('supervisor_id, gestor_id').eq('activo', true),
       client.from('liderazgo_supervisor').select('liderazgo_id, supervisor_id').eq('activo', true),
-      client.from('gerente_zona_zona').select('usuario_id, zona_id, pais, zonas ( nombre )').eq('activo', true),
-      client.from('gestor_pais_zona').select('gestor_id, pais, zonas ( nombre )').eq('activo', true),
+      client.from('gerente_zona_zona').select('usuario_id, zona_id, pais, division, zonas ( nombre )').eq('activo', true),
+      client.from('gestor_pais_zona').select('gestor_id, zona_id, pais, zonas ( nombre )').eq('activo', true),
       client.from('supervisor_gerente_zona').select('supervisor_id, gerente_zona_id').eq('activo', true),
       cargarCarteraResumen()
     ]);
@@ -1378,10 +1411,10 @@ export const obtenerResumenAlcance = async (): Promise<{ totalUsuarios: number; 
   if (gpzErr) throw new UsuariosError(`No se pudo leer gestor_pais_zona: ${gpzErr.message}`);
   if (sgzErr) throw new UsuariosError(`No se pudo leer supervisor_gerente_zona: ${sgzErr.message}`);
 
-  const perfilRows = (perfiles ?? []) as Array<{ id: string; activo: boolean; roles: { clave?: string; nivel?: number | null } | { clave?: string; nivel?: number | null }[] | null }>;
-  const totalUsuarios = perfilRows.length;
+  const perfilRows = (perfiles ?? []) as unknown as PerfilAlcanceRow[];
 
   const gestorIdPorUsuario = new Map(((gestores ?? []) as Array<{ id: string; usuario_id: string | null }>).filter((g) => g.usuario_id).map((g) => [g.usuario_id as string, g.id]));
+  const usuarioIdPorGestorId = new Map(Array.from(gestorIdPorUsuario, ([usuarioId, gestorId]) => [gestorId, usuarioId]));
 
   const gestoresPorSupervisor = new Map<string, string[]>();
   for (const r of (supGes ?? []) as Array<{ supervisor_id: string; gestor_id: string }>) {
@@ -1395,18 +1428,18 @@ export const obtenerResumenAlcance = async (): Promise<{ totalUsuarios: number; 
     list.push(r.supervisor_id);
     supervisoresPorLiderazgo.set(r.liderazgo_id, list);
   }
-  const zonasPorGerente = new Map<string, Array<{ pais: string; zona: string }>>();
-  for (const r of (gerZona ?? []) as Array<{ usuario_id: string; pais: string | null; zonas: { nombre?: string } | { nombre?: string }[] | null }>) {
+  const zonasPorGerente = new Map<string, Array<{ pais: string; zona: string; zonaId: string; division: string | null }>>();
+  for (const r of (gerZona ?? []) as Array<{ usuario_id: string; zona_id: string; pais: string | null; division: string | null; zonas: { nombre?: string } | { nombre?: string }[] | null }>) {
     const z = Array.isArray(r.zonas) ? r.zonas[0] : r.zonas;
     const list = zonasPorGerente.get(r.usuario_id) ?? [];
-    list.push({ pais: r.pais ?? '', zona: z?.nombre ?? '' });
+    list.push({ pais: r.pais ?? '', zona: z?.nombre ?? '', zonaId: r.zona_id, division: r.division ?? null });
     zonasPorGerente.set(r.usuario_id, list);
   }
-  const zonasPorGestorId = new Map<string, Array<{ pais: string; zona: string }>>();
-  for (const r of (gesPZ ?? []) as Array<{ gestor_id: string; pais: string | null; zonas: { nombre?: string } | { nombre?: string }[] | null }>) {
+  const zonasPorGestorId = new Map<string, Array<{ pais: string; zona: string; zonaId: string }>>();
+  for (const r of (gesPZ ?? []) as Array<{ gestor_id: string; zona_id: string; pais: string | null; zonas: { nombre?: string } | { nombre?: string }[] | null }>) {
     const z = Array.isArray(r.zonas) ? r.zonas[0] : r.zonas;
     const list = zonasPorGestorId.get(r.gestor_id) ?? [];
-    list.push({ pais: r.pais ?? '', zona: z?.nombre ?? '' });
+    list.push({ pais: r.pais ?? '', zona: z?.nombre ?? '', zonaId: r.zona_id });
     zonasPorGestorId.set(r.gestor_id, list);
   }
   const gerentesPorSupervisor = new Map<string, string[]>();
@@ -1415,6 +1448,14 @@ export const obtenerResumenAlcance = async (): Promise<{ totalUsuarios: number; 
     list.push(r.gerente_zona_id);
     gerentesPorSupervisor.set(r.supervisor_id, list);
   }
+
+  return { perfilRows, gestorIdPorUsuario, usuarioIdPorGestorId, gestoresPorSupervisor, supervisoresPorLiderazgo, zonasPorGerente, zonasPorGestorId, gerentesPorSupervisor, cartera };
+};
+
+export const obtenerResumenAlcance = async (): Promise<{ totalUsuarios: number; items: AlcanceResumenItem[] }> => {
+  const { perfilRows, gestorIdPorUsuario, gestoresPorSupervisor, supervisoresPorLiderazgo, zonasPorGerente, zonasPorGestorId, gerentesPorSupervisor, cartera } = await cargarRelacionesAlcance();
+  const totalUsuarios = perfilRows.length;
+
   /** País/Zona asignados a un gerente de zona (profiles.id), para heredar hacia arriba. */
   const paisZonaDeGerente = (gerenteUserId: string): Array<{ pais: string; zona: string }> => zonasPorGerente.get(gerenteUserId) ?? [];
 
@@ -1484,6 +1525,120 @@ export const obtenerResumenAlcance = async (): Promise<{ totalUsuarios: number; 
   });
 
   return { totalUsuarios, items };
+};
+
+/* ============================================================================
+ * ÁRBOL JERÁRQUICO DE USUARIOS (vista principal de Configuración > Usuarios):
+ * reemplaza la tabla plana por una estructura navegable Administrador /
+ * Liderazgo -> Supervisor -> Gestor/Gerente de zona -> País -> División ->
+ * Zona. El backend SOLO normaliza las relaciones oficiales ya existentes
+ * (liderazgo_supervisor, supervisor_gestor, supervisor_gerente_zona,
+ * gestor_pais_zona, gerente_zona_zona) a pares planos indexados por
+ * `profiles.id` — nunca inventa una relación ni resuelve por coincidencia de
+ * nombre; el armado visual del árbol (anidado, filtros, búsqueda) vive en el
+ * frontend (frontend/src/pages/Usuarios/arbolUsuarios.ts), que es lógica pura
+ * de presentación, no de autorización. Reutiliza `cargarRelacionesAlcance`:
+ * mismo único round-trip que ya usaba `obtenerResumenAlcance` (sin N+1).
+ * ========================================================================== */
+
+export interface ArbolUsuarioInfo {
+  id: string;
+  nombre: string;
+  apellido: string | null;
+  nombreCompleto: string | null;
+  email: string;
+  contacto: string | null;
+  /** País de identidad de la persona — distinto del país de territorio/alcance. */
+  pais: string | null;
+  activo: boolean;
+  roleClave: string | null;
+  roleNombre: string | null;
+  nivel: number | null;
+}
+
+export interface ArbolRelacionLiderazgoSupervisor { liderazgoId: string; supervisorId: string; }
+export interface ArbolRelacionSupervisorGestor { supervisorId: string; gestorUsuarioId: string; }
+export interface ArbolRelacionSupervisorGerenteZona { supervisorId: string; gerenteZonaId: string; }
+export interface ArbolGestorPaisZona { gestorUsuarioId: string; zonaId: string; zona: string; pais: string; }
+export interface ArbolGerenteZonaZona { usuarioId: string; zonaId: string; zona: string; pais: string; division: string | null; }
+
+export interface ArbolUsuarios {
+  usuarios: ArbolUsuarioInfo[];
+  liderazgoSupervisor: ArbolRelacionLiderazgoSupervisor[];
+  supervisorGestor: ArbolRelacionSupervisorGestor[];
+  supervisorGerenteZona: ArbolRelacionSupervisorGerenteZona[];
+  gestorPaisZona: ArbolGestorPaisZona[];
+  gerenteZonaZona: ArbolGerenteZonaZona[];
+}
+
+export const obtenerArbolUsuarios = async (): Promise<ArbolUsuarios> => {
+  const {
+    perfilRows, usuarioIdPorGestorId, gestoresPorSupervisor, supervisoresPorLiderazgo,
+    zonasPorGerente, zonasPorGestorId, gerentesPorSupervisor
+  } = await cargarRelacionesAlcance();
+
+  const usuarios: ArbolUsuarioInfo[] = perfilRows.map((p) => {
+    const roleRaw = Array.isArray(p.roles) ? p.roles[0] : p.roles;
+    return {
+      id: p.id,
+      nombre: p.nombre,
+      apellido: p.apellido ?? null,
+      nombreCompleto: p.nombre_completo ?? null,
+      email: p.email,
+      contacto: p.contacto ?? null,
+      pais: p.pais ?? null,
+      activo: Boolean(p.activo),
+      roleClave: roleRaw?.clave ?? null,
+      roleNombre: roleRaw?.nombre ?? null,
+      nivel: roleRaw?.nivel ?? null
+    };
+  });
+
+  const liderazgoSupervisor: ArbolRelacionLiderazgoSupervisor[] = [];
+  for (const [liderazgoId, supervisorIds] of supervisoresPorLiderazgo) {
+    for (const supervisorId of supervisorIds) liderazgoSupervisor.push({ liderazgoId, supervisorId });
+  }
+
+  // gestores.id -> usuario_id: una fila de supervisor_gestor sin usuario_id
+  // vinculado (gestor huérfano) nunca se expone como relación — se reporta
+  // implícitamente dejando a ese Gestor sin aparecer bajo ningún Supervisor
+  // (el propio usuario de `profiles` sigue listado en `usuarios`, nunca se
+  // oculta ni se inventa su asignación).
+  const supervisorGestor: ArbolRelacionSupervisorGestor[] = [];
+  for (const [supervisorId, gestorIds] of gestoresPorSupervisor) {
+    for (const gestorId of gestorIds) {
+      const gestorUsuarioId = usuarioIdPorGestorId.get(gestorId);
+      if (gestorUsuarioId) supervisorGestor.push({ supervisorId, gestorUsuarioId });
+    }
+  }
+
+  const supervisorGerenteZona: ArbolRelacionSupervisorGerenteZona[] = [];
+  for (const [supervisorId, gerenteIds] of gerentesPorSupervisor) {
+    for (const gerenteZonaId of gerenteIds) supervisorGerenteZona.push({ supervisorId, gerenteZonaId });
+  }
+
+  const gestorPaisZona: ArbolGestorPaisZona[] = [];
+  for (const [gestorId, pares] of zonasPorGestorId) {
+    const gestorUsuarioId = usuarioIdPorGestorId.get(gestorId);
+    if (!gestorUsuarioId) continue;
+    for (const p of pares) {
+      if (!p.pais || !p.zona) continue;
+      gestorPaisZona.push({ gestorUsuarioId, zonaId: p.zonaId, zona: p.zona, pais: p.pais });
+    }
+  }
+
+  // Ya expandido: una fila con división real (sin marcador "GV" vigente en
+  // BD) representa exactamente la expansión GV resuelta al importar/guardar
+  // — el árbol solo agrupa lo que ya existe, nunca vuelve a expandir nada.
+  const gerenteZonaZona: ArbolGerenteZonaZona[] = [];
+  for (const [usuarioId, pares] of zonasPorGerente) {
+    for (const p of pares) {
+      if (!p.pais || !p.zona) continue;
+      gerenteZonaZona.push({ usuarioId, zonaId: p.zonaId, zona: p.zona, pais: p.pais, division: p.division ?? null });
+    }
+  }
+
+  return { usuarios, liderazgoSupervisor, supervisorGestor, supervisorGerenteZona, gestorPaisZona, gerenteZonaZona };
 };
 
 export const buscarPerfilPorEmail = async (email: string): Promise<{ id: string; roleId: string | null; roleClave: string | null } | null> => {

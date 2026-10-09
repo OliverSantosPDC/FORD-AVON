@@ -56,6 +56,7 @@ import {
   listUsuarios,
   getCatalogos,
   getUsuario,
+  getArbolUsuarios,
   createUsuario,
   updateUsuario,
   deleteUsuario,
@@ -64,7 +65,6 @@ import {
   getPasswordRequests,
   resolvePasswordRequest,
   deletePasswordRequests,
-  getResumenAlcance,
   validarEliminacionMasivaUsuarios,
   eliminarUsuariosMasivo,
   descargarPlantillaAdministrativa,
@@ -75,7 +75,7 @@ import {
   type Catalogos,
   type UsuarioPayload,
   type PasswordRequest,
-  type AlcanceResumenItem,
+  type ArbolUsuarios,
   type ValidacionEliminacionMasiva,
   type GerenteZonaAsignacion,
   type PreviewItem,
@@ -83,6 +83,8 @@ import {
   type ResultadoAplicarItem
 } from '../../services/usuariosService';
 import { getRoles, putRolPermisos, type RolesData } from '../../services/configuracionService';
+import { construirArbolUsuarios, recolectarIdsUsuario, recolectarTodosLosIds, ROLE_ORDER, ROLE_GROUP_LABEL } from './arbolUsuarios';
+import ArbolUsuariosView from './ArbolUsuariosView';
 
 /** Clave compuesta para las opciones de País/Zona (una misma zona/código puede
  *  repetirse en más de un país en cartera, así que zonaId por sí solo no es
@@ -144,17 +146,6 @@ const EMPTY_FORM: FormState = {
 const TAB_GESTION = 0;
 const TAB_ROLES = 2;
 
-/** Orden de agrupación por rol (Sección 11-B): respeta el Nivel jerárquico
- *  Nivel 1 -> Nivel 5. Cualquier rol no contemplado cae en "Otros" (un solo
- *  grupo, no uno por cada rol extra). El rol se lee SIEMPRE de `role.clave`
- *  (el dato real de Supabase); nunca se infiere por nombre ni por Asignación. */
-const ROLE_ORDER = ['administrador', 'liderazgo', 'supervisor', 'gestor', 'gerente_zona'] as const;
-const ROLE_GROUP_LABEL: Record<string, string> = {
-  administrador: 'Administrador', liderazgo: 'Liderazgo', supervisor: 'Supervisor',
-  gestor: 'Gestor', gerente_zona: 'Gerente de zona', otros: 'Otros'
-};
-type UsuarioOrden = 'AZ' | 'ZA' | 'MAYOR_MENOR';
-
 const UsuariosPage = () => {
   const { hasPermission } = useAuth();
   const canAdminGlobal = hasPermission('usuarios.administrar_global');
@@ -164,7 +155,7 @@ const UsuariosPage = () => {
 
   const [usuarios, setUsuarios] = useState<UsuarioListItem[]>([]);
   const [catalogos, setCatalogos] = useState<Catalogos | null>(null);
-  const [resumen, setResumen] = useState<{ totalUsuarios: number; items: AlcanceResumenItem[] } | null>(null);
+  const [arbol, setArbol] = useState<ArbolUsuarios | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -314,12 +305,16 @@ const UsuariosPage = () => {
     }
   };
 
-  // Agrupación por rol de "Gestión de usuarios" (Sección 11-B): búsqueda + orden
-  // + grupos expandibles, todo dentro del rol real (role.clave) de cada usuario.
+  // Árbol jerárquico de "Gestión de usuarios" (vista principal, reemplaza la
+  // tabla plana): búsqueda + filtros de rol/país + nodos expandibles. El
+  // armado real del árbol (relaciones oficiales -> nodos) vive en
+  // arbolUsuarios.ts; aquí solo se guarda el estado de interacción (filtros,
+  // qué nodos están expandidos).
   const [usuarioSearch, setUsuarioSearch] = useState('');
-  const [usuarioOrden, setUsuarioOrden] = useState<UsuarioOrden>('AZ');
-  const [gruposAbiertos, setGruposAbiertos] = useState<Set<string>>(new Set([...ROLE_ORDER, 'otros']));
-  const toggleGrupo = (clave: string) => setGruposAbiertos((s) => { const n = new Set(s); n.has(clave) ? n.delete(clave) : n.add(clave); return n; });
+  const [rolFiltro, setRolFiltro] = useState('');
+  const [paisFiltroArbol, setPaisFiltroArbol] = useState('');
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set([...ROLE_ORDER, 'otros'].map((c) => `raiz:${c}`)));
+  const toggleExpand = (id: string) => setExpandedIds((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   // ===== Roles y Permisos (movido desde Configuración; misma lógica/tablas) =====
   const [rolesData, setRolesData] = useState<RolesData | null>(null);
@@ -364,10 +359,10 @@ const UsuariosPage = () => {
     setLoading(true);
     setError(null);
     try {
-      const [u, c, r] = await Promise.all([listUsuarios(), getCatalogos(), getResumenAlcance()]);
+      const [u, c, a] = await Promise.all([listUsuarios(), getCatalogos(), getArbolUsuarios()]);
       setUsuarios(u);
       setCatalogos(c);
-      setResumen(r);
+      setArbol(a);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No fue posible cargar la información. Intenta nuevamente.');
     } finally {
@@ -496,11 +491,6 @@ const UsuariosPage = () => {
     setForm((f) => ({ ...f, gerenteZonaAsignaciones: f.gerenteZonaAsignaciones.filter((a) => !(a.zonaId === zonaId && a.pais === pais)) }));
   };
 
-  const resumenPorUsuario = useMemo(() => {
-    const map = new Map<string, AlcanceResumenItem>();
-    (resumen?.items ?? []).forEach((it) => map.set(it.userId, it));
-    return map;
-  }, [resumen]);
 
   const resetConstructorAsignacion = () => {
     setNuevaAsigPais('');
@@ -549,7 +539,7 @@ const UsuariosPage = () => {
     }
   };
 
-  const toggleActivo = async (u: UsuarioListItem) => {
+  const toggleActivo = async (u: { id: string; activo: boolean }) => {
     try {
       await updateUsuario(u.id, { activo: !u.activo });
       setToast(`Usuario ${!u.activo ? 'activado' : 'desactivado'}.`);
@@ -671,63 +661,21 @@ const UsuariosPage = () => {
     }
   };
 
-  /** Texto de "Alcance" para la tabla principal y para Grupos y Niveles: SIEMPRE
-   *  calculado desde las relaciones reales configuradas (nunca desde ASIGNACION). */
-  const alcanceTexto = (u: UsuarioListItem): string => {
-    const clave = u.role?.clave ?? '';
-    const r = resumenPorUsuario.get(u.id);
-    if (!r) return '—';
-    if (clave === 'liderazgo') return `${r.totalSupervisores ?? 0} supervisor(es) · ${r.paises.length} país(es) · ${r.zonas.length} zona(s)`;
-    if (clave === 'supervisor') return `${r.totalGestores ?? 0} gestor(es) · ${r.paises.length} país(es) · ${r.zonas.length} zona(s)`;
-    if (clave === 'gestor') return r.totalZonas ? `${r.totalZonas} zona(s) asignada(s)` : 'Sin restricción adicional';
-    if (clave === 'gerente_zona') return `${r.totalZonas ?? 0} zona(s) · ${r.totalSectores ?? 0} sector(es)`;
-    if (clave === 'administrador') return 'Alcance global';
-    return '—';
-  };
+  // Árbol jerárquico (vista principal): se reconstruye solo cuando cambian
+  // los datos reales o los filtros — la lógica de armado vive en
+  // arbolUsuarios.ts (construirArbolUsuarios), pura y testeada aparte.
+  const arbolResultado = useMemo(
+    () => (arbol ? construirArbolUsuarios(arbol, { search: usuarioSearch, rol: rolFiltro, pais: paisFiltroArbol }) : null),
+    [arbol, usuarioSearch, rolFiltro, paisFiltroArbol]
+  );
 
-  /** Magnitud numérica del alcance de un usuario, para el orden "Mayor a Menor". */
-  const alcanceNumero = (u: UsuarioListItem): number => {
-    const r = resumenPorUsuario.get(u.id);
-    if (!r) return 0;
-    return (r.totalSupervisores ?? 0) + (r.totalGestores ?? 0) + (r.totalZonas ?? 0) + (r.totalSectores ?? 0);
-  };
-
-  /** Usuarios agrupados por rol REAL (role.clave, de Supabase), en orden de Nivel
-   *  jerárquico, con búsqueda y orden ya aplicados. Un grupo sin resultados tras
-   *  filtrar simplemente no se incluye (no se muestra vacío). */
-  const gruposUsuarios = useMemo(() => {
-    const term = usuarioSearch.trim().toLowerCase();
-    const filtrados = term
-      ? usuarios.filter((u) => {
-          const nombreCompleto = [u.nombre, u.apellido].filter(Boolean).join(' ').toLowerCase();
-          return nombreCompleto.includes(term) || u.email.toLowerCase().includes(term);
-        })
-      : usuarios;
-
-    const porClave = new Map<string, UsuarioListItem[]>();
-    filtrados.forEach((u) => {
-      const clave = u.role?.clave && (ROLE_ORDER as readonly string[]).includes(u.role.clave) ? u.role.clave : 'otros';
-      const list = porClave.get(clave) ?? [];
-      list.push(u);
-      porClave.set(clave, list);
-    });
-
-    const comparador = (a: UsuarioListItem, b: UsuarioListItem): number => {
-      if (usuarioOrden === 'MAYOR_MENOR') return alcanceNumero(b) - alcanceNumero(a);
-      const nombreA = [a.nombre, a.apellido].filter(Boolean).join(' ');
-      const nombreB = [b.nombre, b.apellido].filter(Boolean).join(' ');
-      return usuarioOrden === 'ZA' ? nombreB.localeCompare(nombreA, 'es') : nombreA.localeCompare(nombreB, 'es');
-    };
-
-    return [...ROLE_ORDER, 'otros']
-      .map((clave) => ({ clave, label: ROLE_GROUP_LABEL[clave], usuarios: (porClave.get(clave) ?? []).slice().sort(comparador) }))
-      .filter((g) => g.usuarios.length > 0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [usuarios, usuarioSearch, usuarioOrden, resumenPorUsuario]);
-
-  // Todos los ids REALMENTE filtrados (búsqueda aplicada, sin paginación): es
-  // exactamente lo que "Seleccionar todos" debe seleccionar (Sección 3).
-  const idsUsuariosFiltrados = useMemo(() => gruposUsuarios.flatMap((g) => g.usuarios.map((u) => u.id)), [gruposUsuarios]);
+  // Todos los ids REALMENTE visibles en el árbol ya filtrado (búsqueda/rol/país
+  // aplicados, sin paginación): es exactamente lo que "Seleccionar todos" debe
+  // seleccionar (Sección 3), sin duplicar un usuario que aparece en dos ramas.
+  const idsUsuariosFiltrados = useMemo(
+    () => Array.from(new Set((arbolResultado?.raices ?? []).flatMap(recolectarIdsUsuario))),
+    [arbolResultado]
+  );
   const todosFiltradosSeleccionados = idsUsuariosFiltrados.length > 0 && idsUsuariosFiltrados.every((id) => selUsuarios.has(id));
 
   if (loading) {
@@ -925,25 +873,23 @@ const UsuariosPage = () => {
               <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
                 <TextField
                   size="small"
-                  label="Buscar por nombre o correo"
+                  label="Buscar por nombre, correo o código de zona"
                   value={usuarioSearch}
                   onChange={(e) => setUsuarioSearch(e.target.value)}
-                  sx={{ minWidth: 240 }}
+                  sx={{ minWidth: 260 }}
                 />
-                <TextField
-                  select
-                  size="small"
-                  label="Ordenar"
-                  value={usuarioOrden}
-                  onChange={(e) => setUsuarioOrden(e.target.value as UsuarioOrden)}
-                  sx={{ minWidth: 170 }}
-                >
-                  <MenuItem value="AZ">Nombre A-Z</MenuItem>
-                  <MenuItem value="ZA">Nombre Z-A</MenuItem>
-                  <MenuItem value="MAYOR_MENOR">Alcance: mayor a menor</MenuItem>
+                <TextField select size="small" label="Rol" value={rolFiltro} onChange={(e) => setRolFiltro(e.target.value)} sx={{ minWidth: 160 }}>
+                  <MenuItem value="">Todos los roles</MenuItem>
+                  {[...ROLE_ORDER, 'otros'].map((clave) => (
+                    <MenuItem key={clave} value={clave}>{ROLE_GROUP_LABEL[clave]}</MenuItem>
+                  ))}
                 </TextField>
-                <Button size="small" onClick={() => setGruposAbiertos(new Set(gruposUsuarios.map((g) => g.clave)))} sx={{ textTransform: 'none' }}>Expandir todo</Button>
-                <Button size="small" onClick={() => setGruposAbiertos(new Set())} sx={{ textTransform: 'none' }}>Contraer todo</Button>
+                <TextField select size="small" label="País" value={paisFiltroArbol} onChange={(e) => setPaisFiltroArbol(e.target.value)} sx={{ minWidth: 170 }}>
+                  <MenuItem value="">Todos los países</MenuItem>
+                  {paisesDisponibles.map((p) => <MenuItem key={p} value={p}>{p}</MenuItem>)}
+                </TextField>
+                <Button size="small" onClick={() => setExpandedIds(new Set(recolectarTodosLosIds(arbolResultado?.raices ?? [])))} sx={{ textTransform: 'none' }}>Expandir todo</Button>
+                <Button size="small" onClick={() => setExpandedIds(new Set())} sx={{ textTransform: 'none' }}>Contraer todo</Button>
                 {canAdminGlobal && (
                   <FormControlLabel
                     sx={{ ml: 'auto', mr: 0 }}
@@ -970,89 +916,26 @@ const UsuariosPage = () => {
                 )}
               </Box>
 
-              {gruposUsuarios.length === 0 ? (
+              {!arbolResultado || arbolResultado.raices.length === 0 ? (
                 <Paper sx={{ p: 4, textAlign: 'center', borderRadius: 3 }}>
-                  <Typography sx={{ color: 'text.secondary' }}>Sin resultados para "{usuarioSearch}".</Typography>
+                  <Typography sx={{ color: 'text.secondary' }}>Sin resultados para los filtros aplicados.</Typography>
                 </Paper>
-              ) : gruposUsuarios.map((grupo) => (
-                <Paper key={grupo.clave} sx={{ borderRadius: 2.5, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}>
-                  <Box
-                    onClick={() => toggleGrupo(grupo.clave)}
-                    data-testid={`grupo-usuarios-${grupo.clave}`}
-                    sx={{ p: 1.25, display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer', bgcolor: 'action.hover' }}
-                  >
-                    {canAdminGlobal && (
-                      <Checkbox
-                        size="small"
-                        onClick={(e) => e.stopPropagation()}
-                        indeterminate={grupo.usuarios.some((u) => selUsuarios.has(u.id)) && !grupo.usuarios.every((u) => selUsuarios.has(u.id))}
-                        checked={grupo.usuarios.every((u) => selUsuarios.has(u.id))}
-                        onChange={() => toggleSelGrupoUsuarios(grupo.usuarios.map((u) => u.id))}
-                      />
-                    )}
-                    <IconButton size="small">
-                      {gruposAbiertos.has(grupo.clave) ? <KeyboardArrowDownIcon fontSize="small" /> : <KeyboardArrowRightIcon fontSize="small" />}
-                    </IconButton>
-                    <Typography sx={{ fontWeight: 700, textTransform: 'uppercase', fontSize: 13, letterSpacing: 0.4 }}>{grupo.label}</Typography>
-                    <Chip size="small" label={grupo.usuarios.length} />
-                  </Box>
-                  <Collapse in={gruposAbiertos.has(grupo.clave)} unmountOnExit>
-                    <TableContainer sx={{ maxHeight: '50vh' }}>
-                      <Table stickyHeader size="small">
-                        <TableHead>
-                          <TableRow>
-                            {canAdminGlobal && <TableCell padding="checkbox" />}
-                            {['Nombre', 'Correo', 'Rol / Nivel', 'Alcance', 'Estado', 'Acciones'].map((h) => (
-                              <TableCell key={h} sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</TableCell>
-                            ))}
-                          </TableRow>
-                        </TableHead>
-                        <TableBody>
-                          {grupo.usuarios.map((u) => (
-                            <TableRow key={u.id} hover selected={selUsuarios.has(u.id)}>
-                              {canAdminGlobal && (
-                                <TableCell padding="checkbox">
-                                  <Checkbox size="small" checked={selUsuarios.has(u.id)} onChange={() => toggleSelUsuario(u.id)} />
-                                </TableCell>
-                              )}
-                              <TableCell sx={{ whiteSpace: 'nowrap' }}>{[u.nombre, u.apellido].filter(Boolean).join(' ') || '—'}</TableCell>
-                              <TableCell sx={{ whiteSpace: 'nowrap' }}>{u.email}</TableCell>
-                              <TableCell>
-                                {u.role ? <Chip size="small" label={u.role.nivel ? `${u.role.nombre} (N${u.role.nivel})` : u.role.nombre} /> : <Chip size="small" label="Sin rol" variant="outlined" />}
-                              </TableCell>
-                              <TableCell sx={{ fontSize: 12, whiteSpace: 'nowrap' }}>{alcanceTexto(u)}</TableCell>
-                              <TableCell>
-                                <FormControlLabel
-                                  control={<Switch checked={u.activo} onChange={() => toggleActivo(u)} size="small" disabled={!canAdminGlobal} />}
-                                  label={u.activo ? 'Activo' : 'Inactivo'}
-                                  sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: 12 } }}
-                                />
-                              </TableCell>
-                              <TableCell>
-                                {canAdminGlobal ? (
-                                  <>
-                                    <Button size="small" startIcon={<EditOutlinedIcon fontSize="small" />} onClick={() => openEdit(u.id)} sx={{ textTransform: 'none' }}>
-                                      Editar
-                                    </Button>
-                                    <Button size="small" startIcon={<LockResetIcon fontSize="small" />} onClick={() => { setResetUser({ id: u.id, email: u.email }); setResetPw({ password: '', confirm: '' }); }} sx={{ textTransform: 'none' }}>
-                                      Contraseña
-                                    </Button>
-                                    {u.role?.clave !== 'administrador' && (
-                                      <Button size="small" startIcon={<LockClockIcon fontSize="small" />} onClick={() => setResetTemporalUser({ id: u.id, email: u.email })} sx={{ textTransform: 'none' }}>
-                                        Restablecer contraseña
-                                      </Button>
-                                    )}
-                                  </>
-                                ) : '—'}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </TableContainer>
-                  </Collapse>
-                </Paper>
-              ))}
+              ) : (
+                <ArbolUsuariosView
+                  raices={arbolResultado.raices}
+                  filtrando={arbolResultado.filtrando}
+                  expandedIds={expandedIds}
+                  onToggleExpand={toggleExpand}
+                  canAdminGlobal={canAdminGlobal}
+                  selUsuarios={selUsuarios}
+                  onToggleSelUsuario={toggleSelUsuario}
+                  onToggleSelGrupo={toggleSelGrupoUsuarios}
+                  onEdit={openEdit}
+                  onToggleActivo={toggleActivo}
+                  onResetPassword={(u) => { setResetUser(u); setResetPw({ password: '', confirm: '' }); }}
+                  onResetTemporal={(u) => setResetTemporalUser(u)}
+                />
+              )}
             </Stack>
           )}
 
