@@ -16,6 +16,13 @@ export interface UsuarioListItem {
   activo: boolean;
   roleId: string | null;
   role: RoleRef | null;
+  /** Teléfono/contacto (columna CONTACTO de la plantilla). */
+  contacto: string | null;
+  /** País de identidad de la persona (columna PAIS de la plantilla) — distinto
+   *  del país de territorio/alcance (asignaciones de Gestor/Gerente de zona). */
+  pais: string | null;
+  /** Nombre completo (columna NOMBRE COMPLETO); sincronizado con nombre+apellido salvo edición manual. */
+  nombreCompleto: string | null;
 }
 
 export interface PaisZona { zonaId: string; zona: string; pais: string; }
@@ -80,6 +87,12 @@ export interface UsuarioPayload {
   paisZona?: Array<{ zonaId: string; pais: string; division?: string | null }>;
   /** Gestor -> País/Zona explícitos (narrowing adicional opcional). */
   gestorPaisZona?: Array<{ zonaId: string; pais: string }>;
+  /** Teléfono/contacto (columna CONTACTO de la plantilla). */
+  contacto?: string | null;
+  /** País de identidad de la persona (columna PAIS de la plantilla). */
+  pais?: string | null;
+  /** Nombre completo (columna NOMBRE COMPLETO); si se omite/vacío se deriva de nombre+apellido. */
+  nombreCompleto?: string | null;
 }
 
 /** Visuales de Grupos y Niveles (Sección 10): un renglón por usuario con rol dependiente. */

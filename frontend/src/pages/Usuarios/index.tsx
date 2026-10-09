@@ -98,6 +98,14 @@ interface FormState {
   email: string;
   nombre: string;
   apellido: string;
+  /** Nombre completo: sincronizado automáticamente con nombre+apellido salvo
+   *  que `nombreCompletoTocado` esté activo (edición manual explícita). */
+  nombreCompleto: string;
+  nombreCompletoTocado: boolean;
+  contacto: string;
+  /** País de identidad de la persona (columna PAIS de la plantilla) —
+   *  distinto de las asignaciones de territorio de Gestor/Gerente de zona. */
+  pais: string;
   roleId: string;
   activo: boolean;
   gestorIds: string[];
@@ -117,6 +125,10 @@ const EMPTY_FORM: FormState = {
   email: '',
   nombre: '',
   apellido: '',
+  nombreCompleto: '',
+  nombreCompletoTocado: false,
+  contacto: '',
+  pais: '',
   roleId: '',
   activo: true,
   gestorIds: [],
@@ -385,6 +397,17 @@ const UsuariosPage = () => {
     setPermSel(new Set(rolesData.asignaciones.filter((a) => a.role_id === roleSel).map((a) => a.permission_id)));
   }, [roleSel, rolesData]);
 
+  // Nombre completo: sincronizado automáticamente con Nombre+Apellido mientras
+  // no se haya editado manualmente (Sección 3: "mantenlo sincronizado sin
+  // impedir la corrección manual cuando corresponda").
+  useEffect(() => {
+    if (dialogOpen && !form.nombreCompletoTocado) {
+      const auto = [form.nombre, form.apellido].filter(Boolean).join(' ');
+      setForm((f) => (f.nombreCompletoTocado ? f : { ...f, nombreCompleto: auto }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.nombre, form.apellido, form.nombreCompletoTocado, dialogOpen]);
+
   const permisosGrupos = useMemo(() => {
     const m = new Map<string, Array<{ id: string; clave: string; descripcion: string | null }>>();
     (rolesData?.permisos ?? [])
@@ -432,6 +455,31 @@ const UsuariosPage = () => {
       .map((z) => z.division as string)))
       .sort((a, b) => a.localeCompare(b, 'es'));
 
+  /** Zonas "conocidas" (vigentes) de un País/División — misma fuente que el
+   *  backend usa para expandir el marcador ZONA="GV" al importar (ver
+   *  construirMapaZonasPorDivision en UsuariosService): nunca inventa una
+   *  zona, solo reutiliza las ya registradas en gerente_zona_zona para esa
+   *  combinación exacta de país + división. */
+  const zonasConocidasPorPaisDivision = (pais: string, division: string): Array<{ zonaId: string; zona: string }> => {
+    const divisionNorm = division.trim().toLowerCase();
+    const mapa = new Map<string, { zonaId: string; zona: string }>();
+    (catalogos?.gerenteZonaPaisDivisionZona ?? [])
+      .filter((z) => z.pais === pais && (z.division ?? '').trim().toLowerCase() === divisionNorm)
+      .forEach((z) => mapa.set(z.zonaId, { zonaId: z.zonaId, zona: z.zona }));
+    return Array.from(mapa.values()).sort((a, b) => a.zona.localeCompare(b.zona, 'es', { numeric: true }));
+  };
+
+  const seleccionarTodasZonasGV = () => {
+    if (!nuevaAsigPais || !nuevaAsigDivision.trim()) return;
+    const zonas = zonasConocidasPorPaisDivision(nuevaAsigPais, nuevaAsigDivision);
+    if (zonas.length === 0) {
+      setFormError(`No se encontraron zonas conocidas para la división "${nuevaAsigDivision.trim()}" en ${nuevaAsigPais}. Agrega primero al menos una zona manualmente para esa división.`);
+      return;
+    }
+    setFormError(null);
+    setNuevaAsigZonas(zonas);
+  };
+
   const agregarAsignacionGerente = () => {
     if (!nuevaAsigPais || !nuevaAsigDivision.trim() || nuevaAsigZonas.length === 0) return;
     setForm((f) => {
@@ -477,6 +525,13 @@ const UsuariosPage = () => {
         email: u.email,
         nombre: u.nombre,
         apellido: u.apellido ?? '',
+        // Si ya tiene un nombre completo guardado, se trata como "tocado"
+        // (no se recalcula automáticamente al editar nombre/apellido) —
+        // evita sobrescribir un valor que un administrador ya personalizó.
+        nombreCompleto: u.nombreCompleto ?? [u.nombre, u.apellido].filter(Boolean).join(' '),
+        nombreCompletoTocado: Boolean((u.nombreCompleto ?? '').trim()),
+        contacto: u.contacto ?? '',
+        pais: u.pais ?? '',
         roleId: u.roleId ?? '',
         activo: u.activo,
         gestorIds: u.gestorIds ?? [],
@@ -509,10 +564,16 @@ const UsuariosPage = () => {
       nombre: form.nombre.trim(),
       apellido: form.apellido.trim() || null,
       roleId: form.roleId,
-      activo: form.activo
+      activo: form.activo,
+      contacto: form.contacto.trim() || null,
+      pais: form.pais.trim() || null,
+      nombreCompleto: form.nombreCompleto.trim() || null,
+      // Email editable también al editar (Sección 3): el backend valida
+      // formato/duplicados y actualiza Supabase Auth antes de aplicar el
+      // cambio; si no cambió, es un no-op seguro (mismo valor que ya tenía).
+      email: form.email.trim()
     };
     if (!form.id) {
-      payload.email = form.email.trim();
       if (form.password) payload.password = form.password;
     }
     // La asignación de cartera es semimanual (módulo Asignación); Usuarios ya no define
@@ -1206,8 +1267,7 @@ const UsuariosPage = () => {
               type="email"
               value={form.email}
               onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-              disabled={Boolean(form.id)}
-              helperText={form.id ? 'El correo no se modifica en esta versión.' : 'Se enviará una invitación a este correo.'}
+              helperText="Se valida que tenga formato correcto y que no esté en uso por otra cuenta antes de guardar."
               size="small"
               fullWidth
             />
@@ -1215,19 +1275,68 @@ const UsuariosPage = () => {
               <TextField label="Nombre" value={form.nombre} onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))} size="small" fullWidth />
               <TextField label="Apellido" value={form.apellido} onChange={(e) => setForm((f) => ({ ...f, apellido: e.target.value }))} size="small" fullWidth />
             </Stack>
-
             <TextField
-              select
-              label="Rol / Nivel"
-              value={form.roleId}
-              onChange={(e) => setForm((f) => ({ ...f, roleId: e.target.value, gestorIds: [], gerenteZonaIds: [], supervisorIds: [], gerenteZonaAsignaciones: [], gestorPaisZonaKeys: [], gestorPaisFiltro: '' }))}
+              label="Nombre completo"
+              value={form.nombreCompleto}
+              onChange={(e) => setForm((f) => ({ ...f, nombreCompleto: e.target.value, nombreCompletoTocado: true }))}
               size="small"
               fullWidth
-            >
-              {(catalogos?.roles ?? []).map((r) => (
-                <MenuItem key={r.id} value={r.id}>{r.nivel ? `${r.nombre} (Nivel ${r.nivel})` : r.nombre}</MenuItem>
-              ))}
-            </TextField>
+              helperText={
+                form.nombreCompletoTocado
+                  ? 'Editado manualmente. '
+                  : 'Se arma automáticamente con Nombre + Apellido. '
+              }
+              InputProps={form.nombreCompletoTocado ? {
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <Button
+                      size="small"
+                      onClick={() => setForm((f) => ({ ...f, nombreCompletoTocado: false, nombreCompleto: [f.nombre, f.apellido].filter(Boolean).join(' ') }))}
+                      sx={{ textTransform: 'none', fontSize: 11 }}
+                    >
+                      Auto
+                    </Button>
+                  </InputAdornment>
+                )
+              } : undefined}
+            />
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+              <TextField label="Contacto" value={form.contacto} onChange={(e) => setForm((f) => ({ ...f, contacto: e.target.value }))} size="small" fullWidth />
+              <Autocomplete
+                freeSolo
+                size="small"
+                fullWidth
+                options={paisesDisponibles}
+                value={form.pais}
+                inputValue={form.pais}
+                onInputChange={(_e, val) => setForm((f) => ({ ...f, pais: val }))}
+                renderInput={(params) => <TextField {...params} label="País" />}
+              />
+            </Stack>
+
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+              <TextField
+                select
+                label="Rol"
+                value={form.roleId}
+                onChange={(e) => setForm((f) => ({ ...f, roleId: e.target.value, gestorIds: [], gerenteZonaIds: [], supervisorIds: [], gerenteZonaAsignaciones: [], gestorPaisZonaKeys: [], gestorPaisFiltro: '' }))}
+                size="small"
+                fullWidth
+              >
+                {(catalogos?.roles ?? []).map((r) => (
+                  <MenuItem key={r.id} value={r.id}>{r.nombre}</MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                label="Nivel"
+                value={catalogos?.roles.find((r) => r.id === form.roleId)?.nivel ?? ''}
+                size="small"
+                sx={{ maxWidth: { sm: 140 } }}
+                fullWidth
+                disabled
+                helperText="Determinado por el Rol."
+              />
+            </Stack>
 
             {/* Contraseña inicial (solo al crear). La asignación de cartera es semimanual. */}
             {!form.id && (
@@ -1345,6 +1454,14 @@ const UsuariosPage = () => {
                     disabled={!nuevaAsigPais}
                     renderInput={(params) => <TextField {...params} label="Zona(s)" placeholder="Buscar código..." />}
                   />
+                  <Button
+                    variant="text" onClick={seleccionarTodasZonasGV}
+                    disabled={!nuevaAsigPais || !nuevaAsigDivision.trim()}
+                    sx={{ textTransform: 'none', whiteSpace: 'nowrap' }}
+                    title="Selecciona automáticamente todas las zonas conocidas de esta división (equivalente al marcador GV de la plantilla Comercial)."
+                  >
+                    GV: todas las zonas
+                  </Button>
                   <Button
                     variant="outlined" startIcon={<AddIcon />} onClick={agregarAsignacionGerente}
                     disabled={!nuevaAsigPais || !nuevaAsigDivision.trim() || nuevaAsigZonas.length === 0}

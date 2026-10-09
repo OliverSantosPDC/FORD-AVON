@@ -38,6 +38,14 @@ export interface UsuarioListItem {
   activo: boolean;
   roleId: string | null;
   role: RoleRef | null;
+  /** Teléfono/contacto (columna CONTACTO de la plantilla). Identidad, nunca alcance. */
+  contacto: string | null;
+  /** País de identidad de la persona (columna PAIS de la plantilla) — distinto
+   *  del país de territorio/alcance (gestor_pais_zona.pais, gerente_zona_zona.pais). */
+  pais: string | null;
+  /** Nombre completo (columna NOMBRE COMPLETO de la plantilla); sincronizado
+   *  con nombre+apellido salvo edición manual. */
+  nombreCompleto: string | null;
 }
 
 export interface PaisZona { zonaId: string; zona: string; pais: string; }
@@ -105,12 +113,23 @@ export interface CrearUsuarioInput {
   paisZona?: Array<{ zonaId: string; pais: string; division?: string | null }>;
   /** Gestor -> País/Zona explícitos (narrowing adicional opcional). */
   gestorPaisZona?: Array<{ zonaId: string; pais: string }>;
+  /** Teléfono/contacto (columna CONTACTO de la plantilla). */
+  contacto?: string | null;
+  /** País de identidad de la persona (columna PAIS de la plantilla). */
+  pais?: string | null;
+  /** Nombre completo (columna NOMBRE COMPLETO); si se omite/vacío se deriva de nombre+apellido. */
+  nombreCompleto?: string | null;
 }
 
 /** Longitud mínima segura para contraseñas definidas por administrador. */
 export const MIN_PASSWORD_LEN = 8;
 
-export type ActualizarUsuarioInput = Partial<Omit<CrearUsuarioInput, 'email'>>;
+/** A diferencia de la Fase 1 original, SÍ permite `email` (Sección 3: editar
+ *  manualmente cualquier campo, incluido el correo) — `actualizarUsuario`
+ *  valida formato/duplicados y actualiza Supabase Auth antes de tocar
+ *  `profiles.email`. Las relaciones nunca se indexan por email (siempre por
+ *  `profiles.id`/FKs), así que cambiar el correo nunca rompe ninguna relación. */
+export type ActualizarUsuarioInput = Partial<CrearUsuarioInput>;
 
 export class UsuariosError extends Error {
   constructor(message: string) {
@@ -124,6 +143,16 @@ const uniq = (values: string[]): string[] => Array.from(new Set(values.filter((v
 /** Normaliza un correo para comparación/deduplicación (trim + minúsculas). Usado
  *  tanto por `buscarPerfilPorEmail` como por la importación masiva (Sección 3). */
 const normEmail = (email: string): string => email.trim().toLowerCase();
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** NOMBRE COMPLETO: si se da un valor manual (no vacío), se respeta tal
+ *  cual (Sección 3: "mantenlo sincronizado sin impedir la corrección
+ *  manual"); si no, se deriva de nombre+apellido. Nunca null si hay nombre. */
+const derivarNombreCompleto = (nombre: string, apellido: string | null | undefined, manual?: string | null): string | null => {
+  const m = (manual ?? '').trim();
+  if (m) return m;
+  const derivado = [nombre.trim(), (apellido ?? '').trim()].filter(Boolean).join(' ');
+  return derivado || null;
+};
 
 const roleRefOf = (roles: unknown): RoleRef | null => {
   const r = Array.isArray(roles) ? roles[0] : roles;
@@ -141,7 +170,7 @@ const claveDeRol = async (roleId: string): Promise<string | null> => {
 export const listarUsuarios = async (): Promise<UsuarioListItem[]> => {
   const { data, error } = await getSupabaseClient()
     .from('profiles')
-    .select('id, nombre, apellido, email, activo, role_id, roles ( clave, nombre, nivel )')
+    .select('id, nombre, apellido, email, activo, role_id, contacto, pais, nombre_completo, roles ( clave, nombre, nivel )')
     .order('nombre', { ascending: true });
 
   if (error) throw new UsuariosError(`No se pudieron listar los usuarios: ${error.message}`);
@@ -153,7 +182,10 @@ export const listarUsuarios = async (): Promise<UsuarioListItem[]> => {
     email: String(p.email ?? ''),
     activo: Boolean(p.activo),
     roleId: (p.role_id as string | null) ?? null,
-    role: roleRefOf(p.roles)
+    role: roleRefOf(p.roles),
+    contacto: (p.contacto as string | null) ?? null,
+    pais: (p.pais as string | null) ?? null,
+    nombreCompleto: (p.nombre_completo as string | null) ?? null
   }));
 };
 
@@ -162,7 +194,7 @@ export const obtenerUsuario = async (id: string): Promise<UsuarioDetalle | null>
 
   const { data: p, error } = await client
     .from('profiles')
-    .select('id, nombre, apellido, email, activo, role_id, roles ( clave, nombre, nivel )')
+    .select('id, nombre, apellido, email, activo, role_id, contacto, pais, nombre_completo, roles ( clave, nombre, nivel )')
     .eq('id', id)
     .single();
   if (error || !p) return null;
@@ -174,7 +206,10 @@ export const obtenerUsuario = async (id: string): Promise<UsuarioDetalle | null>
     email: String((p as Record<string, unknown>).email ?? ''),
     activo: Boolean((p as Record<string, unknown>).activo),
     roleId: ((p as Record<string, unknown>).role_id as string | null) ?? null,
-    role: roleRefOf((p as Record<string, unknown>).roles)
+    role: roleRefOf((p as Record<string, unknown>).roles),
+    contacto: ((p as Record<string, unknown>).contacto as string | null) ?? null,
+    pais: ((p as Record<string, unknown>).pais as string | null) ?? null,
+    nombreCompleto: ((p as Record<string, unknown>).nombre_completo as string | null) ?? null
   };
 
   const { data: gestorRow } = await client.from('gestores').select('id, nombre_cartera').eq('usuario_id', id).eq('activo', true).limit(1);
@@ -531,7 +566,10 @@ export const crearUsuario = async (input: CrearUsuarioInput): Promise<{ id: stri
       nombre: input.nombre.trim(),
       apellido: input.apellido?.trim() ?? null,
       role_id: input.roleId,
-      activo: input.activo ?? true
+      activo: input.activo ?? true,
+      contacto: input.contacto?.trim() || null,
+      pais: input.pais?.trim() || null,
+      nombre_completo: derivarNombreCompleto(input.nombre, input.apellido, input.nombreCompleto)
     },
     { onConflict: 'id' }
   );
@@ -626,25 +664,56 @@ export const limpiarEstadoPasswordTemporal = async (id: string): Promise<void> =
 export const actualizarUsuario = async (id: string, input: ActualizarUsuarioInput): Promise<void> => {
   const client = getSupabaseClient();
 
+  const { data: actualRaw, error: actualErr } = await client.from('profiles').select('email, nombre, apellido, role_id').eq('id', id).single();
+  if (actualErr || !actualRaw) throw new UsuariosError('Usuario no encontrado.');
+  const actual = actualRaw as { email: string; nombre: string; apellido: string | null; role_id: string | null };
+
   const patch: Record<string, unknown> = {};
   if (input.nombre !== undefined) patch.nombre = String(input.nombre).trim();
   if (input.apellido !== undefined) patch.apellido = input.apellido?.toString().trim() ?? null;
   if (input.roleId !== undefined) patch.role_id = input.roleId;
   if (input.activo !== undefined) patch.activo = input.activo;
+  if (input.contacto !== undefined) patch.contacto = input.contacto?.toString().trim() || null;
+  if (input.pais !== undefined) patch.pais = input.pais?.toString().trim() || null;
+  if (input.nombreCompleto !== undefined) {
+    // Deriva con el nombre/apellido EFECTIVOS de este guardado (el nuevo si
+    // también vino en el payload, o el ya persistido) — nunca con un valor
+    // obsoleto si nombre/apellido y nombreCompleto cambian en la misma edición.
+    const nombreEfectivo = input.nombre !== undefined ? String(input.nombre).trim() : actual.nombre;
+    const apellidoEfectivo = input.apellido !== undefined ? (input.apellido?.toString().trim() ?? null) : actual.apellido;
+    patch.nombre_completo = derivarNombreCompleto(nombreEfectivo, apellidoEfectivo, input.nombreCompleto);
+  }
+
+  // Cambio de correo (Sección 3): valida formato + unicidad y actualiza
+  // Supabase Auth ANTES de tocar `profiles.email` — nunca deja Auth y
+  // `profiles` desincronizados; si Auth falla, no se aplica ningún cambio de
+  // correo. Las relaciones (liderazgo_supervisor/supervisor_gestor/
+  // gestor_pais_zona/gerente_zona_zona) se indexan SIEMPRE por
+  // `profiles.id`/FKs, nunca por email — cambiar el correo nunca las rompe.
+  if (input.email !== undefined) {
+    const email = input.email.trim().toLowerCase();
+    if (!email) throw new UsuariosError('El correo no puede quedar vacío.');
+    if (!EMAIL_RE.test(email)) throw new UsuariosError('El correo no tiene un formato válido.');
+    if (email !== actual.email.toLowerCase()) {
+      const { data: dup, error: dupErr } = await client.from('profiles').select('id').eq('email', email).limit(5);
+      if (dupErr) throw new UsuariosError(`No se pudo verificar el correo: ${dupErr.message}`);
+      const duplicado = ((dup ?? []) as Array<{ id: string }>).some((r) => r.id !== id);
+      if (duplicado) throw new UsuariosError('Ya existe otra cuenta con ese correo.');
+      const { error: authErr } = await client.auth.admin.updateUserById(id, { email, email_confirm: true });
+      if (authErr) throw new UsuariosError(describirErrorAuth(authErr, 'No se pudo actualizar el correo.'));
+      patch.email = email;
+    }
+  }
 
   if (Object.keys(patch).length > 0) {
     const { error } = await client.from('profiles').update(patch).eq('id', id);
     if (error) throw new UsuariosError(`No se pudo actualizar el usuario: ${error.message}`);
   }
 
-  // Relaciones: se sincronizan según el rol efectivo (el nuevo si cambió, o el actual).
-  let clave: string | null = null;
-  if (input.roleId !== undefined) clave = await claveDeRol(input.roleId);
-  else {
-    const { data } = await client.from('profiles').select('role_id').eq('id', id).single();
-    const roleId = (data as { role_id?: string } | null)?.role_id;
-    clave = roleId ? await claveDeRol(roleId) : null;
-  }
+  // Relaciones: se sincronizan según el rol efectivo (el nuevo si cambió, o el actual, ya resuelto arriba).
+  const clave = input.roleId !== undefined
+    ? await claveDeRol(input.roleId)
+    : (actual.role_id ? await claveDeRol(actual.role_id) : null);
   await sincronizarRelaciones(id, clave, input);
 };
 
@@ -850,7 +919,6 @@ export interface ResultadoAplicarItem {
   mensaje: string;
 }
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const normDivision = (s: string): string => s.trim().toLowerCase();
 
 interface FilaConEstado extends FilaImportUsuario {
@@ -1192,6 +1260,9 @@ export const aplicarImportacionUsuarios = async (
           nombre: base.nombre.trim(),
           apellido: base.apellido.trim() || null,
           roleId: rolInfo.id,
+          contacto: base.contacto.trim() || null,
+          pais: base.pais.trim() || null,
+          nombreCompleto: base.nombreCompleto.trim() || null,
           ...(base.rolResuelto === 'gerente_zona' ? { paisZona } : {})
         });
       } else {
@@ -1201,6 +1272,9 @@ export const aplicarImportacionUsuarios = async (
           nombre: base.nombre.trim(),
           apellido: base.apellido.trim() || null,
           roleId: rolInfo.id,
+          contacto: base.contacto.trim() || null,
+          pais: base.pais.trim() || null,
+          nombreCompleto: base.nombreCompleto.trim() || null,
           ...(base.rolResuelto === 'gerente_zona' ? { paisZona } : {})
         });
         usuarioId = creado.id;
